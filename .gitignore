@@ -1,0 +1,9 @@
+# Python env
+venv/
+__pycache__/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
