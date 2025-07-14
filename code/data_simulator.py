@@ -9,7 +9,8 @@ Outputs:
 - mesh visualisation showing tumours + first probe
 - FD scan plots of amplitude & phase vs scan position
 """
-
+import sys
+sys.path.append("/Users/maxhart/Documents/MSc_AI_ML/Dissertation/gitlab/mah422/nirfaster-FF")
 import numpy as np
 import nirfasterff as ff
 import matplotlib.pyplot as plt
