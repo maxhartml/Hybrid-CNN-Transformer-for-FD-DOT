@@ -37,10 +37,61 @@ from mpl_toolkits.mplot3d import Axes3D  # 3D scatter plot capabilities
 # Data storage and file system operations
 import h5py                          # HDF5 hierarchical data format for large datasets
 import os                            # Operating system interface for directory management
+import logging                       # Professional logging system for pipeline monitoring
+import time                          # Time utilities for performance monitoring
 
 # Specialized scipy modules for morphological and spatial operations
 from scipy.ndimage import binary_erosion      # Morphological operation for surface extraction
 from scipy.spatial.distance import cdist     # Efficient pairwise distance computation
+
+# Configure logging system for NIR phantom data simulation pipeline
+def setup_logging(level=logging.INFO, log_file=None):
+    """
+    Configure professional logging system for phantom data generation pipeline.
+    
+    This function sets up a comprehensive logging framework that provides:
+    - Structured output with timestamps and log levels
+    - Flexible control over verbosity (DEBUG, INFO, WARNING, ERROR)
+    - Optional file output for permanent record keeping
+    - Consistent formatting across all pipeline components
+    
+    Args:
+        level (int): Logging level (logging.DEBUG, INFO, WARNING, ERROR)
+        log_file (str, optional): Path to log file. If None, logs only to console.
+    """
+    # Create custom formatter for professional log output
+    formatter = logging.Formatter(
+        fmt='%(asctime)s | %(levelname)-8s | %(funcName)-25s | %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    # Configure root logger
+    logger = logging.getLogger()
+    logger.setLevel(level)
+    
+    # Clear any existing handlers to avoid duplicates
+    logger.handlers.clear()
+    
+    # Console handler for real-time monitoring
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(level)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+    
+    # Optional file handler for permanent record keeping
+    if log_file:
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setLevel(level)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+    
+    # Suppress matplotlib debug messages for cleaner output
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
+    
+    return logger
+
+# Initialize logger for the module
+logger = setup_logging()
 
 
 # --------------------------------------------------------------
@@ -56,18 +107,25 @@ def build_phantom_with_tissue_and_tumours(cube_shape=(50,50,50),
                                           tumour_start_label=2,
                                           rng_seed=None):
     """
-    Constructs a 3D phantom volume with realistic tissue and tumour distributions.
+    Constructs a 3D phantom volume with realistic tissue and tumour distributions using arbitrary pose variation.
     
-    This function implements a hierarchical geometry construction approach:
+    This function implements a hierarchical geometry construction approach with advanced spatial realism:
     1. Initialize a cubic air-filled domain (background medium)
-    2. Embed a large ellipsoidal healthy tissue region at the domain center
-    3. Insert multiple smaller ellipsoidal tumour inclusions within the tissue
+    2. Embed a large ellipsoidal healthy tissue region with random 3D rotation
+    3. Insert multiple smaller ellipsoidal tumour inclusions with random orientations and strict containment
     
-    Technical Details:
-    - Uses implicit surface representation via quadratic forms for ellipsoids
-    - Ensures all tumours are fully contained within the tissue boundary
-    - Applies robust rejection sampling to prevent geometric intersections
+    Major Technical Improvements:
+    - ARBITRARY POSE VARIATION: Both tissue and tumors use random 3D rotation matrices to eliminate directional bias
+    - ENHANCED TUMOR EMBEDDING: Requires 80% of tumor volume to be inside tissue, but only places the contained portion
+    - CLIPPED TUMOR PLACEMENT: Prevents unrealistic "floating tumor" voxels in air space for physiological accuracy
+    - Uses implicit surface representation via quadratic forms for rotated ellipsoids
+    - Applies robust rejection sampling with comprehensive geometric validation
     - Implements label-based segmentation for multi-region FEM meshing
+    
+    Rotation Implementation:
+    - Generates random Euler angles (α, β, γ) for full SO(3) rotation coverage
+    - Applies rotation matrices to coordinate systems before ellipsoid evaluation
+    - Eliminates axis-aligned bias that could affect machine learning training
     
     Args:
         cube_shape (tuple): 3D dimensions of the phantom domain in voxels (Nx, Ny, Nz)
@@ -94,8 +152,31 @@ def build_phantom_with_tissue_and_tumours(cube_shape=(50,50,50),
     # This avoids nested loops and leverages NumPy's broadcasting capabilities
     X, Y, Z = np.meshgrid(np.arange(Nx), np.arange(Ny), np.arange(Nz), indexing='ij')
 
+    def random_rotation_matrix(rng):
+        """Generate a random 3D rotation matrix using Euler angles for arbitrary ellipsoid orientations"""
+        # Sample random Euler angles for full 3D rotation coverage
+        alpha = rng.uniform(0, 2*np.pi)  # Rotation around z-axis (0 to 360°)
+        beta = rng.uniform(0, np.pi)     # Rotation around y-axis (0 to 180°)
+        gamma = rng.uniform(0, 2*np.pi)  # Rotation around x-axis (0 to 360°)
+        
+        # Construct individual rotation matrices using standard rotation formulas
+        Rx = np.array([[1, 0, 0],
+                      [0, np.cos(gamma), -np.sin(gamma)],
+                      [0, np.sin(gamma), np.cos(gamma)]])
+                      
+        Ry = np.array([[np.cos(beta), 0, np.sin(beta)],
+                      [0, 1, 0],
+                      [-np.sin(beta), 0, np.cos(beta)]])
+                      
+        Rz = np.array([[np.cos(alpha), -np.sin(alpha), 0],
+                      [np.sin(alpha), np.cos(alpha), 0],
+                      [0, 0, 1]])
+        
+        # Combine rotations: R = Rz * Ry * Rx (order matters for Euler angles)
+        return Rz @ Ry @ Rx
+
     # ----------------------
-    # HEALTHY TISSUE ELLIPSOID EMBEDDING
+    # ROTATED HEALTHY TISSUE ELLIPSOID EMBEDDING
     # ----------------------
     # Position the primary tissue ellipsoid at the geometric center of the domain
     cx, cy, cz = Nx//2, Ny//2, Nz//2  # Integer division ensures exact center positioning
@@ -105,24 +186,42 @@ def build_phantom_with_tissue_and_tumours(cube_shape=(50,50,50),
     ry = rng.integers(*tissue_radius_range)  # Semi-axis length in y-direction  
     rz = rng.integers(*tissue_radius_range)  # Semi-axis length in z-direction
     
-    # Compute tissue mask using implicit ellipsoid equation: (x-cx)²/rx² + (y-cy)²/ry² + (z-cz)²/rz² ≤ 1
-    # This vectorized approach is computationally efficient for large volumes
-    tissue_mask = (((X-cx)/rx)**2 + ((Y-cy)/ry)**2 + ((Z-cz)/rz)**2) <= 1
+    # Generate random 3D rotation matrix for arbitrary ellipsoid orientation
+    # This eliminates directional bias by creating ellipsoids at random poses
+    rotation_matrix = random_rotation_matrix(rng)
+    
+    # Apply rotation to coordinate system for arbitrary ellipsoid orientation
+    # Transform coordinates: (X-cx, Y-cy, Z-cz) -> rotated coordinates
+    coords = np.stack([X-cx, Y-cy, Z-cz], axis=-1)  # Shape: (Nx, Ny, Nz, 3)
+    rotated_coords = coords @ rotation_matrix.T  # Apply rotation transformation
+    
+    # Extract rotated coordinate components
+    X_rot = rotated_coords[..., 0]
+    Y_rot = rotated_coords[..., 1]
+    Z_rot = rotated_coords[..., 2]
+    
+    # Compute tissue mask using rotated ellipsoid equation: (X'/rx)² + (Y'/ry)² + (Z'/rz)² ≤ 1
+    # where X', Y', Z' are the rotated coordinates
+    tissue_mask = ((X_rot/rx)**2 + (Y_rot/ry)**2 + (Z_rot/rz)**2) <= 1
     vol[tissue_mask] = tissue_label
 
     # ----------------------
-    # TUMOUR INCLUSION EMBEDDING WITH SPATIAL CONSTRAINTS
+    # ROTATED TUMOUR INCLUSION EMBEDDING WITH ENHANCED SPATIAL CONSTRAINTS
     # ----------------------
     # Sample the number of tumour inclusions from uniform distribution [0, max_tumours]
     n_tumours = rng.integers(0, max_tumours+1)
-    print(f"Generating phantom with {n_tumours} tumour(s).")
+    logger.info(f"Generating phantom with {n_tumours} tumour(s) using seed {rng_seed}")
+    logger.debug(f"Tissue ellipsoid parameters: center=({cx},{cy},{cz}), radii=({rx},{ry},{rz})")
     current_label = tumour_start_label
 
     # Iteratively place each tumour with geometric validity checking
-    for _ in range(n_tumours):
+    for tumour_idx in range(n_tumours):
         attempts = 0
+        max_attempts = 50  # Increased attempts for better tumor placement success
+        logger.debug(f"Starting placement attempts for tumor {tumour_idx+1}")
+        
         # Implement rejection sampling with maximum attempt limit to prevent infinite loops
-        while attempts < 20:
+        while attempts < max_attempts:
             # Sample tumour center coordinates within the tissue ellipsoid bounds
             # Apply safety margins (±3 voxels) to ensure tumours don't extend beyond tissue
             cx_t = rng.integers(cx-rx+3, cx+rx-3)
@@ -133,19 +232,60 @@ def build_phantom_with_tissue_and_tumours(cube_shape=(50,50,50),
             rx_t = rng.integers(*tumour_radius_range)
             ry_t = rng.integers(*tumour_radius_range)
             # Constrain z-axis to maintain realistic aspect ratios and prevent elongated artifacts
-            rz_t = rng.integers(3, min(8, min(rx_t, ry_t)))
+            # Ensure minimum radius is at least 3, and maximum doesn't exceed the smaller of rx_t, ry_t
+            max_rz = min(tumour_radius_range[1], max(rx_t, ry_t))
+            rz_t = rng.integers(3, max(4, max_rz + 1))  # Ensure valid range
 
-            # Compute tumour mask using same ellipsoid formulation as tissue
-            tumour_mask = (((X-cx_t)/rx_t)**2 + ((Y-cy_t)/ry_t)**2 + ((Z-cz_t)/rz_t)**2) <= 1
+            logger.debug(f"Tumor {tumour_idx+1} attempt {attempts+1}: center=({cx_t},{cy_t},{cz_t}), radii=({rx_t},{ry_t},{rz_t})")
+
+            # Generate random rotation matrix for arbitrary tumor orientation
+            # This ensures tumors also have random poses, not just axis-aligned
+            tumor_rotation = random_rotation_matrix(rng)
             
-            # Validate that tumour intersects with tissue (geometric containment check)
-            if np.any(tissue_mask & tumour_mask):
-                # Apply tumour label only to voxels that are both within tumour AND tissue regions
-                # This ensures tumours don't extend into air regions
-                vol[tumour_mask & tissue_mask] = current_label
-                current_label += 1  # Increment label for next tumour
-                break  # Exit retry loop on successful placement
+            # Apply rotation to tumor coordinate system
+            tumor_coords = np.stack([X-cx_t, Y-cy_t, Z-cz_t], axis=-1)  # Shape: (Nx, Ny, Nz, 3)
+            rotated_tumor_coords = tumor_coords @ tumor_rotation.T  # Apply tumor rotation
+            
+            # Extract rotated tumor coordinate components
+            X_tumor_rot = rotated_tumor_coords[..., 0]
+            Y_tumor_rot = rotated_tumor_coords[..., 1]
+            Z_tumor_rot = rotated_tumor_coords[..., 2]
+
+            # Compute tumour mask using rotated ellipsoid formulation
+            tumour_mask = ((X_tumor_rot/rx_t)**2 + (Y_tumor_rot/ry_t)**2 + (Z_tumor_rot/rz_t)**2) <= 1
+            
+            # Enhanced containment validation: require 80% of tumor volume inside tissue
+            tumor_voxels = np.sum(tumour_mask)  # Total tumor voxels
+            contained_voxels = np.sum(tumour_mask & tissue_mask)  # Tumor voxels within tissue
+            
+            if tumor_voxels > 0:
+                embedding_ratio = contained_voxels / tumor_voxels
+                
+                if embedding_ratio >= 0.80:  # Require 80% containment for well-embedded tumors
+                    # Apply tumour label ONLY to tumor voxels that are inside tissue (clipping approach)
+                    # This ensures no "floating tumor" voxels exist in air space
+                    vol[tumour_mask & tissue_mask] = current_label
+                    current_label += 1  # Increment label for next tumour
+                    logger.info(f"Tumor {tumour_idx+1} successfully placed: {contained_voxels}/{tumor_voxels} voxels ({embedding_ratio:.1%} embedded)")
+                    break  # Exit retry loop on successful placement
+                else:
+                    logger.debug(f"Tumor {tumour_idx+1} attempt {attempts+1}: insufficient embedding {embedding_ratio:.1%} < 80%")
+            
             attempts += 1
+        
+        if attempts >= max_attempts:
+            logger.warning(f"Failed to place tumor {tumour_idx+1} after {max_attempts} attempts - skipping")
+
+    # Calculate final tissue coverage statistics
+    total_voxels = Nx * Ny * Nz
+    tissue_voxels = np.sum(vol == tissue_label)  # Healthy tissue only
+    tumor_voxels = np.sum(vol >= tumour_start_label)  # All tumor regions
+    total_tissue_voxels = tissue_voxels + tumor_voxels  # Total tissue (healthy + tumors)
+    tissue_coverage = total_tissue_voxels / total_voxels
+    
+    logger.info(f"Phantom construction completed: {tissue_coverage:.1%} tissue coverage")
+    logger.debug(f"Final voxel counts - Air: {np.sum(vol==0):,}, Healthy tissue: {tissue_voxels:,}, Tumors: {tumor_voxels:,}, Total tissue: {total_tissue_voxels:,}")
+    logger.debug(f"Coverage breakdown - Healthy: {tissue_voxels/total_voxels:.1%}, Tumors: {tumor_voxels/total_voxels:.1%}, Total: {tissue_coverage:.1%}")
 
     return vol
 
@@ -187,6 +327,9 @@ def mesh_volume(volume):
     # Smaller values increase mesh resolution but exponentially increase solve time
     params.general_cell_size = 1.65  # Empirically optimized for NIR wavelengths (λ ≈ 800nm)
     
+    logger.info(f"Starting CGAL-based tetrahedral mesh generation with cell_size={params.general_cell_size}")
+    logger.debug(f"Input volume shape: {volume.shape}, unique labels: {np.unique(volume)}")
+    
     # Execute CGAL-based tetrahedral mesh generation
     # This calls external C++ CGAL library for robust geometric mesh generation
     ele, nodes = ff.meshing.RunCGALMeshGenerator(volume, opt=params)
@@ -194,6 +337,9 @@ def mesh_volume(volume):
     # Perform comprehensive mesh quality validation
     # Checks for inverted elements, aspect ratios, and topological consistency
     ff.meshing.CheckMesh3D(ele, nodes)
+    
+    logger.info(f"Mesh generation completed: {ele.shape[0]} tetrahedra, {nodes.shape[0]} nodes")
+    logger.debug(f"Mesh quality validation passed successfully")
     
     return ele, nodes
 
@@ -224,6 +370,8 @@ def create_stndmesh(ele, nodes):
     # Initialize NIRFASTer standard mesh data structure
     mesh = ff.base.stndmesh()
     
+    logger.debug("Creating standardized mesh object from raw connectivity data")
+    
     # Populate mesh with tetrahedral solid geometry and compute derived quantities
     # This automatically calculates:
     # - Element volumes via determinant of Jacobian matrix
@@ -234,12 +382,14 @@ def create_stndmesh(ele, nodes):
     # Extract and display mesh quality statistics for validation
     mean_vol = mesh.element_area.mean()  # Note: 'element_area' actually stores volumes for 3D elements
     std_vol = mesh.element_area.std()
-    print(f"Mesh has {ele.shape[0]} tetrahedra and {nodes.shape[0]} nodes.")
-    print(f"Mean element volume: {mean_vol:.3f} mm³ ± {std_vol:.3f} mm³")
+    logger.info(f"Mesh statistics: {ele.shape[0]} tetrahedra, {nodes.shape[0]} nodes")
+    logger.info(f"Element volume statistics: {mean_vol:.3f} ± {std_vol:.3f} mm³")
     
     # Validate mesh quality metrics are within acceptable bounds
     if mean_vol < 0.1 or mean_vol > 10.0:
-        print("⚠️  Warning: Element volumes may be outside optimal range for FEM convergence")
+        logger.warning(f"Element volumes ({mean_vol:.3f} mm³) may be outside optimal range for FEM convergence")
+    else:
+        logger.debug("Mesh quality metrics are within acceptable bounds")
     
     return mesh
 
@@ -287,10 +437,15 @@ def assign_optical_properties(mesh, volume, rng_seed=None):
     regions = np.unique(mesh.region)
     prop = []  # Will store [region_id, μₐ, μ′s, n] for each tissue type
 
+    logger.info(f"Assigning optical properties to {len(regions)} tissue regions using seed {rng_seed}")
+    logger.debug(f"Found regions: {regions}")
+
     # Sample baseline healthy tissue optical properties from physiological distributions
     # These serve as reference values for relative tumour property scaling
     mua_sub = rng.uniform(0.003, 0.007)    # Absorption coeff. [mm⁻¹] - controls image contrast
     musp_sub = rng.uniform(0.78, 1.18)     # Reduced scattering [mm⁻¹] - controls penetration depth
+    
+    logger.debug(f"Baseline tissue properties: μₐ={mua_sub:.4f} mm⁻¹, μ′s={musp_sub:.3f} mm⁻¹")
     
     # Dictionary for efficient ground truth lookup during voxel assignment
     region_lookup = {}
@@ -299,12 +454,16 @@ def assign_optical_properties(mesh, volume, rng_seed=None):
     for region in regions:
         if region == 1:  # Healthy tissue baseline
             mua, musp = mua_sub, musp_sub
+            tissue_type = "healthy"
         else:  # Tumour regions (label ≥ 2)
             # Apply controlled randomization within clinically observed ranges
             # Tumours typically show increased absorption (higher blood volume)
             # and altered scattering (modified cellular architecture)
             mua = mua_sub * rng.uniform(1.5, 3.5)   # 50-250% increase in absorption
             musp = musp_sub * rng.uniform(1.5, 2.5)  # 50-150% increase in scattering
+            tissue_type = f"tumor_{region-1}"
+            
+        logger.debug(f"Region {region} ({tissue_type}): μₐ={mua:.4f} mm⁻¹, μ′s={musp:.3f} mm⁻¹")
             
         # Store optical properties in NIRFASTer format: [region, μₐ, μ′s, n]
         # Refractive index n=1.33 is fixed for biological tissues at NIR wavelengths
@@ -314,6 +473,7 @@ def assign_optical_properties(mesh, volume, rng_seed=None):
     # Apply optical properties to mesh for FEM simulation
     # This populates mesh.mua and mesh.musp arrays used in diffusion equation assembly
     mesh.set_prop(np.array(prop))
+    logger.info("Optical properties successfully assigned to mesh elements")
 
     # Generate dense voxel-wise ground truth maps for reconstruction evaluation
     Nx, Ny, Nz = volume.shape
@@ -326,6 +486,9 @@ def assign_optical_properties(mesh, volume, rng_seed=None):
         # Apply properties to all voxels belonging to this tissue region
         gt_grid[volume==region, 0] = mua   # Channel 0: absorption coefficient
         gt_grid[volume==region, 1] = musp  # Channel 1: reduced scattering coefficient
+
+    logger.info(f"Ground truth maps generated: shape {gt_grid.shape}")
+    logger.debug(f"Ground truth value ranges: μₐ=[{gt_grid[...,0].min():.4f}, {gt_grid[...,0].max():.4f}], μ′s=[{gt_grid[...,1].min():.3f}, {gt_grid[...,1].max():.3f}]")
 
     return mesh, gt_grid
 
@@ -365,6 +528,9 @@ def extract_surface_voxels(volume, tissue_threshold=1):
     # This combines all non-air labels into a single binary volume
     binary_mask = (volume >= tissue_threshold)
     
+    logger.debug(f"Surface extraction from volume shape {volume.shape} with threshold {tissue_threshold}")
+    logger.debug(f"Initial tissue voxels: {np.sum(binary_mask):,}")
+    
     # Apply binary erosion with single iteration to identify tissue interior
     # Uses default 3×3×3 structuring element for 26-connected neighborhood
     # Interior voxels are those completely surrounded by other tissue voxels
@@ -378,13 +544,16 @@ def extract_surface_voxels(volume, tissue_threshold=1):
     # numpy.argwhere returns N×3 array of indices where condition is True
     surface_coords = np.argwhere(surface_mask)
     
-    print(f"Found {surface_coords.shape[0]} tissue surface voxels.")
+    logger.info(f"Surface extraction completed: {surface_coords.shape[0]:,} surface voxels identified")
     
     # Validate surface extraction results
     if surface_coords.shape[0] == 0:
-        print("⚠️  Warning: No surface voxels found - check tissue geometry")
+        logger.error("No surface voxels found - check tissue geometry and threshold")
     elif surface_coords.shape[0] < 100:
-        print("⚠️  Warning: Very few surface voxels - may limit probe placement options")
+        logger.warning(f"Very few surface voxels ({surface_coords.shape[0]}) - may limit probe placement options")
+    else:
+        surface_ratio = surface_coords.shape[0] / np.sum(binary_mask)
+        logger.debug(f"Surface-to-volume ratio: {surface_ratio:.1%}")
     
     return surface_coords
 
@@ -394,7 +563,7 @@ def extract_surface_voxels(volume, tissue_threshold=1):
 # --------------------------------------------------------------
 
 def build_random_probe_layout(surface_coords, n_probes=256,
-                              min_distance=10, max_distance=50,
+                              min_distance=5,
                               rng_seed=None):
     """
     Generates fully randomized source-detector probe configurations for spatially-invariant learning.
@@ -418,14 +587,13 @@ def build_random_probe_layout(surface_coords, n_probes=256,
     
     Distance Constraints Rationale:
     - min_distance: Prevents near-field artifacts and ensures diffusive regime validity
-    - max_distance: Maintains sufficient signal-to-noise ratio for practical measurements
-    - Typical clinical values: 10-50mm separation for depth sensitivity up to ~20mm
+    - No max_distance: Allows maximum spatial diversity for robust ML training
+    - Typical clinical min_distance: 5-10mm to ensure diffusive light transport
     
     Args:
         surface_coords (numpy.ndarray): Available surface voxel positions, shape (N_surface, 3)
         n_probes (int): Number of source-detector probe configurations to generate
         min_distance (float): Minimum source-detector separation [mm] for diffusive regime
-        max_distance (float): Maximum source-detector separation [mm] for adequate SNR
         rng_seed (int): Random seed for reproducible probe layout generation
         
     Returns:
@@ -438,19 +606,25 @@ def build_random_probe_layout(surface_coords, n_probes=256,
     # Initialize controlled randomization for reproducible probe generation
     rng = np.random.default_rng(rng_seed)
     
+    logger.info(f"Starting probe layout generation: {n_probes} probes, min_distance={min_distance}mm (no max limit)")
+    logger.debug(f"Available surface coordinates: {len(surface_coords)}")
+    
     # Initialize storage arrays for probe configuration data
     all_sources, all_detectors, link = [], [], []
     n_attempts = 0  # Track total placement attempts for convergence monitoring
 
     # Generate each probe configuration with geometric validation
     for i in range(n_probes):
+        if (i + 1) % 50 == 0:  # Progress logging for large probe counts
+            logger.debug(f"Probe placement progress: {i+1}/{n_probes}")
+            
         # Implement rejection sampling loop with failure detection
         while True:
             n_attempts += 1
             # Prevent infinite loops due to overly restrictive geometric constraints
             if n_attempts > n_probes * 20:
-                print("⚠️ Too many failed attempts to place probes, stopping early.")
-                print(f"   Successfully placed {len(all_sources)} out of {n_probes} requested probes.")
+                logger.error(f"Excessive placement failures - stopping early after {n_attempts} attempts")
+                logger.warning(f"Successfully placed {len(all_sources)}/{n_probes} requested probes")
                 break
 
             # STEP 5.1: Uniformly sample source position from tissue surface
@@ -462,8 +636,8 @@ def build_random_probe_layout(surface_coords, n_probes=256,
             dists = cdist([source_pos], surface_coords)[0]
             
             # STEP 5.3: Filter detector candidates based on distance constraints
-            # Ensures measurements are in diffusive regime with adequate sensitivity
-            valid_detectors = surface_coords[(dists >= min_distance) & (dists <= max_distance)]
+            # Ensures measurements are in diffusive regime with unlimited maximum distance
+            valid_detectors = surface_coords[dists >= min_distance]
 
             # STEP 5.4: Validate sufficient detector availability for multi-detector probe
             if valid_detectors.shape[0] < 3:
@@ -473,8 +647,13 @@ def build_random_probe_layout(surface_coords, n_probes=256,
             # Multiple detectors per source increase measurement information content
             detector_indices = rng.choice(len(valid_detectors), size=3, replace=False)
             detector_positions = valid_detectors[detector_indices]
+            
+            # STEP 5.6: Calculate and log actual source-detector distances for this probe
+            detector_distances = cdist([source_pos], detector_positions)[0]
+            logger.info(f"Probe {i+1} placed - Source at {source_pos}, Detector distances: "
+                        f"{detector_distances[0]:.1f}mm, {detector_distances[1]:.1f}mm, {detector_distances[2]:.1f}mm")
 
-            # STEP 5.6: Store validated probe configuration
+            # STEP 5.7: Store validated probe configuration
             all_sources.append(source_pos)
             all_detectors.extend(detector_positions)  # Flatten detector array across all probes
             
@@ -486,8 +665,9 @@ def build_random_probe_layout(surface_coords, n_probes=256,
                         [i, base+2, 1]])   # Source i → Detector base+2, active
             break  # Exit retry loop on successful probe placement
 
-    print(f"Successfully placed {len(all_sources)} probes with rejection sampling.")
-    print(f"Total placement attempts: {n_attempts} (efficiency: {len(all_sources)/n_attempts*100:.1f}%)")
+    placement_efficiency = len(all_sources) / n_attempts * 100 if n_attempts > 0 else 0
+    logger.info(f"Probe layout completed: {len(all_sources)} probes placed")
+    logger.debug(f"Placement statistics: {n_attempts} total attempts, {placement_efficiency:.1f}% efficiency")
     
     # Convert lists to NumPy arrays for efficient numerical processing
     return np.array(all_sources), np.array(all_detectors), np.array(link)
@@ -538,14 +718,17 @@ def run_fd_and_save(mesh, ground_truth, all_sources, all_detectors, link,
     mesh.meas = ff.base.optode(all_detectors.astype(float))
     mesh.link = link
     
+    logger.debug(f"Configured optodes: {len(all_sources)} sources, {len(all_detectors)} detectors")
+    
     # Project optodes onto mesh surface and validate geometric consistency
     # This ensures sources/detectors lie exactly on tissue boundary for accurate modeling
     mesh.touch_optodes()
+    logger.debug("Optodes projected onto mesh surface")
 
     # STEP 6.2: Execute frequency-domain finite element forward simulation
-    print(f"Running FD solve at {fd_freq_hz/1e6:.1f} MHz ...")
-    print(f"Mesh dimensions: {mesh.nodes.shape[0]} nodes, {mesh.elements.shape[0]} elements")
-    print(f"Optode configuration: {len(all_sources)} sources, {len(all_detectors)} detectors")
+    logger.info(f"Starting FD simulation at {fd_freq_hz/1e6:.1f} MHz")
+    logger.info(f"Mesh configuration: {mesh.nodes.shape[0]:,} nodes, {mesh.elements.shape[0]:,} elements")
+    logger.info(f"Measurement configuration: {len(all_sources)} sources, {len(link)} total measurements")
     
     # Solve complex-valued frequency-domain diffusion equation
     # Returns complex photon fluence at each detector for each source activation
@@ -554,6 +737,9 @@ def run_fd_and_save(mesh, ground_truth, all_sources, all_detectors, link,
     # Extract amplitude and phase from complex solution
     amplitude = data.amplitude  # |Φ|: Photon fluence magnitude
     phase = np.degrees(data.phase)  # arg(Φ): Phase delay in degrees
+    
+    logger.info("FD simulation completed successfully")
+    logger.debug(f"Raw measurement ranges: amplitude=[{amplitude.min():.2e}, {amplitude.max():.2e}], phase=[{phase.min():.1f}°, {phase.max():.1f}°]")
 
     # STEP 6.3: Add realistic measurement noise for robust model training
     # Noise parameters based on typical experimental NIR system performance
@@ -568,6 +754,8 @@ def run_fd_and_save(mesh, ground_truth, all_sources, all_detectors, link,
     # Typical phase precision: ±1-3 degrees for commercial systems
     phase_noise_std = 2.0  # degrees
     phase += rng.normal(0, phase_noise_std, phase.shape)
+    
+    logger.debug(f"Applied measurement noise: amplitude_std={amplitude_noise_std:.2e}, phase_std={phase_noise_std}°")
 
     # STEP 6.4: Process measurements for machine learning compatibility
     # Reshape measurements to probe-based format: (N_probes, 3) for 3 detectors per source
@@ -576,40 +764,48 @@ def run_fd_and_save(mesh, ground_truth, all_sources, all_detectors, link,
     # Prevents gradient explosion due to exponential amplitude decay with distance
     log_amp = np.log(np.clip(amplitude, 1e-8, None)).reshape(-1, 3)
     phase = phase.reshape(-1, 3)
+    
+    logger.debug(f"Processed measurements: log_amplitude=[{log_amp.min():.2f}, {log_amp.max():.2f}], phase=[{phase.min():.1f}°, {phase.max():.1f}°]")
 
     # STEP 6.5: Save complete dataset to HDF5 with hierarchical structure
     # HDF5 provides efficient storage for large multi-dimensional arrays with metadata
+    logger.info(f"Saving dataset to {h5_filename}")
+    
     with h5py.File(h5_filename, "w") as f:
-        # Measurement data arrays
-        f.create_dataset("log_amplitude", data=log_amp, 
-                        attrs={"units": "ln(photons/mm²)", 
-                               "description": "Natural log of photon fluence amplitude"})
-        f.create_dataset("phase", data=phase,
-                        attrs={"units": "degrees",
-                               "description": "Phase delay relative to source modulation"})
+        # Create datasets first, then set attributes separately
+        log_amp_dset = f.create_dataset("log_amplitude", data=log_amp)
+        log_amp_dset.attrs["units"] = "ln(photons/mm²)"
+        log_amp_dset.attrs["description"] = "Natural log of photon fluence amplitude"
         
-        # Geometric configuration arrays
-        f.create_dataset("source_pos", data=all_sources,
-                        attrs={"units": "mm", "description": "Source positions in mesh coordinates"})
-        f.create_dataset("det_pos", data=all_detectors.reshape(-1,3,3),
-                        attrs={"units": "mm", "description": "Detector positions grouped by probe"})
+        phase_dset = f.create_dataset("phase", data=phase)
+        phase_dset.attrs["units"] = "degrees"
+        phase_dset.attrs["description"] = "Phase delay relative to source modulation"
         
-        # Ground truth optical property maps for supervised learning
-        f.create_dataset("ground_truth", data=ground_truth,
-                        attrs={"channels": "absorption, reduced_scattering",
-                               "units": "mm^-1", 
-                               "description": "Voxel-wise optical property maps"})
+        source_dset = f.create_dataset("source_pos", data=all_sources)
+        source_dset.attrs["units"] = "mm"
+        source_dset.attrs["description"] = "Source positions in mesh coordinates"
         
-        # Simulation metadata for reproducibility
+        det_dset = f.create_dataset("det_pos", data=all_detectors.reshape(-1,3,3))
+        det_dset.attrs["units"] = "mm"
+        det_dset.attrs["description"] = "Detector positions grouped by probe"
+        
+        gt_dset = f.create_dataset("ground_truth", data=ground_truth)
+        gt_dset.attrs["channels"] = "absorption, reduced_scattering"
+        gt_dset.attrs["units"] = "mm^-1"
+        gt_dset.attrs["description"] = "Voxel-wise optical property maps"
+        
+        # Set file-level attributes
         f.attrs["modulation_frequency_hz"] = fd_freq_hz
         f.attrs["noise_amplitude_std"] = amplitude_noise_std
         f.attrs["noise_phase_std"] = phase_noise_std
         f.attrs["n_measurements"] = len(link)
         f.attrs["n_probes"] = len(all_sources)
+        f.attrs["timestamp"] = time.strftime('%Y-%m-%d %H:%M:%S')
         
-    print(f"✅ Saved complete dataset to {h5_filename}")
-    print(f"   Measurements: {log_amp.shape[0]} probes × {log_amp.shape[1]} detectors")
-    print(f"   Ground truth: {ground_truth.shape[0]}×{ground_truth.shape[1]}×{ground_truth.shape[2]} voxels")
+    logger.info("Dataset saved successfully")
+    logger.info(f"Final dataset: {log_amp.shape[0]} probes × {log_amp.shape[1]} detectors")
+    logger.info(f"Ground truth shape: {ground_truth.shape[0]}×{ground_truth.shape[1]}×{ground_truth.shape[2]} voxels")
+    logger.debug(f"HDF5 file size: {os.path.getsize(h5_filename)/1024**2:.1f} MB")
 
 # --------------------------------------------------------------
 # VISUALIZATION: 3D PROBE-MESH RENDERING FOR GEOMETRIC VALIDATION
@@ -617,24 +813,26 @@ def run_fd_and_save(mesh, ground_truth, all_sources, all_detectors, link,
 
 def visualize_probe_on_mesh(volume, mesh, src, dets, probe_idx, save_dir, show_interactive=False):
     """
-    Generates comprehensive 3D visualization of probe configuration on tissue geometry.
+    Generates comprehensive 3D visualization of probe configuration on tissue geometry with surface outlines.
     
     This function creates publication-quality 3D renderings for geometric validation and 
     educational purposes, showing the spatial relationship between:
-    - Tissue phantom geometry (healthy tissue and tumour inclusions)
-    - Finite element mesh structure (nodes representing discretized domain)
+    - Tissue phantom geometry with surface boundaries clearly defined
+    - Uniform node visualization across all tissue types
     - Current probe configuration (source position and detector array)
+    - Surface outlines for enhanced shape perception
     
     Visualization Strategy:
-    - Healthy tissue: Semi-transparent green point cloud for spatial context
-    - Tumour regions: Solid red markers for clear identification of pathological areas
-    - Current probe: High-contrast yellow source and cyan detectors for focus
+    - Healthy tissue: Uniform green nodes with surface outline
+    - Tumour regions: Uniform red nodes with distinct surface outlines  
+    - Current probe: High-contrast yellow source and cyan detectors
+    - Surface boundaries: Wireframe outlines to show tissue shapes clearly
     - Background: Black background for professional scientific presentation
     
     Technical Implementation:
-    - Uses matplotlib 3D scatter plots for efficient large-scale point rendering
-    - Applies intelligent downsampling to prevent visual clutter and improve performance
-    - Maintains aspect ratio fidelity for accurate spatial relationship representation
+    - Uses consistent node sizes and downsampling across all tissue types
+    - Adds surface extraction and wireframe rendering for shape clarity
+    - Maintains aspect ratio fidelity for accurate spatial relationships
     - Supports both interactive exploration and automated batch image generation
     
     Args:
@@ -647,67 +845,115 @@ def visualize_probe_on_mesh(volume, mesh, src, dets, probe_idx, save_dir, show_i
         show_interactive (bool): Whether to display interactive matplotlib window
     """
 
-    # STEP 1: Extract tissue voxel coordinates for anatomical context visualization
-    # Include all tissue types (healthy + tumours) for complete geometric representation
-    tissue_coords = np.argwhere(volume >= 1)
+    logger.debug(f"Generating enhanced visualization for probe {probe_idx+1} with surface outlines")
 
-    # STEP 2: Initialize 3D plotting environment with professional styling
-    fig = plt.figure(figsize=(10,8))  # High-resolution figure for publication quality
+    # STEP 1: Initialize 3D plotting environment with professional styling
+    fig = plt.figure(figsize=(12, 10))  # Larger figure for better detail visibility
     ax = fig.add_subplot(111, projection='3d')
     
     # Apply dark theme for scientific visualization aesthetic
     fig.patch.set_facecolor('black')
     ax.set_facecolor('black')
 
-    # STEP 3: Render healthy tissue context with intelligent downsampling
-    # Downsample by factor of 8 to prevent visual overcrowding while maintaining spatial context
-    ax.scatter(tissue_coords[::8,0], tissue_coords[::8,1], tissue_coords[::8,2],
-               color='lime', s=2, alpha=0.1, label='Healthy tissue')
-
-    # STEP 4: Render tumour regions with enhanced visibility
-    # Use mesh node coordinates for accurate spatial positioning
-    plotted_tumour = False  # Flag to prevent duplicate legend entries
+    # STEP 2: Extract and visualize surface boundaries for shape clarity
+    from scipy.ndimage import binary_erosion
+    
+    # Extract healthy tissue surface
+    healthy_mask = (volume == 1)
+    if np.any(healthy_mask):
+        healthy_surface = healthy_mask & (~binary_erosion(healthy_mask, iterations=1))
+        healthy_surface_coords = np.argwhere(healthy_surface)
+        if len(healthy_surface_coords) > 0:
+            # Plot surface boundary with reduced contrast - more balanced with interior
+            downsample_factor = max(1, len(healthy_surface_coords) // 1000)  # Adaptive downsampling
+            ax.scatter(healthy_surface_coords[::downsample_factor, 0], 
+                      healthy_surface_coords[::downsample_factor, 1], 
+                      healthy_surface_coords[::downsample_factor, 2],
+                      color='lime', s=5, alpha=0.55, label='Healthy tissue surface', marker='o')
+    
+    # Extract and visualize tumor surfaces with distinct colors  
+    tumor_colors = ['red', 'orange', 'purple', 'pink', 'brown']
     for reg in np.unique(mesh.region):
         if reg >= 2:  # Tumour regions have labels ≥ 2
-            # Extract mesh nodes belonging to current tumour region
-            nodes = mesh.nodes[mesh.region == reg]
-            # Downsample tumour nodes by factor of 5 for clear visibility without clutter
-            ax.scatter(nodes[::5,0], nodes[::5,1], nodes[::5,2],
-                       color='red', s=6, alpha=0.9, 
-                       label=f'Tumour {reg-1}' if not plotted_tumour else None)
-            plotted_tumour = True
+            tumor_mask = (volume == reg)
+            if np.any(tumor_mask):
+                tumor_surface = tumor_mask & (~binary_erosion(tumor_mask, iterations=1))
+                tumor_surface_coords = np.argwhere(tumor_surface)
+                if len(tumor_surface_coords) > 0:
+                    # Use consistent color indexing: same as interior nodes
+                    color = tumor_colors[int(reg-2) % len(tumor_colors)]
+                    downsample_factor = max(1, len(tumor_surface_coords) // 500)
+                    ax.scatter(tumor_surface_coords[::downsample_factor, 0],
+                              tumor_surface_coords[::downsample_factor, 1], 
+                              tumor_surface_coords[::downsample_factor, 2],
+                              color=color, s=6, alpha=0.65, 
+                              label=f'Tumor {int(reg-1)} surface', marker='o')
 
-    # STEP 5: Highlight current probe configuration with high-contrast colors
+    # STEP 3: Add uniform mesh node visualization for all tissue types
+    # Use consistent size and downsampling for fair representation with balanced contrast
+    standard_node_size = 4  # Slightly larger for better visibility
+    standard_alpha = 0.5    # Slightly more opaque to balance with surface
+    node_downsample = 8     # Consistent downsampling across all tissues
+    
+    # Healthy tissue nodes
+    healthy_nodes = mesh.nodes[mesh.region == 1]
+    if len(healthy_nodes) > 0:
+        ax.scatter(healthy_nodes[::node_downsample, 0], 
+                  healthy_nodes[::node_downsample, 1], 
+                  healthy_nodes[::node_downsample, 2],
+                  color='lightgreen', s=standard_node_size, alpha=standard_alpha, 
+                  label='Healthy nodes', marker='.')
+
+    # Tumor nodes with consistent visualization
+    for reg in np.unique(mesh.region):
+        if reg >= 2:
+            tumor_nodes = mesh.nodes[mesh.region == reg]
+            if len(tumor_nodes) > 0:
+                color = tumor_colors[int(reg-2) % len(tumor_colors)]
+                ax.scatter(tumor_nodes[::node_downsample, 0],
+                          tumor_nodes[::node_downsample, 1], 
+                          tumor_nodes[::node_downsample, 2],
+                          color=color, s=standard_node_size, alpha=standard_alpha,
+                          label=f'Tumor {int(reg-1)} nodes', marker='.')
+
+    # STEP 4: Highlight current probe configuration with high-contrast colors
     # Source visualization: Large yellow marker with black outline for maximum visibility
-    ax.scatter(src[0], src[1], src[2], c='yellow', s=120, edgecolor='black', label='Source')
+    ax.scatter(src[0], src[1], src[2], c='yellow', s=120, edgecolor='black', 
+               linewidth=2, label='Source', marker='o')
     
     # Detector visualization: Cyan markers distinguishable from source
-    ax.scatter(dets[:,0], dets[:,1], dets[:,2], c='cyan', s=90, edgecolor='black', label='Detectors')
+    ax.scatter(dets[:,0], dets[:,1], dets[:,2], c='cyan', s=90, edgecolor='black', 
+               linewidth=1.5, label='Detectors', marker='o')
 
-    # STEP 6: Configure plot aesthetics and metadata
-    ax.set_title(f"Probe {probe_idx+1:03d}", color='white', fontsize=14, fontweight='bold')
+    # STEP 5: Configure plot aesthetics and metadata
+    ax.set_title(f"Probe {probe_idx+1:03d} - Enhanced Surface View", 
+                 color='white', fontsize=16, fontweight='bold', pad=20)
     ax.set_xlabel('X (mm)', color='white', fontsize=12)
     ax.set_ylabel('Y (mm)', color='white', fontsize=12)
     ax.set_zlabel('Z (mm)', color='white', fontsize=12)
 
     # Apply white color scheme to axis elements for dark background compatibility
     ax.tick_params(colors='white')
-    ax.legend(facecolor='black', edgecolor='white', fontsize=9, labelcolor='white')
+    ax.legend(facecolor='black', edgecolor='white', fontsize=8, labelcolor='white',
+              loc='upper left', bbox_to_anchor=(0.02, 0.98))
 
-    # STEP 7: Maintain realistic aspect ratio based on actual mesh dimensions
+    # STEP 6: Maintain realistic aspect ratio based on actual mesh dimensions
     # Prevents distortion that could misrepresent spatial relationships
     ax.set_box_aspect([np.ptp(mesh.nodes[:,0]),   # X-axis span
                        np.ptp(mesh.nodes[:,1]),   # Y-axis span  
                        np.ptp(mesh.nodes[:,2])])  # Z-axis span
+    
+    # Improve 3D viewing angle for better shape perception
+    ax.view_init(elev=20, azim=45)
     plt.tight_layout()
 
-    # STEP 8: Generate and save high-resolution static image
+    # STEP 7: Generate and save high-resolution static image
     out_path = os.path.join(save_dir, f"probe_{probe_idx+1:03d}.png")
-    plt.savefig(out_path, dpi=200, facecolor=fig.get_facecolor(), 
+    plt.savefig(out_path, dpi=300, facecolor=fig.get_facecolor(), 
                 bbox_inches='tight', edgecolor='none')
-    print(f"📸 Saved visualization: {out_path}")
+    logger.debug(f"Saved enhanced probe visualization: {out_path}")
 
-    # STEP 9: Optionally display interactive 3D plot for manual exploration
+    # STEP 8: Optionally display interactive 3D plot for manual exploration
     if show_interactive:
         plt.show()  # Enables mouse-controlled rotation and zooming
     else:
@@ -750,73 +996,99 @@ def main():
     """
     
     # STEP 1: Initialize output directory structure
-    data_dir = "data"
+    # Create data directory in parent mah422 folder, not in code subfolder
+    data_dir = "../data"
     os.makedirs(data_dir, exist_ok=True)
-    print("🚀 Starting batch phantom dataset generation...")
-    print(f"📁 Output directory: {os.path.abspath(data_dir)}")
+    
+    # Configure logging for this pipeline run - save in parent mah422 directory
+    log_file = "../logging.log"
+    logger = setup_logging(level=logging.INFO, log_file=log_file)  # Change to DEBUG for verbose output
+    
+    logger.info("="*80)
+    logger.info("STARTING NIR PHANTOM DATASET GENERATION PIPELINE")
+    logger.info("="*80)
+    logger.info(f"Output directory: {os.path.abspath(data_dir)}")
+    logger.info(f"Log file: {log_file}")
 
     # STEP 2: Generate multiple phantoms for dataset diversity
-    n_phantoms = 3  # Can be increased for larger training datasets
+    n_phantoms = 10  # Full production dataset for ML training
+    logger.info(f"Generating {n_phantoms} phantom datasets for machine learning training")
     
     for i in range(n_phantoms):
-        print(f"\n{'='*60}")
-        print(f"🔬 Generating Phantom {i+1:02d}/{n_phantoms}")
-        print(f"{'='*60}")
+        phantom_start_time = time.time()
+        logger.info("="*60)
+        logger.info(f"GENERATING PHANTOM {i+1:02d}/{n_phantoms}")
+        logger.info("="*60)
         
         # Create phantom-specific output directory
         phantom_dir = os.path.join(data_dir, f"phantom_{i+1:02d}")
         os.makedirs(phantom_dir, exist_ok=True)
+        logger.debug(f"Created phantom directory: {phantom_dir}")
 
         # STEP 2.1: Construct phantom geometry with controlled randomization
         # Use different seeds to ensure statistical independence between phantoms
+        logger.info("Step 1/6: Constructing phantom geometry")
         vol = build_phantom_with_tissue_and_tumours(rng_seed=44+i)
-        print(f"✅ Phantom geometry constructed: {vol.shape} voxels")
+        logger.info(f"Phantom geometry completed: {vol.shape} voxels")
 
         # STEP 2.2: Generate finite element mesh for numerical simulation
+        logger.info("Step 2/6: Generating finite element mesh")
         ele, nodes = mesh_volume(vol)
         mesh = create_stndmesh(ele, nodes)
-        print(f"✅ FEM mesh generated and validated")
+        logger.info("FEM mesh generation completed")
 
         # STEP 2.3: Assign optical properties and generate ground truth maps
+        logger.info("Step 3/6: Assigning optical properties")
         mesh, gt = assign_optical_properties(mesh, vol, rng_seed=42+i)
-        print(f"✅ Optical properties assigned with ground truth maps")
+        logger.info("Optical properties assignment completed")
 
         # STEP 2.4: Extract tissue surface and generate probe configurations
+        logger.info("Step 4/6: Generating probe layout")
         surface_coords = extract_surface_voxels(vol)
-        srcs, dets, link = build_random_probe_layout(surface_coords, rng_seed=123+i)
-        print(f"✅ Probe layout generated: {len(srcs)} probes with {len(link)} measurements")
+        srcs, dets, link = build_random_probe_layout(surface_coords, n_probes=256, rng_seed=123+i)
+        logger.info(f"Probe layout completed: {len(srcs)} probes, {len(link)} measurements")
 
         # STEP 2.5: Generate probe visualizations for quality assurance
-        print(f"🎨 Generating probe visualizations...")
-        for k in range(len(srcs)):
-            this_src = srcs[k]
-            this_dets = dets[3*k : 3*k+3]  # Extract 3 detectors for current probe
+        logger.info("Step 5/6: Generating probe visualizations")
+        vis_start_time = time.time()
+        
+        # Only generate visualization for the first probe to save time
+        # All 256 probes will still be simulated and saved to HDF5
+        if len(srcs) > 0:
+            this_src = srcs[0]
+            this_dets = dets[0:3]  # First 3 detectors for first probe
             
-            # Show interactive plots for first 10 probes for manual validation
-            show_it = (k < 10)
-            visualize_probe_on_mesh(vol, mesh, this_src, this_dets, k, phantom_dir, 
-                                   show_interactive=show_it)
+            # Show both interactive 3D and save PNG for first probe only
+            visualize_probe_on_mesh(vol, mesh, this_src, this_dets, 0, phantom_dir, 
+                                   show_interactive=True)
+            logger.info(f"Generated visualization for probe 1/{len(srcs)} (remaining {len(srcs)-1} probes will be simulated without visualization)")
+        
+        vis_time = time.time() - vis_start_time
+        logger.info(f"Visualization completed: 1 image in {vis_time:.1f}s (skipped {len(srcs)-1} images to save time)")
 
         # STEP 2.6: Execute frequency-domain simulation and save complete dataset
-        print(f"🧮 Running finite element simulation...")
+        logger.info("Step 6/6: Running frequency-domain simulation")
         h5_path = os.path.join(phantom_dir, "scan.h5")
         run_fd_and_save(mesh, gt, srcs, dets, link, h5_filename=h5_path)
         
-        print(f"✅ Phantom {i+1:02d} completed successfully")
-        print(f"   📄 Dataset saved: {h5_path}")
-        print(f"   🖼️  Visualizations: {phantom_dir}/probe_*.png")
+        phantom_time = time.time() - phantom_start_time
+        logger.info(f"PHANTOM {i+1:02d} COMPLETED in {phantom_time:.1f}s")
+        logger.info(f"Dataset saved: {h5_path}")
+        logger.info(f"Sample visualization: {phantom_dir}/probe_001.png")
 
     # STEP 3: Final validation and summary
-    print(f"\n{'='*60}")
-    print("🎉 BATCH GENERATION COMPLETED SUCCESSFULLY")
-    print(f"{'='*60}")
-    print(f"📊 Generated {n_phantoms} complete phantom datasets")
-    print(f"📁 Output location: {os.path.abspath(data_dir)}")
-    print(f"🔗 Each dataset contains:")
-    print(f"   • HDF5 file with measurements, geometry, and ground truth")
-    print(f"   • Probe visualization images for geometric validation")
-    print(f"   • Complete metadata for reproducibility")
-    print(f"✅ All phantoms generated and saved!")
+    total_time = time.time() - phantom_start_time if 'phantom_start_time' in locals() else 0
+    logger.info("="*80)
+    logger.info("BATCH GENERATION COMPLETED SUCCESSFULLY")
+    logger.info("="*80)
+    logger.info(f"Generated {n_phantoms} complete phantom datasets")
+    logger.info(f"Total processing time: {total_time:.1f}s")
+    logger.info(f"Output location: {os.path.abspath(data_dir)}")
+    logger.info("Dataset contents per phantom:")
+    logger.info("  • HDF5 file with measurements, geometry, and ground truth")
+    logger.info("  • Sample probe visualization (probe_001.png) for geometric validation")
+    logger.info("  • Complete metadata for reproducibility")
+    logger.info("All phantoms generated and saved successfully!")
 
 if __name__ == "__main__":
     main()
