@@ -49,10 +49,11 @@ DEFAULT_PHANTOM_SHAPE = (50, 50, 50)        # Default cubic phantom dimensions i
 DEFAULT_TISSUE_RADIUS_RANGE = (15, 23)      # Healthy tissue ellipsoid semi-axis range
 DEFAULT_TUMOR_RADIUS_RANGE = (4, 8)         # Tumor ellipsoid semi-axis range  
 DEFAULT_MAX_TUMORS = 5                       # Maximum number of tumors per phantom
-DEFAULT_N_PROBES = 500                      # Standard number of source-detector probe pairs
+DEFAULT_N_PROBES = 500                      # Optimal balance: geometric coverage vs computational efficiency (ML scaling strategy)
 DEFAULT_MIN_PROBE_DISTANCE = 5              # Minimum source-detector separation [mm]
 DEFAULT_FD_FREQUENCY = 140e6                 # Frequency-domain modulation frequency [Hz]
 DEFAULT_MESH_CELL_SIZE = 1.65                # CGAL mesh characteristic cell size [mm]
+VOXEL_SIZE_MM = 1.0                         # Voxel size in millimeters for spatial calibration
 
 # Tissue label constants for clarity and consistency
 AIR_LABEL = 0                                # Background air regions
@@ -742,7 +743,7 @@ def build_random_probe_layout(surface_coordinates, n_probes=DEFAULT_N_PROBES,
 # --------------------------------------------------------------
 
 def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, probe_detectors, measurement_links,
-                               fd_frequency_hz=DEFAULT_FD_FREQUENCY, output_h5_filename="phantom_fd_scan.h5"):
+                               phantom_volume=None, fd_frequency_hz=DEFAULT_FD_FREQUENCY, output_h5_filename="phantom_fd_scan.h5"):
     """
     Executes frequency-domain finite element forward modeling and saves complete dataset to HDF5.
     
@@ -773,6 +774,7 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
         probe_sources (numpy.ndarray): Source positions, shape (N_sources, 3)
         probe_detectors (numpy.ndarray): Detector positions, shape (N_detectors, 3)  
         measurement_links (numpy.ndarray): Source-detector connectivity, shape (N_measurements, 3)
+        phantom_volume (numpy.ndarray, optional): Original labeled phantom volume for patch masking
         fd_frequency_hz (float): Modulation frequency in Hz (typical: 100-200 MHz)
         output_h5_filename (str): Output HDF5 file path for dataset storage
     """
@@ -858,6 +860,17 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
         ground_truth_dataset.attrs["channels"] = "absorption, reduced_scattering"
         ground_truth_dataset.attrs["units"] = "mm^-1"
         ground_truth_dataset.attrs["description"] = "Voxel-wise optical property maps"
+        
+        # Save original phantom labels if provided (for tissue segmentation and masking)
+        if phantom_volume is not None:
+            labels_dataset = h5_file.create_dataset("tissue_labels", data=phantom_volume.astype(np.uint8))
+            labels_dataset.attrs["label_encoding"] = "0=air, 1=healthy_tissue, >=2=tumor_regions"
+            labels_dataset.attrs["voxel_size_mm"] = f"[{VOXEL_SIZE_MM}, {VOXEL_SIZE_MM}, {VOXEL_SIZE_MM}]"
+            labels_dataset.attrs["description"] = "Tissue type labels for phantom segmentation and patch extraction masking"
+            labels_dataset.attrs["usage"] = "Region-specific analysis, air masking, tissue boundary visualization"
+            logger.info(f"Tissue labels dataset created with shape: {phantom_volume.shape}")
+        else:
+            logger.debug("No phantom volume provided - skipping tissue labels storage")
         
         # Set file-level attributes
         h5_file.attrs["modulation_frequency_hz"] = fd_frequency_hz
@@ -1067,7 +1080,7 @@ def main():
     # VISUALIZATION CONTROL: Toggle between development and production modes
     # Set to True for development/debugging (enables PNG saves and interactive 3D plots)
     # Set to False for production runs (disables visualizations for faster execution)
-    ENABLE_VISUALIZATIONS = False  # Change to False for production runs
+    ENABLE_VISUALIZATIONS = True  # Change to False for production runs
     
     # STEP 1: Initialize output directory structure
     # Create data directory in parent mah422 folder, not in code subfolder
@@ -1086,8 +1099,9 @@ def main():
     logger.info(f"Visualization mode: {'ENABLED (Development)' if ENABLE_VISUALIZATIONS else 'DISABLED (Production)'}")
 
     # STEP 2: Generate multiple phantoms for dataset diversity
-    n_phantoms = 10  # Full production dataset for ML training
+    n_phantoms = 100  # Toy dataset for initial development (150,000 tokens total)
     logger.info(f"Generating {n_phantoms} phantom datasets for machine learning training")
+    logger.info(f"Expected dataset size: {n_phantoms} phantoms × 500 probes × 3 detectors = {n_phantoms * 500 * 3:,} tokens")
     
     for phantom_idx in range(n_phantoms):
         phantom_start_time = time.time()
@@ -1128,26 +1142,33 @@ def main():
             logger.info("Step 5/6: Generating probe visualizations")
             vis_start_time = time.time()
             
-            # Only generate visualization for the first probe to save time
-            # All 256 probes will still be simulated and saved to HDF5
+            # Generate visualization for the first probe of each phantom
             if len(probe_sources) > 0:
                 first_source = probe_sources[0]
                 first_detectors = probe_detectors[0:3]  # First 3 detectors for first probe
                 
-                # Show both interactive 3D and save PNG for first probe only
+                # Show interactive 3D ONLY for the very first phantom (for professor demo)
+                # All other phantoms just save PNG without showing interactive window
+                show_interactive_3d = (phantom_idx == 0)  # Only first phantom shows interactive
+                
                 visualize_probe_on_mesh(phantom_volume, phantom_mesh, first_source, first_detectors, 0, phantom_dir, 
-                                       show_interactive=True)
-                logger.info(f"Generated visualization for probe 1/{len(probe_sources)} (remaining {len(probe_sources)-1} probes will be simulated without visualization)")
+                                       show_interactive=show_interactive_3d)
+                
+                if show_interactive_3d:
+                    logger.info(f"Generated INTERACTIVE 3D visualization for phantom {phantom_idx+1} probe 1 (for professor demo)")
+                else:
+                    logger.info(f"Generated PNG visualization for phantom {phantom_idx+1} probe 1 (saved to {phantom_dir}/probe_001.png)")
             
             vis_time = time.time() - vis_start_time
-            logger.info(f"Visualization completed: 1 image in {vis_time:.1f}s (skipped {len(probe_sources)-1} images to save time)")
+            logger.info(f"Visualization completed in {vis_time:.1f}s")
         else:
             logger.info("Step 5/6: Skipping visualizations (disabled for production efficiency)")
 
         # STEP 2.6: Execute frequency-domain simulation and save complete dataset
         logger.info("Step 6/6: Running frequency-domain simulation")
-        h5_output_path = os.path.join(phantom_dir, "scan.h5")
-        run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, probe_detectors, measurement_links, output_h5_filename=h5_output_path)
+        h5_output_path = os.path.join(phantom_dir, f"phantom_{phantom_idx+1:03d}_scan.h5")
+        run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, probe_detectors, measurement_links, 
+                                   phantom_volume=phantom_volume, output_h5_filename=h5_output_path)
         
         phantom_time = time.time() - phantom_start_time
         logger.info(f"PHANTOM {phantom_idx+1:02d} COMPLETED in {phantom_time:.1f}s")
@@ -1155,7 +1176,7 @@ def main():
         if ENABLE_VISUALIZATIONS:
             logger.info(f"Sample visualization: {phantom_dir}/probe_001.png")
         else:
-            logger.info("Visualizations disabled - no PNG files generated")
+            logger.info("Visualizations disabled - no files generated")
 
     # STEP 3: Final validation and summary
     total_time = time.time() - phantom_start_time if 'phantom_start_time' in locals() else 0
@@ -1168,7 +1189,8 @@ def main():
     logger.info("Dataset contents per phantom:")
     logger.info("  • HDF5 file with measurements, geometry, and ground truth")
     if ENABLE_VISUALIZATIONS:
-        logger.info("  • Sample probe visualization (probe_001.png) for geometric validation")
+        logger.info("  • Sample probe visualization (probe_001.png) for professor demonstration")
+        logger.info("  • Enhanced visualizations enabled for development")
     else:
         logger.info("  • No visualizations (disabled for production efficiency)")
     logger.info("  • Complete metadata for reproducibility")
