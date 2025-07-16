@@ -48,7 +48,7 @@ def example_training_loop():
             super().__init__()
             self.patch_encoder = patch_encoder
             self.decoder = nn.Sequential(
-                nn.Linear(136, 256),  # 136 = token size from DataLoader
+                nn.Linear(264, 256),  # 264 = actual token size from DataLoader
                 nn.ReLU(),
                 nn.Linear(256, 128),
                 nn.ReLU(),
@@ -66,7 +66,7 @@ def example_training_loop():
                 batch['measurements'],   # [batch, 2] measurements
                 source_embedding,        # [batch, 128] source context
                 detector_embedding       # [batch, 128] detector context
-            ], dim=1)                   # [batch, 136] complete tokens
+            ], dim=1)                   # [batch, 264] complete tokens
             
             # Decode to optical properties
             output = self.decoder(tokens)
