@@ -46,11 +46,12 @@ from scipy.spatial.distance import cdist    # Efficient pairwise distance comput
 
 # Constants for phantom generation
 DEFAULT_PHANTOM_SHAPE = (50, 50, 50)        # Default cubic phantom dimensions in voxels
-DEFAULT_TISSUE_RADIUS_RANGE = (15, 23)      # Healthy tissue ellipsoid semi-axis range
+DEFAULT_TISSUE_RADIUS_RANGE = (20, 24)      # Healthy tissue ellipsoid semi-axis range (increased for better coverage)
 DEFAULT_TUMOR_RADIUS_RANGE = (4, 8)         # Tumor ellipsoid semi-axis range  
 DEFAULT_MAX_TUMORS = 5                       # Maximum number of tumors per phantom
 DEFAULT_N_PROBES = 500                      # Optimal balance: geometric coverage vs computational efficiency (ML scaling strategy)
-DEFAULT_MIN_PROBE_DISTANCE = 5              # Minimum source-detector separation [mm]
+DEFAULT_MIN_PROBE_DISTANCE = 10             # Minimum source-detector separation [mm] (clinical range)
+DEFAULT_MAX_PROBE_DISTANCE = 40             # Maximum source-detector separation [mm] (clinical range)
 DEFAULT_FD_FREQUENCY = 140e6                 # Frequency-domain modulation frequency [Hz]
 DEFAULT_MESH_CELL_SIZE = 1.65                # CGAL mesh characteristic cell size [mm]
 VOXEL_SIZE_MM = 1.0                         # Voxel size in millimeters for spatial calibration
@@ -237,15 +238,15 @@ def build_phantom_with_tissue_and_tumours(phantom_shape=DEFAULT_PHANTOM_SHAPE,
     # ----------------------
     # Sample the number of tumour inclusions from uniform distribution [0, max_tumours]
     n_tumours = rng.integers(0, max_tumours+1)
-    logger.info(f"Generating phantom with {n_tumours} tumour(s) using seed {rng_seed}")
-    logger.debug(f"Tissue ellipsoid parameters: center=({cx},{cy},{cz}), radii=({rx},{ry},{rz})")
+    logger.info(f"Embedding {n_tumours} tumor(s) with enhanced spatial constraints")
+    logger.debug(f"Tissue ellipsoid: center=({cx},{cy},{cz}), radii=({rx},{ry},{rz})")
     current_label = tumour_start_label
 
     # Iteratively place each tumour with geometric validity checking
+    tumors_placed = 0
     for tumour_idx in range(n_tumours):
         attempts = 0
         max_attempts = 50  # Increased attempts for better tumor placement success
-        logger.debug(f"Starting placement attempts for tumor {tumour_idx+1}")
         
         # Implement rejection sampling with maximum attempt limit to prevent infinite loops
         while attempts < max_attempts:
@@ -293,15 +294,22 @@ def build_phantom_with_tissue_and_tumours(phantom_shape=DEFAULT_PHANTOM_SHAPE,
                     # This ensures no "floating tumor" voxels exist in air space
                     vol[tumour_mask & tissue_mask] = current_label
                     current_label += 1  # Increment label for next tumour
-                    logger.info(f"Tumor {tumour_idx+1} successfully placed: {contained_voxels}/{tumor_voxels} voxels ({embedding_ratio:.1%} embedded)")
+                    tumors_placed += 1
+                    logger.debug(f"✓ Tumor {tumour_idx+1} placed successfully: {contained_voxels}/{tumor_voxels} voxels ({embedding_ratio:.1%} embedded)")
                     break  # Exit retry loop on successful placement
                 else:
-                    logger.debug(f"Tumor {tumour_idx+1} attempt {attempts+1}: insufficient embedding {embedding_ratio:.1%} < 80%")
+                    logger.debug(f"✗ Tumor {tumour_idx+1} insufficient embedding: {embedding_ratio:.1%} < 80%")
             
             attempts += 1
         
         if attempts >= max_attempts:
             logger.warning(f"Failed to place tumor {tumour_idx+1} after {max_attempts} attempts - skipping")
+
+    # Log final tumor placement summary
+    if tumors_placed > 0:
+        logger.info(f"Successfully embedded {tumors_placed}/{n_tumours} tumors in tissue")
+    else:
+        logger.info("No tumors placed in this phantom")
 
     # Calculate comprehensive tissue composition statistics
     total_voxels = Nx * Ny * Nz
@@ -311,18 +319,15 @@ def build_phantom_with_tissue_and_tumours(phantom_shape=DEFAULT_PHANTOM_SHAPE,
     total_tissue_voxels = tissue_voxels + tumor_voxels  # Total tissue (healthy + tumors)
     
     # Calculate percentages
-    air_percentage = air_voxels / total_voxels * 100
-    tissue_percentage = tissue_voxels / total_voxels * 100
-    tumor_percentage = tumor_voxels / total_voxels * 100
-    total_tissue_percentage = total_tissue_voxels / total_voxels * 100
+    tissue_percentage = total_tissue_voxels / total_voxels * 100
     
-    logger.info(f"Phantom construction completed: {total_tissue_percentage:.1f}% tissue coverage")
-    logger.info("="*50)
-    logger.info("PHANTOM COMPOSITION BREAKDOWN:")
-    logger.info("="*50)
-    logger.info(f"Total voxels: {total_voxels:,}")
-    logger.info(f"Air (background):     {air_voxels:,} voxels ({air_percentage:.1f}%)")
-    logger.info(f"Healthy tissue:       {tissue_voxels:,} voxels ({tissue_percentage:.1f}%)")
+    logger.info(f"Phantom construction completed - {tissue_percentage:.1f}% tissue coverage")
+    logger.debug("="*50)
+    logger.debug("PHANTOM COMPOSITION BREAKDOWN:")
+    logger.debug("="*50)
+    logger.debug(f"Total voxels: {total_voxels:,}")
+    logger.debug(f"Air (background):     {air_voxels:,} voxels ({air_voxels/total_voxels*100:.1f}%)")
+    logger.debug(f"Healthy tissue:       {tissue_voxels:,} voxels ({tissue_voxels/total_voxels*100:.1f}%)")
     
     # Log individual tumor statistics if any tumors were placed
     if tumor_voxels > 0:
@@ -333,15 +338,13 @@ def build_phantom_with_tissue_and_tumours(phantom_shape=DEFAULT_PHANTOM_SHAPE,
             tumor_idx = tumor_label - tumour_start_label + 1
             tumor_count = np.sum(vol == tumor_label)
             tumor_pct = tumor_count / total_voxels * 100
-            logger.info(f"Tumor {tumor_idx}:              {tumor_count:,} voxels ({tumor_pct:.1f}%)")
+            logger.debug(f"Tumor {tumor_idx}:              {tumor_count:,} voxels ({tumor_pct:.1f}%)")
         
-        logger.info(f"Total tumors:         {tumor_voxels:,} voxels ({tumor_percentage:.1f}%)")
-    else:
-        logger.info("No tumors placed in this phantom")
+        logger.debug(f"Total tumors:         {tumor_voxels:,} voxels ({tumor_voxels/total_voxels*100:.1f}%)")
     
-    logger.info("-"*50)
-    logger.info(f"TOTAL TISSUE:         {total_tissue_voxels:,} voxels ({total_tissue_percentage:.1f}%)")
-    logger.info("="*50)
+    logger.debug("-"*50)
+    logger.debug(f"TOTAL TISSUE:         {total_tissue_voxels:,} voxels ({tissue_percentage:.1f}%)")
+    logger.debug("="*50)
     
     # Validation check
     total_check = air_voxels + tissue_voxels + tumor_voxels
@@ -390,19 +393,28 @@ def mesh_volume(volume):
     # Smaller values increase mesh resolution but exponentially increase solve time
     mesh_params.general_cell_size = DEFAULT_MESH_CELL_SIZE  # Empirically optimized for NIR wavelengths (λ ≈ 800nm)
     
-    logger.info(f"Starting CGAL-based tetrahedral mesh generation with cell_size={mesh_params.general_cell_size}")
+    logger.info(f"Starting CGAL-based tetrahedral mesh generation (cell_size={mesh_params.general_cell_size})")
     logger.debug(f"Input volume shape: {volume.shape}, unique labels: {np.unique(volume)}")
     
     # Execute CGAL-based tetrahedral mesh generation
     # This calls external C++ CGAL library for robust geometric mesh generation
+    logger.debug("Invoking CGAL mesh generator...")
     mesh_elements, mesh_nodes = ff.meshing.RunCGALMeshGenerator(volume, opt=mesh_params)
     
     # Perform comprehensive mesh quality validation
     # Checks for inverted elements, aspect ratios, and topological consistency
+    logger.debug("Validating mesh quality and topology...")
     ff.meshing.CheckMesh3D(mesh_elements, mesh_nodes)
     
-    logger.info(f"Mesh generation completed: {mesh_elements.shape[0]} tetrahedra, {mesh_nodes.shape[0]} nodes")
-    logger.debug(f"Mesh quality validation passed successfully")
+    # Calculate mesh statistics
+    num_elements = mesh_elements.shape[0]
+    num_nodes = mesh_nodes.shape[0]
+    mesh_density = num_elements / np.prod(volume.shape)
+    
+    logger.info(f"✓ Mesh generation completed - {num_elements:,} tetrahedra, {num_nodes:,} nodes")
+    logger.debug(f"Mesh density: {mesh_density:.3f} elements/voxel")
+    logger.debug(f"Average nodes per element: {num_nodes/num_elements:.1f}")
+    logger.debug("Mesh quality validation passed successfully")
     
     return mesh_elements, mesh_nodes
 
@@ -500,8 +512,8 @@ def assign_optical_properties(phantom_mesh, phantom_volume, rng_seed=None):
     unique_regions = np.unique(phantom_mesh.region)
     optical_properties = []  # Will store [region_id, μₐ, μ′s, n] for each tissue type
 
-    logger.info(f"Assigning optical properties to {len(unique_regions)} tissue regions using seed {rng_seed}")
-    logger.debug(f"Found regions: {unique_regions}")
+    logger.info(f"Starting optical property assignment for {len(unique_regions)} tissue regions")
+    logger.debug(f"Found regions: {unique_regions} (seed={rng_seed})")
 
     # Sample baseline healthy tissue optical properties from physiological distributions
     # These serve as reference values for relative tumour property scaling
@@ -518,16 +530,19 @@ def assign_optical_properties(phantom_mesh, phantom_volume, rng_seed=None):
         if region_label == HEALTHY_TISSUE_LABEL:  # Healthy tissue baseline
             tissue_mua, tissue_musp = healthy_mua, healthy_musp
             tissue_type_name = "healthy"
+            logger.debug(f"Region {region_label} ({tissue_type_name}): μₐ={tissue_mua:.4f} mm⁻¹, μ′s={tissue_musp:.3f} mm⁻¹")
         else:  # Tumour regions (label ≥ TUMOR_START_LABEL)
             # Apply controlled randomization within clinically observed ranges
             # Tumours typically show increased absorption (higher blood volume)
             # and altered scattering (modified cellular architecture)
-            tissue_mua = healthy_mua * rng.uniform(*TUMOR_MUA_MULTIPLIER_RANGE)     # 50-250% increase in absorption
-            tissue_musp = healthy_musp * rng.uniform(*TUMOR_MUSP_MULTIPLIER_RANGE)  # 50-150% increase in scattering
+            mua_multiplier = rng.uniform(*TUMOR_MUA_MULTIPLIER_RANGE)
+            musp_multiplier = rng.uniform(*TUMOR_MUSP_MULTIPLIER_RANGE)
+            tissue_mua = healthy_mua * mua_multiplier     # 50-250% increase in absorption
+            tissue_musp = healthy_musp * musp_multiplier  # 50-150% increase in scattering
             tumor_index = region_label - TUMOR_START_LABEL + 1
             tissue_type_name = f"tumor_{tumor_index}"
-            
-        logger.debug(f"Region {region_label} ({tissue_type_name}): μₐ={tissue_mua:.4f} mm⁻¹, μ′s={tissue_musp:.3f} mm⁻¹")
+            logger.debug(f"Region {region_label} ({tissue_type_name}): μₐ={tissue_mua:.4f} mm⁻¹ ({mua_multiplier:.1f}×), "
+                        f"μ′s={tissue_musp:.3f} mm⁻¹ ({musp_multiplier:.1f}×)")
             
         # Store optical properties in NIRFASTer format: [region, μₐ, μ′s, n]
         # Refractive index is fixed for biological tissues at NIR wavelengths
@@ -537,13 +552,14 @@ def assign_optical_properties(phantom_mesh, phantom_volume, rng_seed=None):
     # Apply optical properties to mesh for FEM simulation
     # This populates phantom_mesh.mua and phantom_mesh.musp arrays used in diffusion equation assembly
     phantom_mesh.set_prop(np.array(optical_properties))
-    logger.info("Optical properties successfully assigned to mesh elements")
+    logger.info("✓ Optical properties assigned to mesh elements")
 
     # Generate dense voxel-wise ground truth maps for reconstruction evaluation
     Nx, Ny, Nz = phantom_volume.shape
     # Shape: (Nx, Ny, Nz, 2) where last dimension is [μₐ, μ′s]
     ground_truth_maps = np.zeros((Nx, Ny, Nz, 2))
     
+    logger.debug("Generating dense ground truth maps...")
     # Populate ground truth grid using region-based property lookup
     # This creates pixel-perfect reference maps for quantitative evaluation
     for region_label, (tissue_mua, tissue_musp) in region_optical_lookup.items():
@@ -551,8 +567,8 @@ def assign_optical_properties(phantom_mesh, phantom_volume, rng_seed=None):
         ground_truth_maps[phantom_volume == region_label, 0] = tissue_mua   # Channel 0: absorption coefficient
         ground_truth_maps[phantom_volume == region_label, 1] = tissue_musp  # Channel 1: reduced scattering coefficient
 
-    logger.info(f"Ground truth maps generated: shape {ground_truth_maps.shape}")
-    logger.debug(f"Ground truth value ranges: μₐ=[{ground_truth_maps[...,0].min():.4f}, {ground_truth_maps[...,0].max():.4f}], "
+    logger.info(f"✓ Ground truth maps generated - shape {ground_truth_maps.shape}")
+    logger.debug(f"Value ranges: μₐ=[{ground_truth_maps[...,0].min():.4f}, {ground_truth_maps[...,0].max():.4f}], "
                 f"μ′s=[{ground_truth_maps[...,1].min():.3f}, {ground_truth_maps[...,1].max():.3f}]")
 
     return phantom_mesh, ground_truth_maps
@@ -593,12 +609,16 @@ def extract_surface_voxels(phantom_volume, tissue_threshold=HEALTHY_TISSUE_LABEL
     # This combines all non-air labels into a single binary volume
     tissue_binary_mask = (phantom_volume >= tissue_threshold)
     
-    logger.debug(f"Surface extraction from volume shape {phantom_volume.shape} with threshold {tissue_threshold}")
-    logger.debug(f"Initial tissue voxels: {np.sum(tissue_binary_mask):,}")
+    logger.info(f"Starting surface extraction (threshold={tissue_threshold})")
+    logger.debug(f"Input volume shape: {phantom_volume.shape}")
+    
+    initial_tissue_count = np.sum(tissue_binary_mask)
+    logger.debug(f"Initial tissue voxels: {initial_tissue_count:,}")
     
     # Apply binary erosion with single iteration to identify tissue interior
     # Uses default 3×3×3 structuring element for 26-connected neighborhood
     # Interior voxels are those completely surrounded by other tissue voxels
+    logger.debug("Applying morphological erosion to identify tissue interior...")
     eroded_tissue_mask = binary_erosion(tissue_binary_mask, iterations=1)
     
     # Compute morphological boundary as set difference: tissue ∖ interior
@@ -609,15 +629,16 @@ def extract_surface_voxels(phantom_volume, tissue_threshold=HEALTHY_TISSUE_LABEL
     # numpy.argwhere returns N×3 array of indices where condition is True
     surface_voxel_coordinates = np.argwhere(surface_voxel_mask)
     
-    logger.info(f"Surface extraction completed: {surface_voxel_coordinates.shape[0]:,} surface voxels identified")
+    surface_count = surface_voxel_coordinates.shape[0]
+    logger.info(f"✓ Surface extraction completed - {surface_count:,} surface voxels identified")
     
     # Validate surface extraction results
-    if surface_voxel_coordinates.shape[0] == 0:
+    if surface_count == 0:
         logger.error("No surface voxels found - check tissue geometry and threshold")
-    elif surface_voxel_coordinates.shape[0] < 100:
-        logger.warning(f"Very few surface voxels ({surface_voxel_coordinates.shape[0]}) - may limit probe placement options")
+    elif surface_count < 100:
+        logger.warning(f"Very few surface voxels ({surface_count}) - may limit probe placement options")
     else:
-        surface_ratio = surface_voxel_coordinates.shape[0] / np.sum(tissue_binary_mask)
+        surface_ratio = surface_count / initial_tissue_count
         logger.debug(f"Surface-to-volume ratio: {surface_ratio:.1%}")
     
     return surface_voxel_coordinates
@@ -629,6 +650,7 @@ def extract_surface_voxels(phantom_volume, tissue_threshold=HEALTHY_TISSUE_LABEL
 
 def build_random_probe_layout(surface_coordinates, n_probes=DEFAULT_N_PROBES,
                               min_source_detector_distance=DEFAULT_MIN_PROBE_DISTANCE,
+                              max_source_detector_distance=DEFAULT_MAX_PROBE_DISTANCE,
                               rng_seed=None):
     """
     Generates fully randomized source-detector probe configurations for spatially-invariant learning.
@@ -652,13 +674,14 @@ def build_random_probe_layout(surface_coordinates, n_probes=DEFAULT_N_PROBES,
     
     Distance Constraints Rationale:
     - min_distance: Prevents near-field artifacts and ensures diffusive regime validity
-    - No max_distance: Allows maximum spatial diversity for robust ML training
-    - Typical clinical min_distance: 5-10mm to ensure diffusive light transport
+    - max_distance: Maintains good SNR and clinical realism within physiological ranges
+    - Typical clinical range: 10-40mm for optimal measurement quality
     
     Args:
         surface_coordinates (numpy.ndarray): Available surface voxel positions, shape (N_surface, 3)
         n_probes (int): Number of source-detector probe configurations to generate
         min_source_detector_distance (float): Minimum source-detector separation [mm] for diffusive regime
+        max_source_detector_distance (float): Maximum source-detector separation [mm] for clinical realism
         rng_seed (int): Random seed for reproducible probe layout generation
         
     Returns:
@@ -671,8 +694,9 @@ def build_random_probe_layout(surface_coordinates, n_probes=DEFAULT_N_PROBES,
     # Initialize controlled randomization for reproducible probe generation
     rng = np.random.default_rng(rng_seed)
     
-    logger.info(f"Starting probe layout generation: {n_probes} probes, min_distance={min_source_detector_distance}mm (no max limit)")
-    logger.debug(f"Available surface coordinates: {len(surface_coordinates)}")
+    logger.info(f"Starting probe layout generation - {n_probes} probes (distance range: {min_source_detector_distance}-{max_source_detector_distance}mm)")
+    logger.debug(f"Available surface positions: {len(surface_coordinates):,} voxels")
+    logger.debug(f"Target measurements: {n_probes * 3} (3 detectors per source)")
     
     # Initialize storage arrays for probe configuration data
     all_probe_sources, all_probe_detectors, measurement_links = [], [], []
@@ -680,7 +704,7 @@ def build_random_probe_layout(surface_coordinates, n_probes=DEFAULT_N_PROBES,
 
     # Generate each probe configuration with geometric validation
     for probe_idx in range(n_probes):
-        if (probe_idx + 1) % 50 == 0:  # Progress logging for large probe counts
+        if (probe_idx + 1) % 20 == 0:  # Progress logging for large probe counts
             logger.debug(f"Probe placement progress: {probe_idx+1}/{n_probes}")
             
         # Implement rejection sampling loop with failure detection
@@ -688,7 +712,7 @@ def build_random_probe_layout(surface_coordinates, n_probes=DEFAULT_N_PROBES,
             placement_attempts += 1
             # Prevent infinite loops due to overly restrictive geometric constraints
             if placement_attempts > n_probes * 20:
-                logger.error(f"Excessive placement failures - stopping early after {placement_attempts} attempts")
+                logger.error(f"Excessive placement failures after {placement_attempts} attempts")
                 logger.warning(f"Successfully placed {len(all_probe_sources)}/{n_probes} requested probes")
                 break
 
@@ -701,8 +725,10 @@ def build_random_probe_layout(surface_coordinates, n_probes=DEFAULT_N_PROBES,
             source_to_surface_distances = cdist([current_source_position], surface_coordinates)[0]
             
             # STEP 5.3: Filter detector candidates based on distance constraints
-            # Ensures measurements are in diffusive regime with unlimited maximum distance
-            valid_detector_coordinates = surface_coordinates[source_to_surface_distances >= min_source_detector_distance]
+            # Ensures measurements are in diffusive regime within clinical distance range
+            distance_mask = (source_to_surface_distances >= min_source_detector_distance) & \
+                           (source_to_surface_distances <= max_source_detector_distance)
+            valid_detector_coordinates = surface_coordinates[distance_mask]
 
             # STEP 5.4: Validate sufficient detector availability for multi-detector probe
             if valid_detector_coordinates.shape[0] < 3:
@@ -713,16 +739,11 @@ def build_random_probe_layout(surface_coordinates, n_probes=DEFAULT_N_PROBES,
             detector_indices = rng.choice(len(valid_detector_coordinates), size=3, replace=False)
             selected_detector_positions = valid_detector_coordinates[detector_indices]
             
-            # STEP 5.6: Calculate and log actual source-detector distances for this probe
-            source_detector_distances = cdist([current_source_position], selected_detector_positions)[0]
-            logger.debug(f"Probe {probe_idx+1} placed - Source at {current_source_position}, Detector distances: "
-                        f"{source_detector_distances[0]:.1f}mm, {source_detector_distances[1]:.1f}mm, {source_detector_distances[2]:.1f}mm")
-
-            # STEP 5.7: Store validated probe configuration
+            # STEP 5.6: Store validated probe configuration
             all_probe_sources.append(current_source_position)
             all_probe_detectors.extend(selected_detector_positions)  # Flatten detector array across all probes
             
-            # STEP 5.8: Generate measurement connectivity links
+            # STEP 5.7: Generate measurement connectivity links
             # Links define which source-detector pairs generate measurements
             detector_base_index = 3 * probe_idx  # Detector indexing offset for current probe
             measurement_links.extend([[probe_idx, detector_base_index+0, 1],    # Source probe_idx → Detector base+0, active
@@ -730,9 +751,16 @@ def build_random_probe_layout(surface_coordinates, n_probes=DEFAULT_N_PROBES,
                                      [probe_idx, detector_base_index+2, 1]])   # Source probe_idx → Detector base+2, active
             break  # Exit retry loop on successful probe placement
 
-    placement_efficiency = len(all_probe_sources) / placement_attempts * 100 if placement_attempts > 0 else 0
-    logger.info(f"Probe layout completed: {len(all_probe_sources)} probes placed")
-    logger.debug(f"Placement statistics: {placement_attempts} total attempts, {placement_efficiency:.1f}% efficiency")
+    # Calculate and report probe placement statistics
+    n_placed = len(all_probe_sources)
+    n_measurements = len(measurement_links)
+    placement_efficiency = n_placed / placement_attempts * 100 if placement_attempts > 0 else 0
+    
+    logger.info(f"✓ Probe layout completed - {n_placed}/{n_probes} probes placed ({n_measurements} measurements)")
+    logger.debug(f"Placement efficiency: {placement_efficiency:.1f}% ({placement_attempts} total attempts)")
+    
+    if n_placed < n_probes:
+        logger.warning(f"Could not place all requested probes due to distance constraints")
     
     # Convert lists to NumPy arrays for efficient numerical processing
     return np.array(all_probe_sources), np.array(all_probe_detectors), np.array(measurement_links)
@@ -779,12 +807,14 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
         output_h5_filename (str): Output HDF5 file path for dataset storage
     """
     # STEP 6.1: Configure mesh with optode positions and measurement connectivity
+    logger.info("Configuring mesh with source-detector optode layout")
+    
     # Convert integer voxel coordinates to floating-point spatial coordinates [mm]
     phantom_mesh.source = ff.base.optode(probe_sources.astype(float))
     phantom_mesh.meas = ff.base.optode(probe_detectors.astype(float))
     phantom_mesh.link = measurement_links
     
-    logger.debug(f"Configured optodes: {len(probe_sources)} sources, {len(probe_detectors)} detectors")
+    logger.debug(f"Optode configuration: {len(probe_sources)} sources, {len(probe_detectors)} detectors")
     
     # Project optodes onto mesh surface and validate geometric consistency
     # This ensures sources/detectors lie exactly on tissue boundary for accurate modeling
@@ -792,9 +822,9 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
     logger.debug("Optodes projected onto mesh surface")
 
     # STEP 6.2: Execute frequency-domain finite element forward simulation
-    logger.info(f"Starting FD simulation at {fd_frequency_hz/1e6:.1f} MHz")
-    logger.info(f"Mesh configuration: {phantom_mesh.nodes.shape[0]:,} nodes, {phantom_mesh.elements.shape[0]:,} elements")
-    logger.info(f"Measurement configuration: {len(probe_sources)} sources, {len(measurement_links)} total measurements")
+    logger.info(f"Starting FD simulation (frequency: {fd_frequency_hz/1e6:.1f} MHz)")
+    logger.debug(f"Mesh: {phantom_mesh.nodes.shape[0]:,} nodes, {phantom_mesh.elements.shape[0]:,} elements")
+    logger.debug(f"Measurements: {len(probe_sources)} sources → {len(measurement_links)} total measurements")
     
     # Solve complex-valued frequency-domain diffusion equation
     # Returns complex photon fluence at each detector for each source activation
@@ -804,12 +834,13 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
     raw_amplitude = simulation_data.amplitude  # |Φ|: Photon fluence magnitude
     raw_phase = simulation_data.phase  # arg(Φ): Phase delay already in degrees from NIRFASTer
     
-    logger.info("FD simulation completed successfully")
+    logger.info("✓ FD simulation completed successfully")
     logger.debug(f"Raw measurement ranges: amplitude=[{raw_amplitude.min():.2e}, {raw_amplitude.max():.2e}], "
                 f"phase=[{raw_phase.min():.1f}°, {raw_phase.max():.1f}°]")
 
     # STEP 6.3: Add realistic measurement noise for robust model training
     # Noise parameters based on typical experimental NIR system performance
+    logger.debug("Adding realistic measurement noise...")
     noise_rng = np.random.default_rng()
     
     # Amplitude noise: Multiplicative noise proportional to signal magnitude
@@ -821,10 +852,11 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
     # Typical phase precision: ±1-3 degrees for commercial systems
     noisy_phase = raw_phase + noise_rng.normal(0, PHASE_NOISE_STD_DEGREES, raw_phase.shape)
     
-    logger.debug(f"Applied measurement noise: amplitude_std={amplitude_noise_std:.2e}, phase_std={PHASE_NOISE_STD_DEGREES}°")
+    logger.debug(f"Applied noise: amplitude_std={amplitude_noise_std:.2e}, phase_std={PHASE_NOISE_STD_DEGREES}°")
 
     # STEP 6.4: Process measurements for machine learning compatibility
     # Reshape measurements to probe-based format: (N_probes, 3) for 3 detectors per source
+    logger.debug("Processing measurements for ML format...")
     
     # Log-amplitude transformation for neural network training stability
     # Prevents gradient explosion due to exponential amplitude decay with distance
@@ -868,7 +900,7 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
             labels_dataset.attrs["voxel_size_mm"] = f"[{VOXEL_SIZE_MM}, {VOXEL_SIZE_MM}, {VOXEL_SIZE_MM}]"
             labels_dataset.attrs["description"] = "Tissue type labels for phantom segmentation and patch extraction masking"
             labels_dataset.attrs["usage"] = "Region-specific analysis, air masking, tissue boundary visualization"
-            logger.info(f"Tissue labels dataset created with shape: {phantom_volume.shape}")
+            logger.debug(f"Tissue labels dataset saved: {phantom_volume.shape}")
         else:
             logger.debug("No phantom volume provided - skipping tissue labels storage")
         
@@ -880,10 +912,10 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
         h5_file.attrs["n_probes"] = len(probe_sources)
         h5_file.attrs["timestamp"] = time.strftime('%Y-%m-%d %H:%M:%S')
         
-    logger.info("Dataset saved successfully")
+    file_size_mb = os.path.getsize(output_h5_filename) / (1024**2)
+    logger.info(f"✓ Dataset saved successfully - {output_h5_filename} ({file_size_mb:.1f} MB)")
     logger.info(f"Final dataset: {log_amplitude_processed.shape[0]} probes × {log_amplitude_processed.shape[1]} detectors")
-    logger.info(f"Ground truth shape: {ground_truth_maps.shape[0]}×{ground_truth_maps.shape[1]}×{ground_truth_maps.shape[2]} voxels")
-    logger.debug(f"HDF5 file size: {os.path.getsize(output_h5_filename)/1024**2:.1f} MB")
+    logger.debug(f"Ground truth shape: {ground_truth_maps.shape[0]}×{ground_truth_maps.shape[1]}×{ground_truth_maps.shape[2]} voxels")
 
 # --------------------------------------------------------------
 # VISUALIZATION: 3D PROBE-MESH RENDERING FOR GEOMETRIC VALIDATION
@@ -1118,24 +1150,20 @@ def main():
         # Use different seeds to ensure statistical independence between phantoms
         logger.info("Step 1/6: Constructing phantom geometry")
         phantom_volume = build_phantom_with_tissue_and_tumours(rng_seed=44+phantom_idx)
-        logger.info(f"Phantom geometry completed: {phantom_volume.shape} voxels")
-
+        
         # STEP 2.2: Generate finite element mesh for numerical simulation
         logger.info("Step 2/6: Generating finite element mesh")
         mesh_elements, mesh_nodes = mesh_volume(phantom_volume)
         phantom_mesh = create_stndmesh(mesh_elements, mesh_nodes)
-        logger.info("FEM mesh generation completed")
-
+        
         # STEP 2.3: Assign optical properties and generate ground truth maps
         logger.info("Step 3/6: Assigning optical properties")
         phantom_mesh, ground_truth_maps = assign_optical_properties(phantom_mesh, phantom_volume, rng_seed=42+phantom_idx)
-        logger.info("Optical properties assignment completed")
-
+        
         # STEP 2.4: Extract tissue surface and generate probe configurations
         logger.info("Step 4/6: Generating probe layout")
         surface_coordinates = extract_surface_voxels(phantom_volume)
         probe_sources, probe_detectors, measurement_links = build_random_probe_layout(surface_coordinates, n_probes=DEFAULT_N_PROBES, rng_seed=123+phantom_idx)
-        logger.info(f"Probe layout completed: {len(probe_sources)} probes, {len(measurement_links)} measurements")
 
         # STEP 2.5: Generate probe visualizations for quality assurance (optional)
         if ENABLE_VISUALIZATIONS:
@@ -1160,7 +1188,7 @@ def main():
                     logger.info(f"Generated PNG visualization for phantom {phantom_idx+1} probe 1 (saved to {phantom_dir}/probe_001.png)")
             
             vis_time = time.time() - vis_start_time
-            logger.info(f"Visualization completed in {vis_time:.1f}s")
+            logger.debug(f"Visualization completed in {vis_time:.1f}s")
         else:
             logger.info("Step 5/6: Skipping visualizations (disabled for production efficiency)")
 
@@ -1171,12 +1199,12 @@ def main():
                                    phantom_volume=phantom_volume, output_h5_filename=h5_output_path)
         
         phantom_time = time.time() - phantom_start_time
-        logger.info(f"PHANTOM {phantom_idx+1:02d} COMPLETED in {phantom_time:.1f}s")
-        logger.info(f"Dataset saved: {h5_output_path}")
-        if ENABLE_VISUALIZATIONS:
-            logger.info(f"Sample visualization: {phantom_dir}/probe_001.png")
-        else:
-            logger.info("Visualizations disabled - no files generated")
+        logger.info(f"✓ PHANTOM {phantom_idx+1:02d} COMPLETED in {phantom_time:.1f}s")
+        logger.debug(f"Dataset saved: {h5_output_path}")
+        if ENABLE_VISUALIZATIONS and phantom_idx == 0:
+            logger.debug(f"Interactive visualization: {phantom_dir}/probe_001.png")
+        elif ENABLE_VISUALIZATIONS:
+            logger.debug(f"PNG visualization: {phantom_dir}/probe_001.png")
 
     # STEP 3: Final validation and summary
     total_time = time.time() - phantom_start_time if 'phantom_start_time' in locals() else 0
