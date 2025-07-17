@@ -802,7 +802,7 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
     
     # Extract amplitude and phase from complex solution
     raw_amplitude = simulation_data.amplitude  # |Φ|: Photon fluence magnitude
-    raw_phase = np.degrees(simulation_data.phase)  # arg(Φ): Phase delay in degrees
+    raw_phase = simulation_data.phase  # arg(Φ): Phase delay already in degrees from NIRFASTer
     
     logger.info("FD simulation completed successfully")
     logger.debug(f"Raw measurement ranges: amplitude=[{raw_amplitude.min():.2e}, {raw_amplitude.max():.2e}], "
@@ -1099,7 +1099,7 @@ def main():
     logger.info(f"Visualization mode: {'ENABLED (Development)' if ENABLE_VISUALIZATIONS else 'DISABLED (Production)'}")
 
     # STEP 2: Generate multiple phantoms for dataset diversity
-    n_phantoms = 100  # Toy dataset for initial development (150,000 tokens total)
+    n_phantoms = 5  # Toy dataset for initial development (150,000 tokens total)
     logger.info(f"Generating {n_phantoms} phantom datasets for machine learning training")
     logger.info(f"Expected dataset size: {n_phantoms} phantoms × 500 probes × 3 detectors = {n_phantoms * 500 * 3:,} tokens")
     
