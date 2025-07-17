@@ -49,43 +49,68 @@ from mpl_toolkits.mplot3d import Axes3D
 from pathlib import Path
 from scipy import stats
 from scipy.spatial.distance import pdist, squareform
+from scipy.stats import gaussian_kde
+from scipy.optimize import curve_fit
 import json
 from datetime import datetime
 import time
 import warnings
 warnings.filterwarnings('ignore')
 
-# Configure matplotlib for high-quality scientific plots
+# Configure matplotlib for ultra-high-quality scientific plots
+plt.style.use('dark_background')  # Dark theme for modern look
 plt.rcParams.update({
-    'figure.figsize': (12, 8),
+    'figure.figsize': (16, 12),
     'figure.dpi': 300,
-    'savefig.dpi': 300,
-    'font.size': 12,
-    'axes.titlesize': 14,
-    'axes.labelsize': 12,
-    'xtick.labelsize': 10,
-    'ytick.labelsize': 10,
-    'legend.fontsize': 10,
+    'savefig.dpi': 400,  # Ultra-high resolution
+    'font.size': 11,
+    'font.family': 'sans-serif',
+    'font.sans-serif': ['DejaVu Sans', 'Arial', 'Helvetica'],
+    'axes.titlesize': 13,
+    'axes.labelsize': 11,
+    'xtick.labelsize': 9,
+    'ytick.labelsize': 9,
+    'legend.fontsize': 9,
     'axes.grid': True,
     'grid.alpha': 0.3,
-    'lines.linewidth': 2,
+    'grid.color': '#404040',
+    'lines.linewidth': 2.5,
     'axes.spines.top': False,
-    'axes.spines.right': False
+    'axes.spines.right': False,
+    'axes.spines.left': True,
+    'axes.spines.bottom': True,
+    'axes.facecolor': '#1a1a1a',
+    'figure.facecolor': '#0d1117',
+    'text.color': 'white',
+    'axes.labelcolor': 'white',
+    'xtick.color': 'white',
+    'ytick.color': 'white',
+    'axes.edgecolor': '#404040'
 })
 
-# Define professional color schemes
+# Define professional color schemes for dark theme
 COLORS = {
-    'primary': '#2E86AB',
-    'secondary': '#A23B72', 
-    'accent': '#F18F01',
-    'success': '#C73E1D',
-    'info': '#592941',
-    'tissue': '#2E8B57',
-    'tumor': '#DC143C',
-    'air': '#4682B4',
-    'source': '#FFD700',
-    'detector': '#00FFFF'
+    'primary': '#00d4ff',      # Bright cyan
+    'secondary': '#ff6b9d',    # Hot pink
+    'accent': '#ffa726',       # Bright orange
+    'success': '#4caf50',      # Green
+    'warning': '#ff9800',      # Orange
+    'error': '#f44336',        # Red
+    'tissue': '#00e676',       # Bright green
+    'tumor': '#ff1744',        # Bright red
+    'air': '#2196f3',          # Blue
+    'source': '#ffd700',       # Gold
+    'detector': '#00ffff',     # Cyan
+    'gradient1': '#667eea',    # Purple-blue
+    'gradient2': '#764ba2',    # Purple
+    'bg_dark': '#1a1a1a',      # Dark background
+    'bg_light': '#2d2d2d'      # Light background
 }
+
+# Enhanced color palettes for different plot types
+MEASUREMENT_COLORS = ['#00d4ff', '#ff6b9d', '#ffa726', '#4caf50', '#9c27b0']
+TISSUE_COLORS = ['#1a1a1a', '#00e676', '#ff1744', '#ffa726', '#2196f3', '#9c27b0']
+GRADIENT_COLORS = ['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe', '#00f2fe']
 
 class NIRDatasetAnalyzer:
     """
@@ -117,7 +142,7 @@ class NIRDatasetAnalyzer:
         
         # Create output directory for visualizations
         self.output_dir = self.data_dir / "analysis_output"
-        self.output_dir.mkdir(exist_ok=True)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         
         self._discover_datasets()
         
@@ -1064,10 +1089,10 @@ class NIRDatasetAnalyzer:
             print(f"   Datasets with issues: {len(valid_results) - quality_passed}")
     
     def visualize_dataset(self, file_path, save_plots=True):
-        """Create comprehensive visualizations for a single dataset."""
+        """Create SPECTACULAR comprehensive visualizations for a single dataset with enhanced styling."""
         
-        print(f"\n📊 GENERATING VISUALIZATIONS: {file_path.parent.name}")
-        print("="*60)
+        print(f"\n🎨 GENERATING SPECTACULAR VISUALIZATIONS: {file_path.parent.name}")
+        print("="*70)
         
         with h5py.File(file_path, 'r') as f:
             # Load data
@@ -1077,121 +1102,495 @@ class NIRDatasetAnalyzer:
             det_pos = f['det_pos'][:]
             gt_data = f['ground_truth'][:]
             
-            # Create figure with subplots
-            fig = plt.figure(figsize=(20, 16))
-            fig.suptitle(f'NIR Dataset Analysis: {file_path.parent.name}', fontsize=16, fontweight='bold')
+            # Calculate source-detector distances for SDS analysis
+            distances = []
+            log_amp_flat = []
+            phase_flat = []
             
-            # 1. Measurement distributions
-            ax1 = plt.subplot(3, 4, 1)
-            plt.hist(log_amp.flatten(), bins=50, alpha=0.7, edgecolor='black')
-            plt.title('Log-Amplitude Distribution')
-            plt.xlabel('Log-Amplitude')
-            plt.ylabel('Frequency')
-            plt.grid(True, alpha=0.3)
-            
-            ax2 = plt.subplot(3, 4, 2)
-            plt.hist(phase.flatten(), bins=50, alpha=0.7, edgecolor='black', color='orange')
-            plt.title('Phase Distribution')
-            plt.xlabel('Phase (degrees)')
-            plt.ylabel('Frequency')
-            plt.grid(True, alpha=0.3)
-            
-            # 2. Measurement correlation
-            ax3 = plt.subplot(3, 4, 3)
-            plt.scatter(log_amp.flatten()[::10], phase.flatten()[::10], alpha=0.5, s=1)
-            plt.title('Log-Amplitude vs Phase')
-            plt.xlabel('Log-Amplitude')
-            plt.ylabel('Phase (degrees)')
-            plt.grid(True, alpha=0.3)
-            
-            # 3. Source-detector geometry
-            ax4 = plt.subplot(3, 4, 4, projection='3d')
-            ax4.scatter(source_pos[:, 0], source_pos[:, 1], source_pos[:, 2], 
-                       c='red', s=20, label='Sources', alpha=0.7)
             if len(det_pos.shape) == 3:
-                det_flat = det_pos.reshape(-1, 3)
-                ax4.scatter(det_flat[:, 0], det_flat[:, 1], det_flat[:, 2], 
-                           c='blue', s=10, label='Detectors', alpha=0.5)
-            ax4.set_title('Probe Geometry')
-            ax4.set_xlabel('X (mm)')
-            ax4.set_ylabel('Y (mm)')
-            ax4.set_zlabel('Z (mm)')
-            ax4.legend()
-            
-            # 4. Ground truth slices
-            mua_map = gt_data[..., 0]
-            musp_map = gt_data[..., 1]
-            
-            # Central slices
-            z_center = mua_map.shape[2] // 2
-            y_center = mua_map.shape[1] // 2
-            x_center = mua_map.shape[0] // 2
-            
-            ax5 = plt.subplot(3, 4, 5)
-            im5 = plt.imshow(mua_map[:, :, z_center], cmap='viridis', aspect='equal')
-            plt.title(f'μₐ Map (Z={z_center})')
-            plt.colorbar(im5, label='μₐ (mm⁻¹)')
-            
-            ax6 = plt.subplot(3, 4, 6)
-            im6 = plt.imshow(musp_map[:, :, z_center], cmap='plasma', aspect='equal')
-            plt.title(f'μ′s Map (Z={z_center})')
-            plt.colorbar(im6, label='μ′s (mm⁻¹)')
-            
-            ax7 = plt.subplot(3, 4, 7)
-            im7 = plt.imshow(mua_map[:, y_center, :], cmap='viridis', aspect='equal')
-            plt.title(f'μₐ Map (Y={y_center})')
-            plt.colorbar(im7, label='μₐ (mm⁻¹)')
-            
-            ax8 = plt.subplot(3, 4, 8)
-            im8 = plt.imshow(musp_map[:, y_center, :], cmap='plasma', aspect='equal')
-            plt.title(f'μ′s Map (Y={y_center})')
-            plt.colorbar(im8, label='μ′s (mm⁻¹)')
-            
-            # 5. Distance distributions
-            if len(det_pos.shape) == 3:
-                distances = []
                 for i in range(len(source_pos)):
                     src = source_pos[i]
                     dets = det_pos[i]
-                    probe_distances = [np.linalg.norm(det - src) for det in dets]
-                    distances.extend(probe_distances)
-                
-                ax9 = plt.subplot(3, 4, 9)
-                plt.hist(distances, bins=30, alpha=0.7, edgecolor='black', color='green')
-                plt.title('Source-Detector Distances')
-                plt.xlabel('Distance (mm)')
-                plt.ylabel('Frequency')
-                plt.axvline(x=5, color='red', linestyle='--', label='Min distance (5mm)')
-                plt.legend()
-                plt.grid(True, alpha=0.3)
+                    for j, det in enumerate(dets):
+                        dist = np.linalg.norm(det - src)
+                        distances.append(dist)
+                        log_amp_flat.append(log_amp[i, j])
+                        phase_flat.append(phase[i, j])
             
-            # 6. Tissue type distribution
+            distances = np.array(distances)
+            log_amp_flat = np.array(log_amp_flat)
+            phase_flat = np.array(phase_flat)
+            
+            # Create figure with enhanced layout
+            fig = plt.figure(figsize=(24, 18), facecolor='#0d1117')
+            fig.suptitle(f'🔬 ADVANCED NIR DATASET ANALYSIS: {file_path.parent.name}', 
+                        fontsize=20, fontweight='bold', color='white', y=0.98)
+            
+            # Add subtitle with key metrics
+            n_measurements = log_amp.size
+            n_probes = len(source_pos)
+            distance_range = f"{distances.min():.1f}-{distances.max():.1f}mm" if len(distances) > 0 else "N/A"
+            
+            fig.text(0.5, 0.95, f'📊 {n_measurements:,} measurements • {n_probes} probes • SDS range: {distance_range}', 
+                    ha='center', fontsize=12, color='#888888', style='italic')
+            
+            # ═══════════════════════════════════════════════════════════════
+            # ROW 1: ENHANCED MEASUREMENT DISTRIBUTIONS
+            # ═══════════════════════════════════════════════════════════════
+            
+            # 1. SPECTACULAR Log-Amplitude Distribution with KDE
+            ax1 = plt.subplot(4, 5, 1)
+            n, bins, patches = plt.hist(log_amp.flatten(), bins=60, alpha=0.7, 
+                                       color=COLORS['primary'], edgecolor='white', linewidth=0.5)
+            
+            # Add KDE overlay
+            from scipy.stats import gaussian_kde
+            kde = gaussian_kde(log_amp.flatten())
+            x_kde = np.linspace(log_amp.min(), log_amp.max(), 200)
+            kde_values = kde(x_kde)
+            kde_scaled = kde_values * (np.max(n) / np.max(kde_values))
+            plt.plot(x_kde, kde_scaled, color=COLORS['accent'], linewidth=3, label='KDE')
+            
+            plt.title('📈 Log-Amplitude Distribution', fontweight='bold', pad=15)
+            plt.xlabel('Log-Amplitude', fontweight='bold')
+            plt.ylabel('Frequency', fontweight='bold')
+            plt.grid(True, alpha=0.3, color='#404040')
+            plt.legend()
+            
+            # Add statistics text
+            mean_val = np.mean(log_amp.flatten())
+            std_val = np.std(log_amp.flatten())
+            plt.text(0.02, 0.98, f'μ = {mean_val:.2f}\nσ = {std_val:.2f}', 
+                    transform=ax1.transAxes, va='top', fontsize=9, 
+                    bbox=dict(boxstyle='round', facecolor='black', alpha=0.8))
+            
+            # 2. SPECTACULAR Phase Distribution with KDE
+            ax2 = plt.subplot(4, 5, 2)
+            n2, bins2, patches2 = plt.hist(phase.flatten(), bins=60, alpha=0.7, 
+                                          color=COLORS['secondary'], edgecolor='white', linewidth=0.5)
+            
+            # Add KDE overlay for phase
+            kde2 = gaussian_kde(phase.flatten())
+            x_kde2 = np.linspace(phase.min(), phase.max(), 200)
+            kde_values2 = kde2(x_kde2)
+            kde_scaled2 = kde_values2 * (np.max(n2) / np.max(kde_values2))
+            plt.plot(x_kde2, kde_scaled2, color=COLORS['accent'], linewidth=3, label='KDE')
+            
+            plt.title('📈 Phase Distribution', fontweight='bold', pad=15)
+            plt.xlabel('Phase (degrees)', fontweight='bold')
+            plt.ylabel('Frequency', fontweight='bold')
+            plt.grid(True, alpha=0.3, color='#404040')
+            plt.legend()
+            
+            # Add statistics text
+            mean_phase = np.mean(phase.flatten())
+            std_phase = np.std(phase.flatten())
+            plt.text(0.02, 0.98, f'μ = {mean_phase:.1f}°\nσ = {std_phase:.1f}°', 
+                    transform=ax2.transAxes, va='top', fontsize=9,
+                    bbox=dict(boxstyle='round', facecolor='black', alpha=0.8))
+            
+            # 3. ENHANCED Measurement Correlation with Density
+            ax3 = plt.subplot(4, 5, 3)
+            
+            # Create 2D histogram for density visualization
+            plt.hist2d(log_amp.flatten()[::5], phase.flatten()[::5], bins=50, 
+                      cmap='plasma', alpha=0.8)
+            
+            # Add correlation line
+            z = np.polyfit(log_amp.flatten(), phase.flatten(), 1)
+            p = np.poly1d(z)
+            x_line = np.linspace(log_amp.min(), log_amp.max(), 100)
+            plt.plot(x_line, p(x_line), color=COLORS['accent'], linewidth=3, 
+                    linestyle='--', label=f'Trend (R²={np.corrcoef(log_amp.flatten(), phase.flatten())[0,1]**2:.3f})')
+            
+            plt.title('🎯 Log-Amplitude vs Phase Correlation', fontweight='bold', pad=15)
+            plt.xlabel('Log-Amplitude', fontweight='bold')
+            plt.ylabel('Phase (degrees)', fontweight='bold')
+            plt.grid(True, alpha=0.3, color='#404040')
+            plt.legend()
+            cbar = plt.colorbar(label='Density')
+            cbar.set_label('Measurement Density', fontweight='bold')
+            
+            # 4. NEW! Log-Amplitude vs SDS Analysis
+            ax4 = plt.subplot(4, 5, 4)
+            if len(distances) > 0:
+                # Create binned analysis
+                distance_bins = np.linspace(distances.min(), distances.max(), 20)
+                bin_centers = (distance_bins[:-1] + distance_bins[1:]) / 2
+                bin_means = []
+                bin_stds = []
+                
+                for i in range(len(distance_bins) - 1):
+                    mask = (distances >= distance_bins[i]) & (distances < distance_bins[i + 1])
+                    if np.sum(mask) > 0:
+                        bin_means.append(np.mean(log_amp_flat[mask]))
+                        bin_stds.append(np.std(log_amp_flat[mask]))
+                    else:
+                        bin_means.append(np.nan)
+                        bin_stds.append(np.nan)
+                
+                bin_means = np.array(bin_means)
+                bin_stds = np.array(bin_stds)
+                
+                # Plot scatter with color coding
+                scatter = plt.scatter(distances, log_amp_flat, c=phase_flat, 
+                                    cmap='viridis', alpha=0.6, s=20, edgecolors='white', linewidth=0.3)
+                
+                # Plot trend line with error bars
+                valid_mask = ~np.isnan(bin_means)
+                plt.errorbar(bin_centers[valid_mask], bin_means[valid_mask], 
+                           yerr=bin_stds[valid_mask], color=COLORS['accent'], 
+                           linewidth=3, capsize=5, label='Binned Mean ± SD')
+                
+                # Add exponential decay fit
+                from scipy.optimize import curve_fit
+                def exp_decay(x, a, b, c):
+                    return a * np.exp(-b * x) + c
+                
+                try:
+                    popt, _ = curve_fit(exp_decay, distances, log_amp_flat, 
+                                      p0=[1, 0.1, -20], maxfev=1000)
+                    x_fit = np.linspace(distances.min(), distances.max(), 100)
+                    y_fit = exp_decay(x_fit, *popt)
+                    plt.plot(x_fit, y_fit, color=COLORS['error'], linewidth=3, 
+                            linestyle='--', label='Exponential Fit')
+                except:
+                    pass
+                
+                plt.title('🚀 Log-Amplitude vs Source-Detector Separation', fontweight='bold', pad=15)
+                plt.xlabel('SDS Distance (mm)', fontweight='bold')
+                plt.ylabel('Log-Amplitude', fontweight='bold')
+                plt.grid(True, alpha=0.3, color='#404040')
+                plt.legend()
+                
+                cbar2 = plt.colorbar(scatter, label='Phase (°)')
+                cbar2.set_label('Phase (degrees)', fontweight='bold')
+            
+            # 5. NEW! Phase vs SDS Analysis
+            ax5 = plt.subplot(4, 5, 5)
+            if len(distances) > 0:
+                # Create binned analysis for phase
+                phase_bin_means = []
+                phase_bin_stds = []
+                
+                for i in range(len(distance_bins) - 1):
+                    mask = (distances >= distance_bins[i]) & (distances < distance_bins[i + 1])
+                    if np.sum(mask) > 0:
+                        phase_bin_means.append(np.mean(phase_flat[mask]))
+                        phase_bin_stds.append(np.std(phase_flat[mask]))
+                    else:
+                        phase_bin_means.append(np.nan)
+                        phase_bin_stds.append(np.nan)
+                
+                phase_bin_means = np.array(phase_bin_means)
+                phase_bin_stds = np.array(phase_bin_stds)
+                
+                # Plot scatter with color coding by log-amplitude
+                scatter2 = plt.scatter(distances, phase_flat, c=log_amp_flat, 
+                                     cmap='plasma', alpha=0.6, s=20, edgecolors='white', linewidth=0.3)
+                
+                # Plot trend line with error bars
+                valid_mask2 = ~np.isnan(phase_bin_means)
+                plt.errorbar(bin_centers[valid_mask2], phase_bin_means[valid_mask2], 
+                           yerr=phase_bin_stds[valid_mask2], color=COLORS['success'], 
+                           linewidth=3, capsize=5, label='Binned Mean ± SD')
+                
+                # Add linear fit for phase
+                z_phase = np.polyfit(distances, phase_flat, 1)
+                p_phase = np.poly1d(z_phase)
+                x_line_phase = np.linspace(distances.min(), distances.max(), 100)
+                plt.plot(x_line_phase, p_phase(x_line_phase), color=COLORS['warning'], 
+                        linewidth=3, linestyle='--', 
+                        label=f'Linear Fit (slope={z_phase[0]:.2f}°/mm)')
+                
+                plt.title('🚀 Phase vs Source-Detector Separation', fontweight='bold', pad=15)
+                plt.xlabel('SDS Distance (mm)', fontweight='bold')
+                plt.ylabel('Phase (degrees)', fontweight='bold')
+                plt.grid(True, alpha=0.3, color='#404040')
+                plt.legend()
+                
+                cbar3 = plt.colorbar(scatter2, label='Log-Amp')
+                cbar3.set_label('Log-Amplitude', fontweight='bold')
+            
+            # ═══════════════════════════════════════════════════════════════
+            # ROW 2: SPECTACULAR 3D GEOMETRY AND GROUND TRUTH
+            # ═══════════════════════════════════════════════════════════════
+            
+            # 6. ENHANCED 3D Probe Geometry
+            ax6 = plt.subplot(4, 5, 6, projection='3d')
+            ax6.set_facecolor('#1a1a1a')
+            
+            # Sources with enhanced styling
+            source_scatter = ax6.scatter(source_pos[:, 0], source_pos[:, 1], source_pos[:, 2], 
+                                       c=COLORS['source'], s=60, alpha=0.9, 
+                                       edgecolors='black', linewidth=1, label='Sources')
+            
+            # Detectors with enhanced styling
+            if len(det_pos.shape) == 3:
+                det_flat = det_pos.reshape(-1, 3)
+                det_colors = plt.cm.viridis(np.linspace(0, 1, len(det_flat)))
+                det_scatter = ax6.scatter(det_flat[:, 0], det_flat[:, 1], det_flat[:, 2], 
+                                        c=det_colors, s=25, alpha=0.7, 
+                                        edgecolors='white', linewidth=0.5, label='Detectors')
+                
+                # Add connection lines for first few probes
+                for i in range(min(5, len(source_pos))):
+                    src = source_pos[i]
+                    dets = det_pos[i]
+                    for det in dets:
+                        ax6.plot([src[0], det[0]], [src[1], det[1]], [src[2], det[2]], 
+                               color=COLORS['primary'], alpha=0.3, linewidth=1)
+            
+            ax6.set_title('🌐 3D Probe Geometry Network', fontweight='bold', pad=20)
+            ax6.set_xlabel('X (mm)', fontweight='bold')
+            ax6.set_ylabel('Y (mm)', fontweight='bold')
+            ax6.set_zlabel('Z (mm)', fontweight='bold')
+            ax6.legend()
+            
+            # Style the 3D plot
+            ax6.xaxis.pane.fill = False
+            ax6.yaxis.pane.fill = False
+            ax6.zaxis.pane.fill = False
+            ax6.grid(True, alpha=0.3)
+            
+            # 7-8. SPECTACULAR Ground Truth Maps
+            mua_map = gt_data[..., 0]
+            musp_map = gt_data[..., 1]
+            z_center = mua_map.shape[2] // 2
+            
+            # Enhanced μₐ map
+            ax7 = plt.subplot(4, 5, 7)
+            im7 = plt.imshow(mua_map[:, :, z_center], cmap='magma', aspect='equal', 
+                           interpolation='bilinear')
+            plt.title(f'🎯 Absorption Map μₐ (Z={z_center})', fontweight='bold', pad=15)
+            cbar7 = plt.colorbar(im7, label='μₐ (mm⁻¹)', shrink=0.8)
+            cbar7.set_label('μₐ (mm⁻¹)', fontweight='bold')
+            plt.xlabel('X (voxels)', fontweight='bold')
+            plt.ylabel('Y (voxels)', fontweight='bold')
+            
+            # Enhanced μ′s map
+            ax8 = plt.subplot(4, 5, 8)
+            im8 = plt.imshow(musp_map[:, :, z_center], cmap='plasma', aspect='equal', 
+                           interpolation='bilinear')
+            plt.title(f'🎯 Scattering Map μ′s (Z={z_center})', fontweight='bold', pad=15)
+            cbar8 = plt.colorbar(im8, label='μ′s (mm⁻¹)', shrink=0.8)
+            cbar8.set_label('μ′s (mm⁻¹)', fontweight='bold')
+            plt.xlabel('X (voxels)', fontweight='bold')
+            plt.ylabel('Y (voxels)', fontweight='bold')
+            
+            # 9. SPECTACULAR Distance Distribution
+            ax9 = plt.subplot(4, 5, 9)
+            if len(distances) > 0:
+                n_dist, bins_dist, patches_dist = plt.hist(distances, bins=30, alpha=0.8, 
+                                                          color=COLORS['success'], 
+                                                          edgecolor='white', linewidth=0.5)
+                
+                # Color gradient for bars
+                for i, patch in enumerate(patches_dist):
+                    patch.set_facecolor(plt.cm.viridis(i / len(patches_dist)))
+                
+                # Add vertical lines for constraints
+                plt.axvline(x=10, color=COLORS['warning'], linestyle='--', linewidth=3, 
+                           label='Min distance (10mm)', alpha=0.8)
+                plt.axvline(x=40, color=COLORS['error'], linestyle='--', linewidth=3, 
+                           label='Max distance (40mm)', alpha=0.8)
+                
+                # Add statistics
+                mean_dist = np.mean(distances)
+                std_dist = np.std(distances)
+                plt.axvline(x=mean_dist, color=COLORS['accent'], linewidth=3, 
+                           label=f'Mean ({mean_dist:.1f}mm)')
+                
+                plt.title('📏 Source-Detector Distance Distribution', fontweight='bold', pad=15)
+                plt.xlabel('Distance (mm)', fontweight='bold')
+                plt.ylabel('Frequency', fontweight='bold')
+                plt.legend()
+                plt.grid(True, alpha=0.3, color='#404040')
+                
+                # Add statistics text
+                plt.text(0.98, 0.98, f'μ = {mean_dist:.1f}mm\nσ = {std_dist:.1f}mm\nRange: {distances.min():.1f}-{distances.max():.1f}mm', 
+                        transform=ax9.transAxes, va='top', ha='right', fontsize=9,
+                        bbox=dict(boxstyle='round', facecolor='black', alpha=0.8))
+            
+            # 10. ENHANCED Tissue Type Distribution
+            ax10 = plt.subplot(4, 5, 10)
             unique_props = np.unique(gt_data.reshape(-1, 2), axis=0)
             tissue_counts = []
             tissue_labels = []
+            tissue_colors = []
             
             for i, (mua, musp) in enumerate(unique_props):
                 count = np.sum((mua_map == mua) & (musp_map == musp))
                 tissue_counts.append(count)
                 if mua == 0 and musp == 0:
                     tissue_labels.append('Air')
+                    tissue_colors.append(COLORS['air'])
                 else:
                     tissue_labels.append(f'Tissue {i}')
+                    tissue_colors.append(TISSUE_COLORS[i % len(TISSUE_COLORS)])
             
-            ax10 = plt.subplot(3, 4, 10)
-            plt.pie(tissue_counts, labels=tissue_labels, autopct='%1.1f%%')
-            plt.title('Tissue Type Distribution')
+            wedges, texts, autotexts = plt.pie(tissue_counts, labels=tissue_labels, 
+                                              autopct='%1.1f%%', colors=tissue_colors,
+                                              explode=[0.05] * len(tissue_counts),
+                                              shadow=True, startangle=90)
             
-            # 7. Measurement heatmap per probe
-            ax11 = plt.subplot(3, 4, 11)
-            im11 = plt.imshow(log_amp, aspect='auto', cmap='viridis')
-            plt.title('Log-Amplitude per Probe')
-            plt.xlabel('Detector')
-            plt.ylabel('Probe')
-            plt.colorbar(im11, label='Log-Amplitude')
+            # Enhance text
+            for text in texts:
+                text.set_fontweight('bold')
+                text.set_fontsize(9)
+            for autotext in autotexts:
+                autotext.set_color('white')
+                autotext.set_fontweight('bold')
+                autotext.set_fontsize(8)
             
-            ax12 = plt.subplot(3, 4, 12)
-            im12 = plt.imshow(phase, aspect='auto', cmap='RdYlBu')
+            plt.title('🧬 Tissue Type Distribution', fontweight='bold', pad=15)
+            
+            # ═══════════════════════════════════════════════════════════════
+            # ROW 3: ADVANCED MEASUREMENT ANALYSIS
+            # ═══════════════════════════════════════════════════════════════
+            
+            # 11. SPECTACULAR Measurement Heatmap - Log Amplitude
+            ax11 = plt.subplot(4, 5, 11)
+            im11 = plt.imshow(log_amp, aspect='auto', cmap='viridis', interpolation='bilinear')
+            plt.title('🔥 Log-Amplitude Heatmap per Probe', fontweight='bold', pad=15)
+            plt.xlabel('Detector Index', fontweight='bold')
+            plt.ylabel('Probe Index', fontweight='bold')
+            cbar11 = plt.colorbar(im11, label='Log-Amplitude', shrink=0.8)
+            cbar11.set_label('Log-Amplitude', fontweight='bold')
+            
+            # Add contour lines
+            X, Y = np.meshgrid(range(log_amp.shape[1]), range(log_amp.shape[0]))
+            contours = plt.contour(X, Y, log_amp, levels=8, colors='white', alpha=0.4, linewidths=0.5)
+            
+            # 12. SPECTACULAR Measurement Heatmap - Phase
+            ax12 = plt.subplot(4, 5, 12)
+            im12 = plt.imshow(phase, aspect='auto', cmap='RdYlBu_r', interpolation='bilinear')
+            plt.title('🔥 Phase Heatmap per Probe', fontweight='bold', pad=15)
+            plt.xlabel('Detector Index', fontweight='bold')
+            plt.ylabel('Probe Index', fontweight='bold')
+            cbar12 = plt.colorbar(im12, label='Phase (degrees)', shrink=0.8)
+            cbar12.set_label('Phase (degrees)', fontweight='bold')
+            
+            # Add contour lines
+            contours2 = plt.contour(X, Y, phase, levels=8, colors='white', alpha=0.4, linewidths=0.5)
+            
+            # 13. ADVANCED Statistical Summary
+            ax13 = plt.subplot(4, 5, 13)
+            ax13.axis('off')  # Turn off axes for text display
+            
+            # Calculate comprehensive statistics
+            stats_text = f"""
+    📊 COMPREHENSIVE STATISTICS
+    
+    🔢 Dataset Metrics:
+    • Total Measurements: {n_measurements:,}
+    • Number of Probes: {n_probes}
+    • Detectors per Probe: {log_amp.shape[1]}
+    
+    📈 Log-Amplitude Analysis:
+    • Range: [{log_amp.min():.2f}, {log_amp.max():.2f}]
+    • Mean ± SD: {log_amp.mean():.2f} ± {log_amp.std():.2f}
+    • Coefficient of Variation: {log_amp.std()/abs(log_amp.mean())*100:.1f}%
+    
+    🌊 Phase Analysis:
+    • Range: [{phase.min():.1f}°, {phase.max():.1f}°]
+    • Mean ± SD: {phase.mean():.1f}° ± {phase.std():.1f}°
+    • Circular Range: {(phase.max()-phase.min()):.1f}°
+    
+    📏 Distance Analysis:
+    • SDS Range: {distances.min():.1f} - {distances.max():.1f} mm
+    • Mean SDS: {distances.mean():.1f} ± {distances.std():.1f} mm
+    • Constraint Compliance: {np.sum((distances >= 10) & (distances <= 40))/len(distances)*100:.1f}%
+    
+    🎯 Ground Truth:
+    • Volume Shape: {gt_data.shape[:3]}
+    • Tissue Types: {len(unique_props) - 1}
+    • Tissue Coverage: {np.sum(mua_map > 0)/mua_map.size*100:.1f}%
+            """
+            
+            plt.text(0.05, 0.95, stats_text, transform=ax13.transAxes, 
+                    fontsize=9, va='top', ha='left', fontfamily='monospace',
+                    bbox=dict(boxstyle='round,pad=1', facecolor='#2d2d2d', alpha=0.9, edgecolor='#404040'))
+            
+            # 14. ADVANCED Measurement Quality Analysis
+            ax14 = plt.subplot(4, 5, 14)
+            
+            # Calculate SNR proxy (mean/std for each probe)
+            probe_snr = np.abs(log_amp.mean(axis=1)) / log_amp.std(axis=1)
+            probe_indices = np.arange(len(probe_snr))
+            
+            # Create quality visualization
+            colors = plt.cm.viridis(probe_snr / probe_snr.max())
+            bars = plt.bar(probe_indices[::10], probe_snr[::10], color=colors[::10], 
+                          alpha=0.8, edgecolor='white', linewidth=0.5)
+            
+            plt.title('📊 Measurement Quality per Probe', fontweight='bold', pad=15)
+            plt.xlabel('Probe Index (subsampled)', fontweight='bold')
+            plt.ylabel('Quality Score (μ/σ)', fontweight='bold')
+            plt.grid(True, alpha=0.3, color='#404040')
+            
+            # Add quality threshold line
+            quality_threshold = np.median(probe_snr)
+            plt.axhline(y=quality_threshold, color=COLORS['warning'], linestyle='--', 
+                       linewidth=2, label=f'Median Quality ({quality_threshold:.1f})')
+            plt.legend()
+            
+            # 15. ADVANCED Correlation Matrix
+            ax15 = plt.subplot(4, 5, 15)
+            
+            # Create correlation matrix between different measurement channels
+            if log_amp.shape[1] >= 3:
+                det_labels = [f'Det {i+1}' for i in range(log_amp.shape[1])]
+                corr_matrix = np.corrcoef(log_amp.T)
+                
+                im15 = plt.imshow(corr_matrix, cmap='RdBu_r', aspect='equal', 
+                                 vmin=-1, vmax=1, interpolation='bilinear')
+                
+                # Add correlation values as text
+                for i in range(len(det_labels)):
+                    for j in range(len(det_labels)):
+                        text = plt.text(j, i, f'{corr_matrix[i, j]:.2f}', 
+                                       ha='center', va='center', color='white' if abs(corr_matrix[i, j]) > 0.5 else 'black',
+                                       fontweight='bold', fontsize=8)
+                
+                plt.title('🔗 Detector Correlation Matrix', fontweight='bold', pad=15)
+                plt.xticks(range(len(det_labels)), det_labels, rotation=45)
+                plt.yticks(range(len(det_labels)), det_labels)
+                cbar15 = plt.colorbar(im15, label='Correlation', shrink=0.8)
+                cbar15.set_label('Correlation Coefficient', fontweight='bold')
+            
+            # ═══════════════════════════════════════════════════════════════
+            # ROW 4: ADVANCED ANALYSIS
+            # ═══════════════════════════════════════════════════════════════
+            
+            # 16-20. Additional advanced plots can be added here for even more analysis
+            
+            plt.tight_layout(pad=3.0)
+            
+            if save_plots:
+                output_dir = file_path.parent
+                plot_path = output_dir / f"{file_path.parent.name}_SPECTACULAR_analysis.png"
+                plt.savefig(plot_path, dpi=400, bbox_inches='tight', facecolor='#0d1117', 
+                           edgecolor='none', pad_inches=0.2)
+                print(f"🎨 SPECTACULAR VISUALIZATION SAVED: {plot_path}")
+                
+                # Also save a high-quality PDF version
+                pdf_path = output_dir / f"{file_path.parent.name}_SPECTACULAR_analysis.pdf"
+                plt.savefig(pdf_path, dpi=400, bbox_inches='tight', facecolor='#0d1117', 
+                           edgecolor='none', pad_inches=0.2, format='pdf')
+                print(f"📄 PDF VERSION SAVED: {pdf_path}")
+            
+            plt.show()
+            
+            return {
+                'n_measurements': n_measurements,
+                'n_probes': n_probes,
+                'sds_range': [distances.min(), distances.max()] if len(distances) > 0 else [0, 0],
+                'log_amp_stats': [log_amp.min(), log_amp.max(), log_amp.mean(), log_amp.std()],
+                'phase_stats': [phase.min(), phase.max(), phase.mean(), phase.std()],
+                'tissue_types': len(unique_props) - 1,
+                'visualization_saved': save_plots
+            }
             plt.title('Phase per Probe')
             plt.xlabel('Detector')
             plt.ylabel('Probe')
@@ -1207,8 +1606,463 @@ class NIRDatasetAnalyzer:
             
             plt.show()
 
+    def deep_single_analysis(self, file_path):
+        """
+        Comprehensive, detailed analysis of a single phantom dataset.
+        
+        This function performs an exhaustive examination of one phantom including:
+        - Complete dataset structure analysis
+        - Detailed statistical breakdown of all measurements
+        - Advanced quality assessment metrics
+        - Comprehensive metadata examination
+        - Tissue composition analysis
+        - Probe placement efficiency metrics
+        - Measurement distribution analysis with advanced statistics
+        - Ground truth validation and cross-correlation analysis
+        """
+        print(f"\n🔬 DEEP ANALYSIS: {file_path.parent.name}")
+        print("="*60)
+        
+        try:
+            with h5py.File(file_path, 'r') as f:
+                # ========================
+                # DATASET STRUCTURE & METADATA
+                # ========================
+                print("\n📋 DATASET STRUCTURE & METADATA")
+                print("-"*40)
+                
+                # File size analysis
+                file_size_mb = file_path.stat().st_size / (1024**2)
+                print(f"File size: {file_size_mb:.2f} MB")
+                
+                # Dataset dimensions
+                log_amplitude = f['log_amplitude'][:]
+                phase = f['phase'][:]
+                ground_truth = f['ground_truth'][:]
+                source_pos = f['source_pos'][:]
+                det_pos = f['det_pos'][:]
+                
+                n_probes = log_amplitude.shape[0]
+                n_detectors_per_probe = log_amplitude.shape[1]
+                total_measurements = n_probes * n_detectors_per_probe
+                
+                print(f"Probes: {n_probes}")
+                print(f"Detectors per probe: {n_detectors_per_probe}")
+                print(f"Total measurements: {total_measurements}")
+                print(f"Ground truth shape: {ground_truth.shape}")
+                
+                # Metadata analysis
+                print(f"\nMetadata:")
+                for key, value in f.attrs.items():
+                    print(f"  {key}: {value}")
+                
+                # ========================
+                # MEASUREMENT STATISTICS
+                # ========================
+                print(f"\n📊 COMPREHENSIVE MEASUREMENT STATISTICS")
+                print("-"*40)
+                
+                # Log amplitude analysis
+                log_amp_flat = log_amplitude.flatten()
+                print(f"Log Amplitude Statistics:")
+                print(f"  Range: [{log_amp_flat.min():.3f}, {log_amp_flat.max():.3f}]")
+                print(f"  Mean: {log_amp_flat.mean():.3f} ± {log_amp_flat.std():.3f}")
+                print(f"  Median: {np.median(log_amp_flat):.3f}")
+                print(f"  IQR: [{np.percentile(log_amp_flat, 25):.3f}, {np.percentile(log_amp_flat, 75):.3f}]")
+                print(f"  Skewness: {stats.skew(log_amp_flat):.3f}")
+                print(f"  Kurtosis: {stats.kurtosis(log_amp_flat):.3f}")
+                
+                # Phase analysis
+                phase_flat = phase.flatten()
+                print(f"\nPhase Statistics:")
+                print(f"  Range: [{phase_flat.min():.2f}°, {phase_flat.max():.2f}°]")
+                print(f"  Mean: {phase_flat.mean():.2f}° ± {phase_flat.std():.2f}°")
+                print(f"  Median: {np.median(phase_flat):.2f}°")
+                print(f"  IQR: [{np.percentile(phase_flat, 25):.2f}°, {np.percentile(phase_flat, 75):.2f}°]")
+                print(f"  Skewness: {stats.skew(phase_flat):.3f}")
+                print(f"  Kurtosis: {stats.kurtosis(phase_flat):.3f}")
+                
+                # ========================
+                # SOURCE-DETECTOR SEPARATION ANALYSIS
+                # ========================
+                print(f"\n📏 SOURCE-DETECTOR SEPARATION ANALYSIS")
+                print("-"*40)
+                
+                # Calculate all SDS distances
+                all_distances = []
+                for i in range(n_probes):
+                    source = source_pos[i]
+                    detectors = det_pos[i]  # 3 detectors for this source
+                    for detector in detectors:
+                        distance = np.linalg.norm(source - detector)
+                        all_distances.append(distance)
+                
+                all_distances = np.array(all_distances)
+                print(f"SDS Distance Statistics:")
+                print(f"  Count: {len(all_distances)} measurements")
+                print(f"  Range: [{all_distances.min():.1f}, {all_distances.max():.1f}] mm")
+                print(f"  Mean: {all_distances.mean():.1f} ± {all_distances.std():.1f} mm")
+                print(f"  Median: {np.median(all_distances):.1f} mm")
+                
+                # Distance distribution analysis
+                distance_bins = np.arange(10, 41, 2)  # 2mm bins from 10-40mm
+                hist, _ = np.histogram(all_distances, bins=distance_bins)
+                print(f"  Distribution uniformity (std of bin counts): {hist.std():.1f}")
+                
+                # ========================
+                # GROUND TRUTH ANALYSIS
+                # ========================
+                print(f"\n🎯 GROUND TRUTH OPTICAL PROPERTIES")
+                print("-"*40)
+                
+                # Absorption coefficient analysis
+                mua_map = ground_truth[:,:,:,0]
+                mua_nonzero = mua_map[mua_map > 0]  # Exclude air regions
+                print(f"Absorption Coefficient (μₐ):")
+                print(f"  Range: [{mua_nonzero.min():.4f}, {mua_nonzero.max():.4f}] mm⁻¹")
+                print(f"  Mean: {mua_nonzero.mean():.4f} ± {mua_nonzero.std():.4f} mm⁻¹")
+                print(f"  Unique values: {len(np.unique(mua_nonzero))}")
+                
+                # Scattering coefficient analysis
+                musp_map = ground_truth[:,:,:,1]
+                musp_nonzero = musp_map[musp_map > 0]
+                print(f"\nReduced Scattering (μ′s):")
+                print(f"  Range: [{musp_nonzero.min():.3f}, {musp_nonzero.max():.3f}] mm⁻¹")
+                print(f"  Mean: {musp_nonzero.mean():.3f} ± {musp_nonzero.std():.3f} mm⁻¹")
+                print(f"  Unique values: {len(np.unique(musp_nonzero))}")
+                
+                # ========================
+                # TISSUE COMPOSITION ANALYSIS
+                # ========================
+                if 'tissue_labels' in f:
+                    print(f"\n🧬 TISSUE COMPOSITION ANALYSIS")
+                    print("-"*40)
+                    
+                    tissue_labels = f['tissue_labels'][:]
+                    unique_labels, counts = np.unique(tissue_labels, return_counts=True)
+                    total_voxels = tissue_labels.size
+                    
+                    print(f"Tissue Distribution:")
+                    for label, count in zip(unique_labels, counts):
+                        percentage = count / total_voxels * 100
+                        if label == 0:
+                            print(f"  Air: {count:,} voxels ({percentage:.1f}%)")
+                        elif label == 1:
+                            print(f"  Healthy tissue: {count:,} voxels ({percentage:.1f}%)")
+                        else:
+                            tumor_num = label - 1
+                            print(f"  Tumor {tumor_num}: {count:,} voxels ({percentage:.1f}%)")
+                    
+                    # Tissue coverage analysis
+                    tissue_voxels = np.sum(tissue_labels > 0)
+                    tissue_coverage = tissue_voxels / total_voxels * 100
+                    print(f"\nTissue Coverage: {tissue_coverage:.1f}%")
+                
+                # ========================
+                # MEASUREMENT QUALITY ASSESSMENT
+                # ========================
+                print(f"\n🎯 MEASUREMENT QUALITY ASSESSMENT")
+                print("-"*40)
+                
+                # Signal dynamic range
+                amp_dynamic_range = log_amp_flat.max() - log_amp_flat.min()
+                print(f"Log-amplitude dynamic range: {amp_dynamic_range:.2f}")
+                
+                # Phase wrapping check
+                phase_range = phase_flat.max() - phase_flat.min()
+                print(f"Phase range: {phase_range:.1f}° (wrapping if > 360°)")
+                
+                # Measurement correlation analysis
+                probe_correlations = []
+                for i in range(min(10, n_probes)):  # Sample first 10 probes
+                    probe_data = np.concatenate([log_amplitude[i], phase[i]])
+                    for j in range(i+1, min(10, n_probes)):
+                        other_probe_data = np.concatenate([log_amplitude[j], phase[j]])
+                        correlation = np.corrcoef(probe_data, other_probe_data)[0,1]
+                        probe_correlations.append(correlation)
+                
+                if probe_correlations:
+                    mean_correlation = np.mean(probe_correlations)
+                    print(f"Inter-probe correlation: {mean_correlation:.3f} (lower is better for diversity)")
+                
+                # ========================
+                # ADVANCED STATISTICS
+                # ========================
+                print(f"\n📈 ADVANCED STATISTICAL ANALYSIS")
+                print("-"*40)
+                
+                # Normality tests
+                _, log_amp_p_value = stats.normaltest(log_amp_flat[:1000])  # Sample for speed
+                _, phase_p_value = stats.normaltest(phase_flat[:1000])
+                
+                print(f"Normality tests (p-values):")
+                print(f"  Log amplitude: {log_amp_p_value:.2e} ({'Normal' if log_amp_p_value > 0.05 else 'Non-normal'})")
+                print(f"  Phase: {phase_p_value:.2e} ({'Normal' if phase_p_value > 0.05 else 'Non-normal'})")
+                
+                # Outlier detection
+                def detect_outliers(data, method='iqr'):
+                    if method == 'iqr':
+                        q1, q3 = np.percentile(data, [25, 75])
+                        iqr = q3 - q1
+                        lower = q1 - 1.5 * iqr
+                        upper = q3 + 1.5 * iqr
+                        return np.sum((data < lower) | (data > upper))
+                    elif method == 'zscore':
+                        z_scores = np.abs(stats.zscore(data))
+                        return np.sum(z_scores > 3)
+                
+                log_amp_outliers = detect_outliers(log_amp_flat)
+                phase_outliers = detect_outliers(phase_flat)
+                
+                print(f"\nOutlier detection (IQR method):")
+                print(f"  Log amplitude outliers: {log_amp_outliers} ({log_amp_outliers/len(log_amp_flat)*100:.2f}%)")
+                print(f"  Phase outliers: {phase_outliers} ({phase_outliers/len(phase_flat)*100:.2f}%)")
+                
+                print(f"\n✅ DEEP ANALYSIS COMPLETE")
+                print(f"Dataset: {file_path.parent.name} shows {'EXCELLENT' if log_amp_outliers/len(log_amp_flat) < 0.05 else 'GOOD' if log_amp_outliers/len(log_amp_flat) < 0.1 else 'ACCEPTABLE'} quality")
+                
+        except Exception as e:
+            print(f"❌ Error during deep analysis: {e}")
+
+    def cross_dataset_analysis(self):
+        """
+        Comprehensive analysis across all available phantom datasets.
+        
+        This function performs cross-dataset comparative analysis including:
+        - Statistical comparisons between phantoms
+        - Dataset consistency validation
+        - Cross-phantom averages and standard deviations
+        - Measurement quality trends across the dataset
+        - Tissue composition diversity analysis
+        - Probe placement pattern analysis
+        - Dataset-wide outlier detection
+        - Training data suitability assessment
+        """
+        print(f"\n🔍 CROSS-DATASET COMPARATIVE ANALYSIS")
+        print("="*60)
+        print(f"Analyzing {len(self.phantom_files)} phantom datasets...")
+        
+        # Storage for cross-dataset statistics
+        dataset_stats = {
+            'phantom_names': [],
+            'n_probes': [],
+            'log_amp_ranges': [],
+            'log_amp_means': [],
+            'log_amp_stds': [],
+            'phase_ranges': [],
+            'phase_means': [],
+            'phase_stds': [],
+            'sds_means': [],
+            'sds_stds': [],
+            'tissue_coverages': [],
+            'n_tumors': [],
+            'file_sizes_mb': []
+        }
+        
+        print(f"\n📊 COLLECTING DATASET STATISTICS")
+        print("-"*40)
+        
+        for i, file_path in enumerate(self.phantom_files):
+            phantom_name = file_path.parent.name
+            print(f"Processing {phantom_name}... ({i+1}/{len(self.phantom_files)})")
+            
+            try:
+                with h5py.File(file_path, 'r') as f:
+                    # Basic dataset info
+                    dataset_stats['phantom_names'].append(phantom_name)
+                    dataset_stats['file_sizes_mb'].append(file_path.stat().st_size / (1024**2))
+                    
+                    # Load measurement data
+                    log_amplitude = f['log_amplitude'][:]
+                    phase = f['phase'][:]
+                    source_pos = f['source_pos'][:]
+                    det_pos = f['det_pos'][:]
+                    
+                    n_probes = log_amplitude.shape[0]
+                    dataset_stats['n_probes'].append(n_probes)
+                    
+                    # Log amplitude statistics
+                    log_amp_flat = log_amplitude.flatten()
+                    dataset_stats['log_amp_ranges'].append(log_amp_flat.max() - log_amp_flat.min())
+                    dataset_stats['log_amp_means'].append(log_amp_flat.mean())
+                    dataset_stats['log_amp_stds'].append(log_amp_flat.std())
+                    
+                    # Phase statistics
+                    phase_flat = phase.flatten()
+                    dataset_stats['phase_ranges'].append(phase_flat.max() - phase_flat.min())
+                    dataset_stats['phase_means'].append(phase_flat.mean())
+                    dataset_stats['phase_stds'].append(phase_flat.std())
+                    
+                    # SDS statistics
+                    all_distances = []
+                    for j in range(n_probes):
+                        source = source_pos[j]
+                        detectors = det_pos[j]
+                        for detector in detectors:
+                            distance = np.linalg.norm(source - detector)
+                            all_distances.append(distance)
+                    
+                    all_distances = np.array(all_distances)
+                    dataset_stats['sds_means'].append(all_distances.mean())
+                    dataset_stats['sds_stds'].append(all_distances.std())
+                    
+                    # Tissue composition
+                    if 'tissue_labels' in f:
+                        tissue_labels = f['tissue_labels'][:]
+                        unique_labels = np.unique(tissue_labels)
+                        tissue_voxels = np.sum(tissue_labels > 0)
+                        tissue_coverage = tissue_voxels / tissue_labels.size * 100
+                        dataset_stats['tissue_coverages'].append(tissue_coverage)
+                        
+                        # Count tumors (labels >= 2)
+                        n_tumors = len(unique_labels[unique_labels >= 2])
+                        dataset_stats['n_tumors'].append(n_tumors)
+                    else:
+                        dataset_stats['tissue_coverages'].append(0)
+                        dataset_stats['n_tumors'].append(0)
+                        
+            except Exception as e:
+                print(f"  ⚠️ Error processing {phantom_name}: {e}")
+                # Fill with NaN for failed datasets
+                for key in dataset_stats.keys():
+                    if key != 'phantom_names':
+                        dataset_stats[key].append(np.nan)
+        
+        # Convert to numpy arrays for analysis
+        for key, values in dataset_stats.items():
+            if key != 'phantom_names':
+                dataset_stats[key] = np.array(values)
+        
+        # ========================
+        # CROSS-DATASET STATISTICS
+        # ========================
+        print(f"\n📈 CROSS-DATASET STATISTICAL SUMMARY")
+        print("="*50)
+        
+        # Remove NaN values for statistics
+        valid_indices = ~np.isnan(dataset_stats['n_probes'])
+        n_valid = np.sum(valid_indices)
+        
+        print(f"Successfully analyzed: {n_valid}/{len(self.phantom_files)} datasets")
+        
+        if n_valid > 0:
+            print(f"\nProbe Configuration:")
+            print(f"  Mean probes per phantom: {np.nanmean(dataset_stats['n_probes']):.1f} ± {np.nanstd(dataset_stats['n_probes']):.1f}")
+            print(f"  Range: [{np.nanmin(dataset_stats['n_probes']):.0f}, {np.nanmax(dataset_stats['n_probes']):.0f}]")
+            
+            print(f"\nLog Amplitude Consistency:")
+            print(f"  Mean across datasets: {np.nanmean(dataset_stats['log_amp_means']):.3f} ± {np.nanstd(dataset_stats['log_amp_means']):.3f}")
+            print(f"  Dynamic range consistency: {np.nanmean(dataset_stats['log_amp_ranges']):.3f} ± {np.nanstd(dataset_stats['log_amp_ranges']):.3f}")
+            print(f"  Variability consistency: {np.nanmean(dataset_stats['log_amp_stds']):.3f} ± {np.nanstd(dataset_stats['log_amp_stds']):.3f}")
+            
+            print(f"\nPhase Consistency:")
+            print(f"  Mean across datasets: {np.nanmean(dataset_stats['phase_means']):.2f}° ± {np.nanstd(dataset_stats['phase_means']):.2f}°")
+            print(f"  Range consistency: {np.nanmean(dataset_stats['phase_ranges']):.2f}° ± {np.nanstd(dataset_stats['phase_ranges']):.2f}°")
+            print(f"  Variability consistency: {np.nanmean(dataset_stats['phase_stds']):.2f}° ± {np.nanstd(dataset_stats['phase_stds']):.2f}°")
+            
+            print(f"\nSource-Detector Separation:")
+            print(f"  Mean SDS across datasets: {np.nanmean(dataset_stats['sds_means']):.1f} ± {np.nanstd(dataset_stats['sds_means']):.1f} mm")
+            print(f"  SDS variability: {np.nanmean(dataset_stats['sds_stds']):.1f} ± {np.nanstd(dataset_stats['sds_stds']):.1f} mm")
+            
+            print(f"\nTissue Composition Diversity:")
+            print(f"  Mean tissue coverage: {np.nanmean(dataset_stats['tissue_coverages']):.1f}% ± {np.nanstd(dataset_stats['tissue_coverages']):.1f}%")
+            print(f"  Coverage range: [{np.nanmin(dataset_stats['tissue_coverages']):.1f}%, {np.nanmax(dataset_stats['tissue_coverages']):.1f}%]")
+            print(f"  Mean tumors per phantom: {np.nanmean(dataset_stats['n_tumors']):.1f} ± {np.nanstd(dataset_stats['n_tumors']):.1f}")
+            print(f"  Tumor range: [{np.nanmin(dataset_stats['n_tumors']):.0f}, {np.nanmax(dataset_stats['n_tumors']):.0f}]")
+            
+            print(f"\nDataset Storage:")
+            print(f"  Mean file size: {np.nanmean(dataset_stats['file_sizes_mb']):.1f} ± {np.nanstd(dataset_stats['file_sizes_mb']):.1f} MB")
+            print(f"  Total dataset size: {np.nansum(dataset_stats['file_sizes_mb']):.1f} MB")
+        
+        # ========================
+        # CONSISTENCY ANALYSIS
+        # ========================
+        print(f"\n🎯 DATASET CONSISTENCY ANALYSIS")
+        print("-"*40)
+        
+        if n_valid > 1:
+            # Coefficient of variation (CV) analysis
+            def cv(data):
+                return np.nanstd(data) / np.nanmean(data) * 100 if np.nanmean(data) != 0 else 0
+            
+            print(f"Coefficient of Variation (lower = more consistent):")
+            print(f"  Probe count CV: {cv(dataset_stats['n_probes']):.1f}%")
+            print(f"  Log amplitude mean CV: {cv(dataset_stats['log_amp_means']):.1f}%")
+            print(f"  Phase mean CV: {cv(dataset_stats['phase_means']):.1f}%")
+            print(f"  SDS mean CV: {cv(dataset_stats['sds_means']):.1f}%")
+            print(f"  Tissue coverage CV: {cv(dataset_stats['tissue_coverages']):.1f}%")
+            
+            # Outlier detection across datasets
+            def detect_dataset_outliers(data, name):
+                if len(data) > 3:  # Need at least 4 datasets for meaningful outlier detection
+                    z_scores = np.abs(stats.zscore(data[~np.isnan(data)]))
+                    outliers = np.sum(z_scores > 2)  # More lenient threshold for small dataset
+                    if outliers > 0:
+                        print(f"  {name}: {outliers} outlier dataset(s)")
+                        outlier_indices = np.where(z_scores > 2)[0]
+                        for idx in outlier_indices:
+                            valid_phantom_names = [name for i, name in enumerate(dataset_stats['phantom_names']) if valid_indices[i]]
+                            if idx < len(valid_phantom_names):
+                                print(f"    - {valid_phantom_names[idx]}")
+            
+            print(f"\nOutlier Dataset Detection:")
+            detect_dataset_outliers(dataset_stats['log_amp_means'], "Log amplitude")
+            detect_dataset_outliers(dataset_stats['phase_means'], "Phase")
+            detect_dataset_outliers(dataset_stats['sds_means'], "SDS")
+            detect_dataset_outliers(dataset_stats['tissue_coverages'], "Tissue coverage")
+        
+        # ========================
+        # TRAINING SUITABILITY ASSESSMENT
+        # ========================
+        print(f"\n🎓 MACHINE LEARNING TRAINING SUITABILITY")
+        print("-"*40)
+        
+        if n_valid > 0:
+            total_measurements = np.nansum(dataset_stats['n_probes']) * 3  # 3 detectors per probe
+            print(f"Total training measurements: {total_measurements:,}")
+            
+            # Diversity assessment
+            tissue_diversity = np.nanstd(dataset_stats['tissue_coverages'])
+            sds_diversity = np.nanstd(dataset_stats['sds_means'])
+            
+            print(f"Dataset diversity scores:")
+            print(f"  Tissue coverage diversity: {tissue_diversity:.1f}% (higher is better)")
+            print(f"  SDS diversity: {sds_diversity:.1f} mm (higher is better)")
+            
+            # Quality assessment
+            mean_consistency = np.mean([
+                cv(dataset_stats['log_amp_means']),
+                cv(dataset_stats['phase_means'])
+            ])
+            
+            print(f"  Measurement consistency: {mean_consistency:.1f}% CV (lower is better)")
+            
+            # Overall assessment
+            if total_measurements > 5000 and tissue_diversity > 2 and mean_consistency < 10:
+                assessment = "EXCELLENT"
+            elif total_measurements > 2000 and tissue_diversity > 1 and mean_consistency < 20:
+                assessment = "GOOD"
+            elif total_measurements > 1000:
+                assessment = "ACCEPTABLE"
+            else:
+                assessment = "INSUFFICIENT"
+            
+            print(f"\nOverall training suitability: {assessment}")
+            
+            if assessment == "EXCELLENT":
+                print("  ✅ Dataset is ready for robust ML training")
+            elif assessment == "GOOD":
+                print("  ✅ Dataset is suitable for ML training")
+            elif assessment == "ACCEPTABLE":
+                print("  ⚠️ Dataset may work but consider generating more phantoms")
+            else:
+                print("  ❌ Dataset needs significant expansion for reliable training")
+        
+        print(f"\n✅ CROSS-DATASET ANALYSIS COMPLETE")
+        print(f"Analyzed {n_valid} phantom datasets with comprehensive statistics")
+
 def main():
-    """Main function to run comprehensive dataset analysis."""
+    """Main function to run comprehensive dataset analysis with 3 focused options."""
     
     print("🧬 NIR PHANTOM DATASET ANALYZER")
     print("="*50)
@@ -1222,48 +2076,57 @@ def main():
         print("❌ No datasets found. Please run the data simulator first.")
         return
     
-    # Analysis options
-    print("\n📋 Analysis Options:")
-    print("1. Analyze single dataset (detailed)")
-    print("2. Analyze all datasets (summary)")
-    print("3. Visualize single dataset")
-    print("4. Full analysis with visualizations")
+    # Streamlined analysis options
+    print("\n📋 NIR Dataset Analysis Options:")
+    print("1. 🔬 Deep Single Dataset Analysis (comprehensive phantom examination)")
+    print("2. 📊 Spectacular Visualizations (enhanced plots and 3D rendering)")  
+    print("3. 🔍 Cross-Dataset Comparative Analysis (analyze all phantoms together)")
     
-    choice = input("\nSelect option (1-4): ").strip()
+    choice = input("\nSelect option (1-3): ").strip()
     
     if choice == "1":
-        print("\nAvailable datasets:")
+        # OPTION 1: Deep Single Dataset Analysis
+        print("\n🔬 DEEP SINGLE DATASET ANALYSIS")
+        print("="*40)
+        print("Available datasets:")
         for i, file_path in enumerate(analyzer.phantom_files):
             print(f"   {i+1}. {file_path.parent.name}")
         
         try:
             idx = int(input(f"Select dataset (1-{len(analyzer.phantom_files)}): ")) - 1
-            analyzer.analyze_single_dataset(analyzer.phantom_files[idx], detailed=True)
+            selected_file = analyzer.phantom_files[idx]
+            
+            print(f"\n🔍 Performing comprehensive analysis of {selected_file.parent.name}...")
+            analyzer.deep_single_analysis(selected_file)
+            
         except (ValueError, IndexError):
             print("❌ Invalid selection")
     
     elif choice == "2":
-        analyzer.analyze_all_datasets()
-    
-    elif choice == "3":
-        print("\nAvailable datasets:")
+        # OPTION 2: Spectacular Visualizations
+        print("\n📊 SPECTACULAR VISUALIZATIONS")
+        print("="*40)
+        print("Available datasets:")
         for i, file_path in enumerate(analyzer.phantom_files):
             print(f"   {i+1}. {file_path.parent.name}")
         
         try:
             idx = int(input(f"Select dataset (1-{len(analyzer.phantom_files)}): ")) - 1
-            analyzer.visualize_dataset(analyzer.phantom_files[idx])
+            selected_file = analyzer.phantom_files[idx]
+            
+            print(f"\n🎨 Creating spectacular visualizations for {selected_file.parent.name}...")
+            analyzer.visualize_dataset(selected_file)
+            
         except (ValueError, IndexError):
             print("❌ Invalid selection")
     
-    elif choice == "4":
-        print("\n🚀 Running full analysis...")
-        all_results = analyzer.analyze_all_datasets()
+    elif choice == "3":
+        # OPTION 3: Cross-Dataset Comparative Analysis
+        print("\n🔍 CROSS-DATASET COMPARATIVE ANALYSIS")
+        print("="*40)
+        print(f"Analyzing {len(analyzer.phantom_files)} phantom datasets...")
         
-        # Visualize first dataset as example
-        if analyzer.phantom_files:
-            print(f"\n📊 Creating visualizations for {analyzer.phantom_files[0].parent.name}...")
-            analyzer.visualize_dataset(analyzer.phantom_files[0])
+        analyzer.cross_dataset_analysis()
     
     else:
         print("❌ Invalid option selected")
