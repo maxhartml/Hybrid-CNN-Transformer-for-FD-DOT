@@ -225,8 +225,8 @@ class NIRDatasetAnalyzer:
                         'log_amplitude': f['log_amplitude'][:],
                         'phase': f['phase'][:],
                         'ground_truth': f['ground_truth'][:],
-                        'source_pos': f['source_pos'][:],
-                        'det_pos': f['det_pos'][:],
+                        'source_pos': f['source_positions'][:],
+                        'det_pos': f['detector_positions'][:],
                         'file_size_mb': file_path.stat().st_size / (1024**2),
                         'datasets': list(f.keys()),
                         'attributes': dict(f.attrs) if f.attrs else {}
@@ -856,8 +856,8 @@ class NIRDatasetAnalyzer:
     def _analyze_geometry(self, hdf5_file, results):
         """Analyze source and detector geometric configurations."""
         
-        source_pos = hdf5_file['source_pos'][:]
-        det_pos = hdf5_file['det_pos'][:]
+        source_pos = hdf5_file['source_positions'][:]
+        det_pos = hdf5_file['detector_positions'][:]
         
         print(f"📐 Geometric Configuration:")
         print(f"   Source positions shape: {source_pos.shape}")
@@ -924,8 +924,8 @@ class NIRDatasetAnalyzer:
         # Check data consistency
         log_amp = hdf5_file['log_amplitude'][:]
         phase = hdf5_file['phase'][:]
-        source_pos = hdf5_file['source_pos'][:]
-        det_pos = hdf5_file['det_pos'][:]
+        source_pos = hdf5_file['source_positions'][:]
+        det_pos = hdf5_file['detector_positions'][:]
         
         # Shape consistency
         if log_amp.shape != phase.shape:
@@ -1098,8 +1098,8 @@ class NIRDatasetAnalyzer:
             # Load data
             log_amp = f['log_amplitude'][:]
             phase = f['phase'][:]
-            source_pos = f['source_pos'][:]
-            det_pos = f['det_pos'][:]
+            source_pos = f['source_positions'][:]
+            det_pos = f['detector_positions'][:]
             gt_data = f['ground_truth'][:]
             
             # Calculate source-detector distances for SDS analysis
@@ -1192,22 +1192,22 @@ class NIRDatasetAnalyzer:
             # 3. ENHANCED Measurement Correlation with Density
             ax3 = plt.subplot(4, 5, 3)
             
-            # Create 2D histogram for density visualization
-            plt.hist2d(log_amp.flatten()[::5], phase.flatten()[::5], bins=50, 
-                      cmap='plasma', alpha=0.8)
+            # Create clean 2D histogram for density visualization
+            plt.hist2d(log_amp.flatten()[::5], phase.flatten()[::5], bins=40, 
+                      cmap='plasma', alpha=0.7)
             
-            # Add correlation line
+            # Add clean correlation line
             z = np.polyfit(log_amp.flatten(), phase.flatten(), 1)
             p = np.poly1d(z)
             x_line = np.linspace(log_amp.min(), log_amp.max(), 100)
             plt.plot(x_line, p(x_line), color=COLORS['accent'], linewidth=3, 
-                    linestyle='--', label=f'Trend (R²={np.corrcoef(log_amp.flatten(), phase.flatten())[0,1]**2:.3f})')
+                    linestyle='--', label=f'Linear Trend (R²={np.corrcoef(log_amp.flatten(), phase.flatten())[0,1]**2:.3f})')
             
             plt.title('🎯 Log-Amplitude vs Phase Correlation', fontweight='bold', pad=15)
             plt.xlabel('Log-Amplitude', fontweight='bold')
             plt.ylabel('Phase (degrees)', fontweight='bold')
-            plt.grid(True, alpha=0.3, color='#404040')
-            plt.legend()
+            plt.grid(True, alpha=0.2, color='#404040')
+            plt.legend(loc='upper right', framealpha=0.9)
             cbar = plt.colorbar(label='Density')
             cbar.set_label('Measurement Density', fontweight='bold')
             
@@ -1232,36 +1232,29 @@ class NIRDatasetAnalyzer:
                 bin_means = np.array(bin_means)
                 bin_stds = np.array(bin_stds)
                 
-                # Plot scatter with color coding
+                # Plot clean scatter with subtle styling
                 scatter = plt.scatter(distances, log_amp_flat, c=phase_flat, 
-                                    cmap='viridis', alpha=0.6, s=20, edgecolors='white', linewidth=0.3)
+                                    cmap='viridis', alpha=0.4, s=15, edgecolors='none')
                 
-                # Plot trend line with error bars
+                # Add clean linear trend line
+                z_amp = np.polyfit(distances, log_amp_flat, 1)
+                p_amp = np.poly1d(z_amp)
+                x_line_amp = np.linspace(distances.min(), distances.max(), 100)
+                plt.plot(x_line_amp, p_amp(x_line_amp), color=COLORS['accent'], 
+                        linewidth=3, linestyle='--', 
+                        label=f'Linear Trend (slope={z_amp[0]:.3f})')
+                
+                # Add subtle binned means without error bars for cleaner look
                 valid_mask = ~np.isnan(bin_means)
-                plt.errorbar(bin_centers[valid_mask], bin_means[valid_mask], 
-                           yerr=bin_stds[valid_mask], color=COLORS['accent'], 
-                           linewidth=3, capsize=5, label='Binned Mean ± SD')
-                
-                # Add exponential decay fit
-                from scipy.optimize import curve_fit
-                def exp_decay(x, a, b, c):
-                    return a * np.exp(-b * x) + c
-                
-                try:
-                    popt, _ = curve_fit(exp_decay, distances, log_amp_flat, 
-                                      p0=[1, 0.1, -20], maxfev=1000)
-                    x_fit = np.linspace(distances.min(), distances.max(), 100)
-                    y_fit = exp_decay(x_fit, *popt)
-                    plt.plot(x_fit, y_fit, color=COLORS['error'], linewidth=3, 
-                            linestyle='--', label='Exponential Fit')
-                except:
-                    pass
+                plt.plot(bin_centers[valid_mask], bin_means[valid_mask], 
+                        color=COLORS['primary'], linewidth=2, marker='o', 
+                        markersize=6, alpha=0.8, label='Binned Means')
                 
                 plt.title('🚀 Log-Amplitude vs Source-Detector Separation', fontweight='bold', pad=15)
                 plt.xlabel('SDS Distance (mm)', fontweight='bold')
                 plt.ylabel('Log-Amplitude', fontweight='bold')
-                plt.grid(True, alpha=0.3, color='#404040')
-                plt.legend()
+                plt.grid(True, alpha=0.2, color='#404040')
+                plt.legend(loc='upper right', framealpha=0.9)
                 
                 cbar2 = plt.colorbar(scatter, label='Phase (°)')
                 cbar2.set_label('Phase (degrees)', fontweight='bold')
@@ -1285,15 +1278,15 @@ class NIRDatasetAnalyzer:
                 phase_bin_means = np.array(phase_bin_means)
                 phase_bin_stds = np.array(phase_bin_stds)
                 
-                # Plot scatter with color coding by log-amplitude
+                # Plot clean scatter with subtle styling
                 scatter2 = plt.scatter(distances, phase_flat, c=log_amp_flat, 
-                                     cmap='plasma', alpha=0.6, s=20, edgecolors='white', linewidth=0.3)
+                                     cmap='plasma', alpha=0.4, s=15, edgecolors='none')
                 
-                # Plot trend line with error bars
+                # Add clean binned means without error bars for less clutter
                 valid_mask2 = ~np.isnan(phase_bin_means)
-                plt.errorbar(bin_centers[valid_mask2], phase_bin_means[valid_mask2], 
-                           yerr=phase_bin_stds[valid_mask2], color=COLORS['success'], 
-                           linewidth=3, capsize=5, label='Binned Mean ± SD')
+                plt.plot(bin_centers[valid_mask2], phase_bin_means[valid_mask2], 
+                        color=COLORS['primary'], linewidth=2, marker='o', 
+                        markersize=6, alpha=0.8, label='Binned Means')
                 
                 # Add linear fit for phase
                 z_phase = np.polyfit(distances, phase_flat, 1)
@@ -1301,13 +1294,13 @@ class NIRDatasetAnalyzer:
                 x_line_phase = np.linspace(distances.min(), distances.max(), 100)
                 plt.plot(x_line_phase, p_phase(x_line_phase), color=COLORS['warning'], 
                         linewidth=3, linestyle='--', 
-                        label=f'Linear Fit (slope={z_phase[0]:.2f}°/mm)')
+                        label=f'Linear Trend (slope={z_phase[0]:.2f}°/mm)')
                 
                 plt.title('🚀 Phase vs Source-Detector Separation', fontweight='bold', pad=15)
                 plt.xlabel('SDS Distance (mm)', fontweight='bold')
                 plt.ylabel('Phase (degrees)', fontweight='bold')
-                plt.grid(True, alpha=0.3, color='#404040')
-                plt.legend()
+                plt.grid(True, alpha=0.2, color='#404040')
+                plt.legend(loc='upper right', framealpha=0.9)
                 
                 cbar3 = plt.colorbar(scatter2, label='Log-Amp')
                 cbar3.set_label('Log-Amplitude', fontweight='bold')
@@ -1573,12 +1566,6 @@ class NIRDatasetAnalyzer:
                 plt.savefig(plot_path, dpi=400, bbox_inches='tight', facecolor='#0d1117', 
                            edgecolor='none', pad_inches=0.2)
                 print(f"🎨 SPECTACULAR VISUALIZATION SAVED: {plot_path}")
-                
-                # Also save a high-quality PDF version
-                pdf_path = output_dir / f"{file_path.parent.name}_SPECTACULAR_analysis.pdf"
-                plt.savefig(pdf_path, dpi=400, bbox_inches='tight', facecolor='#0d1117', 
-                           edgecolor='none', pad_inches=0.2, format='pdf')
-                print(f"📄 PDF VERSION SAVED: {pdf_path}")
             
             plt.show()
             
@@ -1639,8 +1626,8 @@ class NIRDatasetAnalyzer:
                 log_amplitude = f['log_amplitude'][:]
                 phase = f['phase'][:]
                 ground_truth = f['ground_truth'][:]
-                source_pos = f['source_pos'][:]
-                det_pos = f['det_pos'][:]
+                source_pos = f['source_positions'][:]
+                det_pos = f['detector_positions'][:]
                 
                 n_probes = log_amplitude.shape[0]
                 n_detectors_per_probe = log_amplitude.shape[1]
@@ -1875,8 +1862,8 @@ class NIRDatasetAnalyzer:
                     # Load measurement data
                     log_amplitude = f['log_amplitude'][:]
                     phase = f['phase'][:]
-                    source_pos = f['source_pos'][:]
-                    det_pos = f['det_pos'][:]
+                    source_pos = f['source_positions'][:]
+                    det_pos = f['detector_positions'][:]
                     
                     n_probes = log_amplitude.shape[0]
                     dataset_stats['n_probes'].append(n_probes)
