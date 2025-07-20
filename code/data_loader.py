@@ -66,8 +66,8 @@ TEST_RATIO = 0.05                                 # 5% for testing
 H5_KEYS = {
     'log_amplitude': 'log_amplitude',             # (N_probes, 3) log-amplitude measurements
     'phase': 'phase',                             # (N_probes, 3) phase measurements  
-    'source_pos': 'source_pos',                   # (N_probes, 3) source coordinates
-    'det_pos': 'det_pos',                         # (N_probes, 3, 3) detector coordinates
+    'source_pos': 'source_positions',             # (N_probes, 3) source coordinates
+    'det_pos': 'detector_positions',              # (N_probes, 3, 3) detector coordinates
     'ground_truth': 'ground_truth',               # (Nx, Ny, Nz, 2) optical property maps
     'tissue_labels': 'tissue_labels'              # (Nx, Ny, Nz) tissue type labels
 }
@@ -393,19 +393,51 @@ class NIRPhantomDataset(Dataset):
         
         n_phantoms = len(phantom_files)
         
-        # Calculate split boundaries
-        train_end = int(n_phantoms * TRAIN_RATIO)
-        val_end = train_end + int(n_phantoms * VAL_RATIO)
-        
-        # Assign phantoms to splits
-        if split == "train":
-            selected_files = phantom_files[:train_end]
-        elif split == "val":
-            selected_files = phantom_files[train_end:val_end]
-        elif split == "test":
-            selected_files = phantom_files[val_end:]
+        # Handle small datasets by ensuring minimum 1 phantom per split if possible
+        if n_phantoms < 3:
+            # Very small dataset - put everything in train
+            if split == "train":
+                selected_files = phantom_files
+            else:
+                selected_files = []
+        elif n_phantoms < 10:
+            # Small dataset - ensure at least 1 phantom in val/test if possible
+            if split == "train":
+                selected_files = phantom_files[:-2] if n_phantoms >= 3 else phantom_files
+            elif split == "val":
+                selected_files = phantom_files[-2:-1] if n_phantoms >= 3 else []
+            elif split == "test":
+                selected_files = phantom_files[-1:] if n_phantoms >= 2 else []
+            else:
+                raise ValueError(f"Invalid split: {split}. Must be 'train', 'val', or 'test'")
+        elif n_phantoms == 10:
+            # Special case for exactly 10 phantoms: 8/1/1 split
+            if split == "train":
+                selected_files = phantom_files[:8]
+            elif split == "val":
+                selected_files = phantom_files[8:9]
+            elif split == "test":
+                selected_files = phantom_files[9:10]
+            else:
+                raise ValueError(f"Invalid split: {split}. Must be 'train', 'val', or 'test'")
         else:
-            raise ValueError(f"Invalid split: {split}. Must be 'train', 'val', or 'test'")
+            # Normal dataset - use percentage splits
+            train_end = int(n_phantoms * TRAIN_RATIO)
+            val_end = train_end + int(n_phantoms * VAL_RATIO)
+            
+            # Ensure at least 1 phantom in each split if possible
+            if val_end == train_end and n_phantoms > train_end:
+                val_end = train_end + 1
+            
+            # Assign phantoms to splits
+            if split == "train":
+                selected_files = phantom_files[:train_end]
+            elif split == "val":
+                selected_files = phantom_files[train_end:val_end]
+            elif split == "test":
+                selected_files = phantom_files[val_end:]
+            else:
+                raise ValueError(f"Invalid split: {split}. Must be 'train', 'val', or 'test'")
         
         logger.info(f"Split '{split}': {len(selected_files)}/{n_phantoms} phantoms "
                    f"({len(selected_files)/n_phantoms*100:.1f}%)")
