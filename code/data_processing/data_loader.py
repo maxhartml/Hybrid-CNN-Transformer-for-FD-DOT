@@ -2,17 +2,17 @@
 """
 🔬 NIR PHANTOM DATASET LOADER 🔬
 
-A streamlined PyTorch DataLoader for NIR phantom datasets featuring:
+Streamlined PyTorch DataLoader for NIR phantom datasets featuring:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 📊 CORE FUNCTIONALITY:
 • Lazy loading from distributed HDF5 phantom files (efficient memory usage)
 • Automatic tissue patch extraction around source/detector positions
 • Cross-phantom shuffling for robust training
-• 90/5/5 train/validation/test splits at phantom level
-• Toggle functionality for Robin Dale's two-stage training approach
+• 8/1/1 train/validation/test splits at phantom level
+• Toggle functionality for two-stage training approach
 
-🎯 ROBIN DALE INTEGRATION:
+🎯 TWO-STAGE TRAINING SUPPORT:
 • Stage 1: Full ground truth volumes for CNN autoencoder training
 • Stage 2: Ground truth + optional tissue patches for transformer training
 • Clean toggle switches throughout pipeline (use_tissue_patches parameter)
@@ -23,7 +23,7 @@ A streamlined PyTorch DataLoader for NIR phantom datasets featuring:
 • Phantom-level train/val/test splits to prevent data leakage
 
 Author: Max Hart - NIR Tomography Research
-Version: 2.0 - Robin Dale Integration with Toggle Functionality
+Version: 2.0 - Two-Stage Training Integration
 """
 
 import os
@@ -35,12 +35,15 @@ from torch.utils.data import Dataset, DataLoader
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 import warnings
-from ..utils.logging_config import get_data_logger
 
-warnings.filterwarnings('ignore')
-
-# Initialize logger for this module
-logger = get_data_logger(__name__)
+# Handle imports for both package and standalone usage
+try:
+    from ..utils.logging_config import get_data_logger
+    logger = get_data_logger(__name__)
+except ImportError:
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
 
 # ===============================================================================
 # CONFIGURATION CONSTANTS
@@ -51,9 +54,9 @@ DEFAULT_PATCH_SIZE = (7, 7, 7)                    # Local tissue patch dimension
 AIR_VALUE = 0.0                                   # Air padding value for out-of-bounds regions
 
 # Dataset split ratios (must sum to 1.0)
-TRAIN_RATIO = 0.90                                # 90% for training
-VAL_RATIO = 0.05                                  # 5% for validation  
-TEST_RATIO = 0.05                                 # 5% for testing
+TRAIN_RATIO = 0.80                                # 80% for training
+VAL_RATIO = 0.10                                  # 10% for validation  
+TEST_RATIO = 0.10                                 # 10% for testing
 
 # HDF5 dataset keys (must match data_simulator.py output)
 H5_KEYS = {
@@ -74,8 +77,10 @@ def extract_tissue_patch(ground_truth: np.ndarray,
                         position: np.ndarray, 
                         patch_size: Tuple[int, int, int] = DEFAULT_PATCH_SIZE) -> np.ndarray:
     """
-    Extract tissue patch around a position for Robin Dale's tissue context encoder.
-    Simplified version focused on compatibility with our TissueContextEncoder.
+    Extract tissue patch around a position for tissue context encoder.
+    
+    Simplified extraction focused on compatibility with TissueContextEncoder.
+    Extracts a local patch of optical properties around source/detector positions.
     
     Args:
         ground_truth (np.ndarray): Full phantom optical properties, shape (Nx, Ny, Nz, 2)
@@ -122,103 +127,6 @@ def extract_tissue_patch(ground_truth: np.ndarray,
     
     # Return flattened patch for tissue context encoder
     return patch.reshape(-1)
-    """
-    Lightweight 3D CNN encoder for tissue patch feature extraction.
-    
-    This encoder processes 7×7×7×2 tissue patches to produce fixed-size feature embeddings
-    that capture local tissue heterogeneity patterns. The architecture balances feature
-    extraction capability with computational efficiency for training throughput.
-    
-    Architecture Design:
-    - 3D convolutions to capture spatial tissue patterns
-    - Progressive feature map expansion with spatial downsampling
-    - Batch normalization and dropout for training stability
-    - Global average pooling to handle spatial variance
-    - Shared weights between source and detector patches
-    
-    Technical Specifications:
-    - Input: (batch_size, 2, 7, 7, 7) - 2 channels for μa and μ′s
-    - Output: (batch_size, embed_dim) - Fixed-size feature vector
-    - Parameters: ~50k (lightweight for efficient training)
-    - Receptive field: Entire 7×7×7 patch
-    
-    Physical Interpretation:
-    - Learns spatial patterns in absorption and scattering
-    - Captures tissue boundaries and heterogeneity
-    - Encodes local optical property distributions
-    """
-    
-    def __init__(self, embed_dim: int = 128, dropout_rate: float = 0.1):
-        """
-        Initialize 3D CNN encoder for tissue patch embedding.
-        
-        Args:
-            embed_dim (int): Output embedding dimension (default: 128)
-            dropout_rate (float): Dropout probability for regularization (default: 0.1)
-        """
-        super(TissuePatchCNN, self).__init__()
-        
-        self.embed_dim = embed_dim
-        
-        # 3D Convolutional layers with progressive feature expansion
-        # Input: (batch, 2, 7, 7, 7) -> tissue properties
-        self.conv1 = nn.Conv3d(2, 16, kernel_size=3, padding=1)       # (batch, 16, 7, 7, 7)
-        self.bn1 = nn.BatchNorm3d(16)
-        
-        self.conv2 = nn.Conv3d(16, 32, kernel_size=3, stride=2, padding=1)  # (batch, 32, 4, 4, 4)
-        self.bn2 = nn.BatchNorm3d(32)
-        
-        self.conv3 = nn.Conv3d(32, 64, kernel_size=3, stride=2, padding=1)  # (batch, 64, 2, 2, 2)
-        self.bn3 = nn.BatchNorm3d(64)
-        
-        # Global average pooling to produce fixed-size features
-        self.global_pool = nn.AdaptiveAvgPool3d(1)                    # (batch, 64, 1, 1, 1)
-        
-        # Final projection to desired embedding dimension
-        self.fc = nn.Linear(64, embed_dim)                            # (batch, embed_dim)
-        self.dropout = nn.Dropout(dropout_rate)
-        
-        # Initialize weights using He initialization for ReLU networks
-        self._initialize_weights()
-    
-    def _initialize_weights(self):
-        """Initialize network weights using He initialization."""
-        for module in self.modules():
-            if isinstance(module, nn.Conv3d):
-                nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
-                if module.bias is not None:
-                    nn.init.zeros_(module.bias)
-            elif isinstance(module, nn.BatchNorm3d):
-                nn.init.ones_(module.weight)
-                nn.init.zeros_(module.bias)
-            elif isinstance(module, nn.Linear):
-                nn.init.normal_(module.weight, 0, 0.01)
-                nn.init.zeros_(module.bias)
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass through 3D CNN encoder.
-        
-        Args:
-            x (torch.Tensor): Input tissue patches, shape (batch_size, 2, 7, 7, 7)
-                             Channel 0: absorption coefficient μa
-                             Channel 1: reduced scattering μ′s
-                             
-        Returns:
-            torch.Tensor: Embedded features, shape (batch_size, embed_dim)
-        """
-        # Progressive feature extraction with spatial downsampling
-        x = F.relu(self.bn1(self.conv1(x)))        # (batch, 16, 7, 7, 7)
-        x = F.relu(self.bn2(self.conv2(x)))        # (batch, 32, 4, 4, 4)  
-        x = F.relu(self.bn3(self.conv3(x)))        # (batch, 64, 2, 2, 2)
-        
-        # Global pooling and final projection
-        x = self.global_pool(x)                    # (batch, 64, 1, 1, 1)
-        x = x.view(x.size(0), -1)                  # (batch, 64)
-        x = self.dropout(x)                        # Regularization
-        x = self.fc(x)                             # (batch, embed_dim)
-        
-        return x
 
 
 # ===============================================================================
@@ -587,34 +495,4 @@ def create_nir_dataloaders(data_dir: str = "../data",
 # MAIN EXECUTION AND TESTING
 # ===============================================================================
 
-if __name__ == "__main__":
-    """Quick test of DataLoader functionality."""
-    
-    print("🔬 Testing NIR Phantom DataLoader")
-    print("=" * 50)
-    
-    # Test patch extraction
-    print("Testing patch extraction...")
-    dummy_ground_truth = np.random.random((50, 50, 50, 2))
-    test_position = np.array([25, 25, 25])
-    patch = extract_tissue_patch(dummy_ground_truth, test_position)
-    print(f"✅ Patch extraction: shape {patch.shape}, expected (686,) [7^3 * 2]")
-    
-    # Test dataset loading
-    print("\nTesting dataset loading...")
-    try:
-        dataloaders = create_nir_dataloaders(batch_size=2, num_workers=0, use_tissue_patches=True)
-        
-        for split, dataloader in dataloaders.items():
-            if len(dataloader) > 0:
-                sample_batch = next(iter(dataloader))
-                print(f"✅ {split} DataLoader: {len(dataloader.dataset)} samples")
-                print(f"   Sample keys: {list(sample_batch.keys())}")
-                print(f"   DOT measurements: {sample_batch['dot_measurements'].shape}")
-                if 'tissue_patches' in sample_batch:
-                    print(f"   Tissue patches: {sample_batch['tissue_patches'].shape}")
-                break
-    except Exception as e:
-        print(f"⚠️  Dataset loading test failed (expected if no data files): {e}")
-    
-    print("\n🎯 DataLoader ready for Robin Dale's two-stage training!")
+# DataLoader is ready for production use with Robin Dale's two-stage training!

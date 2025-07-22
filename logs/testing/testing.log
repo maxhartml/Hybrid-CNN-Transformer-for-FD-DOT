@@ -1114,3 +1114,184 @@ DATA_LOADING:
 2025-07-22 18:11:00 | INFO     | _generate_test_report | 
 🚀 VERDICT: EXCELLENT! Pipeline ready for training!
 2025-07-22 18:11:00 | INFO     | _generate_test_report | ================================================================================
+2025-07-22 18:32:59 | INFO     | __init__        | 🧪 Comprehensive Test Suite initialized
+2025-07-22 18:32:59 | INFO     | __init__        | 🖥️  Test device: cpu
+2025-07-22 18:32:59 | INFO     | __init__        | 💾 Available memory: 1.16 GB
+2025-07-22 18:32:59 | INFO     | run_all_tests   | 🚀 Starting Comprehensive Test Suite
+2025-07-22 18:32:59 | INFO     | run_all_tests   | ================================================================================
+2025-07-22 18:32:59 | INFO     | run_all_tests   | 
+🔬 Infrastructure Tests
+2025-07-22 18:32:59 | INFO     | run_all_tests   | ------------------------------------------------------------
+2025-07-22 18:32:59 | INFO     | _test_infrastructure | Testing logging system...
+2025-07-22 18:32:59 | INFO     | _test_infrastructure | Test log message
+2025-07-22 18:32:59 | INFO     | _test_infrastructure | ✅ Infrastructure tests passed
+2025-07-22 18:32:59 | INFO     | run_all_tests   | ✅ Infrastructure Tests completed successfully
+2025-07-22 18:32:59 | INFO     | run_all_tests   | 
+🔬 Data Processing Tests
+2025-07-22 18:32:59 | INFO     | run_all_tests   | ------------------------------------------------------------
+2025-07-22 18:32:59 | INFO     | _test_data_processing | Testing data loading and processing...
+2025-07-22 18:32:59 | INFO     | _test_data_processing | Testing baseline data loaders...
+2025-07-22 18:33:02 | INFO     | _test_data_processing | Baseline batch shapes - Measurements: torch.Size([2, 1, 60, 60, 60]), Ground Truth: torch.Size([2, 60, 60, 60, 2])
+2025-07-22 18:33:02 | INFO     | _test_data_processing | Testing enhanced data loaders with tissue patches...
+2025-07-22 18:33:04 | INFO     | _test_data_processing | Enhanced batch shapes - Tissue patches: torch.Size([2, 2, 686])
+2025-07-22 18:33:04 | INFO     | _test_data_processing | Dataset properties - Train samples: 12000
+2025-07-22 18:33:04 | INFO     | _test_data_processing | Testing data analysis functions...
+2025-07-22 18:33:04 | INFO     | _test_data_processing | Testing analysis with: data/phantom_01/phantom_001_scan.h5
+2025-07-22 18:33:04 | INFO     | _test_data_processing | NIRDatasetAnalyzer initialized successfully
+2025-07-22 18:33:04 | INFO     | _test_data_processing | Testing data simulator functions...
+2025-07-22 18:33:04 | INFO     | _test_data_processing | Phantom simulation successful: shape (32, 32, 32)
+2025-07-22 18:33:04 | INFO     | _test_data_processing | ✅ Data processing tests completed
+2025-07-22 18:33:34 | INFO     | run_all_tests   | ✅ Data Processing Tests completed successfully
+2025-07-22 18:33:34 | INFO     | run_all_tests   | 
+🔬 Model Architecture Tests
+2025-07-22 18:33:34 | INFO     | run_all_tests   | ------------------------------------------------------------
+2025-07-22 18:33:34 | INFO     | _test_model_architectures | Testing model architectures...
+2025-07-22 18:33:34 | INFO     | _test_model_architectures | Testing CNN Autoencoder...
+2025-07-22 18:33:36 | INFO     | _test_model_architectures | CNN Autoencoder output shape: torch.Size([2, 1, 64, 64, 64])
+2025-07-22 18:33:36 | INFO     | _test_model_architectures | Testing Tissue Context Encoder...
+2025-07-22 18:33:36 | INFO     | _test_model_architectures | Tissue Context Encoder output shape: torch.Size([2, 256])
+2025-07-22 18:33:36 | INFO     | _test_model_architectures | Testing Tissue Context Toggle...
+2025-07-22 18:33:36 | INFO     | _test_model_architectures | Tissue Context Toggle dummy context shape: torch.Size([2, 256])
+2025-07-22 18:33:36 | INFO     | _test_model_architectures | Tissue Context Toggle working correctly
+2025-07-22 18:33:36 | INFO     | _test_model_architectures | Testing Transformer Encoder...
+2025-07-22 18:33:36 | INFO     | _test_model_architectures | Transformer Encoder output shape: torch.Size([2, 512])
+2025-07-22 18:33:36 | INFO     | _test_model_architectures | Testing Hybrid Model - Baseline mode...
+2025-07-22 18:33:39 | INFO     | _test_model_architectures | Hybrid Baseline output shapes - Reconstructed: torch.Size([2, 1, 64, 64, 64])
+2025-07-22 18:33:39 | INFO     | _test_model_architectures | Testing Hybrid Model - Enhanced mode...
+2025-07-22 18:33:41 | INFO     | _test_model_architectures | Hybrid Enhanced output shapes - Reconstructed: torch.Size([2, 1, 64, 64, 64])
+2025-07-22 18:33:41 | INFO     | _test_model_parameters | Testing model parameters and memory usage...
+2025-07-22 18:33:43 | INFO     | _test_model_parameters | CNN Autoencoder - Total: 61,113,409, Trainable: 61,113,409
+2025-07-22 18:33:43 | INFO     | _test_model_parameters | Tissue Context Encoder - Total: 2,940,160, Trainable: 2,940,160
+2025-07-22 18:33:43 | INFO     | _test_model_parameters | Transformer Encoder - Total: 46,269,952, Trainable: 46,269,952
+2025-07-22 18:33:43 | INFO     | _test_model_parameters | Hybrid Baseline - Total: 106,006,593, Trainable: 106,006,593
+2025-07-22 18:33:43 | INFO     | _test_model_parameters | Hybrid Enhanced - Total: 109,143,361, Trainable: 109,143,361
+2025-07-22 18:33:43 | INFO     | _test_model_architectures | ✅ Model architecture tests completed
+2025-07-22 18:33:43 | INFO     | run_all_tests   | ✅ Model Architecture Tests completed successfully
+2025-07-22 18:33:43 | INFO     | run_all_tests   | 
+🔬 Training Component Tests
+2025-07-22 18:33:43 | INFO     | run_all_tests   | ------------------------------------------------------------
+2025-07-22 18:33:43 | INFO     | _test_training_components | Testing training components...
+2025-07-22 18:33:43 | INFO     | _test_training_components | Testing RMSE Loss functions...
+2025-07-22 18:33:43 | INFO     | _test_training_components | RMSE Loss test value: 1.411636
+2025-07-22 18:33:43 | INFO     | _test_training_components | Testing Stage 1 Trainer...
+2025-07-22 18:33:45 | INFO     | _test_training_components | Stage 1 Trainer initialized successfully
+2025-07-22 18:33:45 | INFO     | _test_training_components | Creating temporary checkpoint for Stage 2 testing...
+2025-07-22 18:33:46 | INFO     | _test_training_components | Testing Stage 2 Trainer...
+2025-07-22 18:33:47 | INFO     | _test_training_components | Stage 2 Baseline Trainer initialized successfully
+2025-07-22 18:33:47 | INFO     | _test_training_components | Stage 2 Enhanced Trainer initialized successfully
+2025-07-22 18:33:47 | INFO     | _test_training_components | Testing frozen parameters in Stage 2...
+2025-07-22 18:33:47 | INFO     | _test_training_components | Stage 2 parameter freeze - Trainable: 48,029,952/109,143,361 (44.0%)
+2025-07-22 18:33:47 | INFO     | _test_training_components | ✅ Training component tests completed
+2025-07-22 18:33:47 | INFO     | run_all_tests   | ✅ Training Component Tests completed successfully
+2025-07-22 18:33:47 | INFO     | run_all_tests   | 
+🔬 Integration Tests
+2025-07-22 18:33:47 | INFO     | run_all_tests   | ------------------------------------------------------------
+2025-07-22 18:33:47 | INFO     | _test_integration | Testing end-to-end integration...
+2025-07-22 18:33:47 | INFO     | _test_integration | Testing complete pipeline integration...
+2025-07-22 18:33:54 | INFO     | _test_integration | Integration test losses - Baseline: 0.979176, Enhanced: 0.856135
+2025-07-22 18:33:57 | INFO     | _test_integration | Testing Stage 1 to Stage 2 transition...
+2025-07-22 18:34:00 | INFO     | _test_integration | Stage 1 to Stage 2 transition successful
+2025-07-22 18:34:00 | INFO     | _test_integration | ✅ Integration tests completed
+2025-07-22 18:34:05 | INFO     | run_all_tests   | ✅ Integration Tests completed successfully
+2025-07-22 18:34:05 | INFO     | run_all_tests   | 
+🔬 Performance Tests
+2025-07-22 18:34:05 | INFO     | run_all_tests   | ------------------------------------------------------------
+2025-07-22 18:34:05 | INFO     | _test_performance | Testing performance characteristics...
+2025-07-22 18:34:05 | INFO     | _test_performance | Testing inference speed...
+2025-07-22 18:34:08 | INFO     | _test_performance | Batch size 1: 0.3322s per inference
+2025-07-22 18:34:13 | INFO     | _test_performance | Batch size 2: 0.9499s per inference
+2025-07-22 18:34:13 | INFO     | _test_performance | Testing memory usage...
+2025-07-22 18:34:13 | INFO     | _test_performance | CUDA not available, skipping GPU memory test
+2025-07-22 18:34:13 | INFO     | _test_performance | Testing data loading speed...
+2025-07-22 18:34:15 | INFO     | _test_performance | Average batch loading time: 0.2473s
+2025-07-22 18:34:15 | INFO     | _test_performance | ✅ Performance tests completed
+2025-07-22 18:34:35 | INFO     | run_all_tests   | ✅ Performance Tests completed successfully
+2025-07-22 18:34:35 | INFO     | run_all_tests   | 
+🔬 Error Handling Tests
+2025-07-22 18:34:35 | INFO     | run_all_tests   | ------------------------------------------------------------
+2025-07-22 18:34:35 | INFO     | _test_error_handling | Testing error handling and edge cases...
+2025-07-22 18:34:35 | INFO     | _test_error_handling | Testing invalid input handling...
+2025-07-22 18:34:36 | INFO     | _test_error_handling | ✅ Correctly caught invalid input: RuntimeError
+2025-07-22 18:34:36 | INFO     | _test_error_handling | ✅ Correctly caught missing tissue patches: RuntimeError
+2025-07-22 18:34:37 | INFO     | _test_error_handling | ✅ Correctly caught invalid checkpoint: FileNotFoundError
+2025-07-22 18:34:37 | INFO     | _test_error_handling | ✅ Correctly caught invalid data directory: ValueError
+2025-07-22 18:34:37 | INFO     | _test_error_handling | ✅ Error handling tests completed
+2025-07-22 18:34:37 | INFO     | run_all_tests   | ✅ Error Handling Tests completed successfully
+2025-07-22 18:34:37 | INFO     | _generate_test_report | 
+================================================================================
+2025-07-22 18:34:37 | INFO     | _generate_test_report | 🎯 COMPREHENSIVE TEST SUITE REPORT
+2025-07-22 18:34:37 | INFO     | _generate_test_report | ================================================================================
+2025-07-22 18:34:37 | INFO     | _generate_test_report | 
+📊 INFRASTRUCTURE:
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ logging
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ experiment_logging
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ module_loggers
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   📈 Category Score: 3/3 (100.0%)
+2025-07-22 18:34:37 | INFO     | _generate_test_report | 
+📊 DATA PROCESSING:
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ baseline_loading
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ enhanced_loading
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ phantom_analysis
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ simulation
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   📈 Category Score: 4/4 (100.0%)
+2025-07-22 18:34:37 | INFO     | _generate_test_report | 
+📊 MODELS:
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ cnn_autoencoder
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ tissue_context_encoder
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ tissue_context_toggle
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ transformer_encoder
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ hybrid_baseline
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ hybrid_enhanced
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   📈 Category Score: 6/6 (100.0%)
+2025-07-22 18:34:37 | INFO     | _generate_test_report | 
+📊 TRAINING:
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ rmse_loss
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ stage1_trainer
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ stage2_trainer
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ parameter_freezing
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   📈 Category Score: 4/4 (100.0%)
+2025-07-22 18:34:37 | INFO     | _generate_test_report | 
+📊 INTEGRATION:
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ pipeline_flow
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ stage_transition
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   📈 Category Score: 2/2 (100.0%)
+2025-07-22 18:34:37 | INFO     | _generate_test_report | 
+📊 PERFORMANCE:
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ speed_tests
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   📈 Category Score: 1/1 (100.0%)
+2025-07-22 18:34:37 | INFO     | _generate_test_report | 
+📊 ERROR HANDLING:
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ invalid_shapes
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ missing_tissue_patches
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ invalid_checkpoint
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ✅ invalid_data_dir
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   📈 Category Score: 4/4 (100.0%)
+2025-07-22 18:34:37 | INFO     | _generate_test_report | 
+🎯 OVERALL RESULTS:
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   📊 Tests Passed: 24/24 (100.0%)
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   ⏱️  Total Time: 98.15s
+2025-07-22 18:34:37 | INFO     | _generate_test_report | 
+⚡ PERFORMANCE METRICS:
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   📈 cnn_autoencoder_params:
+2025-07-22 18:34:37 | INFO     | _generate_test_report |     - total: 61113409
+2025-07-22 18:34:37 | INFO     | _generate_test_report |     - trainable: 61113409
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   📈 tissue_context_encoder_params:
+2025-07-22 18:34:37 | INFO     | _generate_test_report |     - total: 2940160
+2025-07-22 18:34:37 | INFO     | _generate_test_report |     - trainable: 2940160
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   📈 transformer_encoder_params:
+2025-07-22 18:34:37 | INFO     | _generate_test_report |     - total: 46269952
+2025-07-22 18:34:37 | INFO     | _generate_test_report |     - trainable: 46269952
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   📈 hybrid_baseline_params:
+2025-07-22 18:34:37 | INFO     | _generate_test_report |     - total: 106006593
+2025-07-22 18:34:37 | INFO     | _generate_test_report |     - trainable: 106006593
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   📈 hybrid_enhanced_params:
+2025-07-22 18:34:37 | INFO     | _generate_test_report |     - total: 109143361
+2025-07-22 18:34:37 | INFO     | _generate_test_report |     - trainable: 109143361
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   📈 inference_times:
+2025-07-22 18:34:37 | INFO     | _generate_test_report |     - 1: 0.33222707112630206
+2025-07-22 18:34:37 | INFO     | _generate_test_report |     - 2: 0.9498729705810547
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   📈 batch_loading_time: 0.24725618362426757
+2025-07-22 18:34:37 | INFO     | _generate_test_report |   📈 total_test_time: 98.15187525749207
+2025-07-22 18:34:37 | INFO     | _generate_test_report | 
+🚀 VERDICT: EXCELLENT! Pipeline ready for training!
+2025-07-22 18:34:37 | INFO     | _generate_test_report | ================================================================================

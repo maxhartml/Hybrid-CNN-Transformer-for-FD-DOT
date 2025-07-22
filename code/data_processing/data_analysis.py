@@ -2,7 +2,7 @@
 """
 🔬 COMPREHENSIVE NIR PHANTOM DATASET ANALYSIS SUITE 🔬
 
-A complete, all-in-one analysis toolkit for NIR phantom datasets featuring:
+Complete analysis toolkit for NIR phantom datasets featuring:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 📊 COMPREHENSIVE ANALYSIS CAPABILITIES:
