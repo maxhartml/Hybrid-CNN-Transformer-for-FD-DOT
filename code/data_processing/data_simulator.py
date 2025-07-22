@@ -1349,7 +1349,7 @@ def main():
     # Configure professional logging system using centralized NIRDOTLogger
     # Initialize logging system for complete pipeline monitoring and debugging with absolute paths
     logs_dir = project_root / "logs"
-    NIRDOTLogger.setup_logging(log_dir=str(logs_dir), log_level="INFO")  # Setup centralized logging system
+    NIRDOTLogger.setup_logging(log_dir=str(logs_dir))  # Setup centralized logging system
     logger = get_data_logger(__name__)  # Get data processing specific logger
     
     # Generate comprehensive pipeline initialization summary for monitoring and reproducibility
