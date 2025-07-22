@@ -727,3 +727,113 @@
 2025-07-22 18:10:59 | WARNING  | _discover_phantom_files | No phantom H5 files found in nonexistent_directory
 2025-07-22 18:10:59 | INFO     | _build_sample_index | Built sample index: 0 total samples
 2025-07-22 18:10:59 | INFO     | __init__        | Dataset initialized: 0 phantoms, 0 samples
+2025-07-22 18:31:42 | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=train, patch_size=(7, 7, 7), use_tissue_patches=True
+2025-07-22 18:31:42 | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 18:31:42 | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 18:31:42 | INFO     | _split_phantoms_by_id | Split 'train': 8/10 phantoms (80.0%)
+2025-07-22 18:31:42 | INFO     | _build_sample_index | Built sample index: 12000 total samples
+2025-07-22 18:31:42 | INFO     | __init__        | Dataset initialized: 8 phantoms, 12000 samples
+2025-07-22 18:31:42 | INFO     | create_nir_dataloaders | Created train DataLoader: 12000 samples, ~6000 batches per epoch, with tissue patches
+2025-07-22 18:31:42 | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=val, patch_size=(7, 7, 7), use_tissue_patches=True
+2025-07-22 18:31:42 | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 18:31:42 | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 18:31:42 | INFO     | _split_phantoms_by_id | Split 'val': 1/10 phantoms (10.0%)
+2025-07-22 18:31:42 | INFO     | _build_sample_index | Built sample index: 1500 total samples
+2025-07-22 18:31:42 | INFO     | __init__        | Dataset initialized: 1 phantoms, 1500 samples
+2025-07-22 18:31:42 | INFO     | create_nir_dataloaders | Created val DataLoader: 1500 samples, ~750 batches per epoch, with tissue patches
+2025-07-22 18:31:42 | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=test, patch_size=(7, 7, 7), use_tissue_patches=True
+2025-07-22 18:31:42 | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 18:31:42 | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 18:31:42 | INFO     | _split_phantoms_by_id | Split 'test': 1/10 phantoms (10.0%)
+2025-07-22 18:31:42 | INFO     | _build_sample_index | Built sample index: 1500 total samples
+2025-07-22 18:31:42 | INFO     | __init__        | Dataset initialized: 1 phantoms, 1500 samples
+2025-07-22 18:31:42 | INFO     | create_nir_dataloaders | Created test DataLoader: 1500 samples, ~750 batches per epoch, with tissue patches
+2025-07-22 18:32:59 | INFO     | _test_infrastructure | Data processing test log
+2025-07-22 18:32:59 | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=train, patch_size=(7, 7, 7), use_tissue_patches=False
+2025-07-22 18:32:59 | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 18:32:59 | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 18:32:59 | INFO     | _split_phantoms_by_id | Split 'train': 8/10 phantoms (80.0%)
+2025-07-22 18:32:59 | INFO     | _build_sample_index | Built sample index: 12000 total samples
+2025-07-22 18:32:59 | INFO     | __init__        | Dataset initialized: 8 phantoms, 12000 samples
+2025-07-22 18:32:59 | INFO     | create_nir_dataloaders | Created train DataLoader: 12000 samples, ~6000 batches per epoch, baseline (no tissue patches)
+2025-07-22 18:32:59 | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=val, patch_size=(7, 7, 7), use_tissue_patches=False
+2025-07-22 18:32:59 | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 18:32:59 | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 18:32:59 | INFO     | _split_phantoms_by_id | Split 'val': 1/10 phantoms (10.0%)
+2025-07-22 18:32:59 | INFO     | _build_sample_index | Built sample index: 1500 total samples
+2025-07-22 18:32:59 | INFO     | __init__        | Dataset initialized: 1 phantoms, 1500 samples
+2025-07-22 18:32:59 | INFO     | create_nir_dataloaders | Created val DataLoader: 1500 samples, ~750 batches per epoch, baseline (no tissue patches)
+2025-07-22 18:32:59 | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=test, patch_size=(7, 7, 7), use_tissue_patches=False
+2025-07-22 18:32:59 | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 18:32:59 | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 18:32:59 | INFO     | _split_phantoms_by_id | Split 'test': 1/10 phantoms (10.0%)
+2025-07-22 18:32:59 | INFO     | _build_sample_index | Built sample index: 1500 total samples
+2025-07-22 18:32:59 | INFO     | __init__        | Dataset initialized: 1 phantoms, 1500 samples
+2025-07-22 18:32:59 | INFO     | create_nir_dataloaders | Created test DataLoader: 1500 samples, ~750 batches per epoch, baseline (no tissue patches)
+2025-07-22 18:33:02 | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=train, patch_size=(7, 7, 7), use_tissue_patches=True
+2025-07-22 18:33:02 | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 18:33:02 | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 18:33:02 | INFO     | _split_phantoms_by_id | Split 'train': 8/10 phantoms (80.0%)
+2025-07-22 18:33:02 | INFO     | _build_sample_index | Built sample index: 12000 total samples
+2025-07-22 18:33:02 | INFO     | __init__        | Dataset initialized: 8 phantoms, 12000 samples
+2025-07-22 18:33:02 | INFO     | create_nir_dataloaders | Created train DataLoader: 12000 samples, ~6000 batches per epoch, with tissue patches
+2025-07-22 18:33:02 | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=val, patch_size=(7, 7, 7), use_tissue_patches=True
+2025-07-22 18:33:02 | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 18:33:02 | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 18:33:02 | INFO     | _split_phantoms_by_id | Split 'val': 1/10 phantoms (10.0%)
+2025-07-22 18:33:02 | INFO     | _build_sample_index | Built sample index: 1500 total samples
+2025-07-22 18:33:02 | INFO     | __init__        | Dataset initialized: 1 phantoms, 1500 samples
+2025-07-22 18:33:02 | INFO     | create_nir_dataloaders | Created val DataLoader: 1500 samples, ~750 batches per epoch, with tissue patches
+2025-07-22 18:33:02 | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=test, patch_size=(7, 7, 7), use_tissue_patches=True
+2025-07-22 18:33:02 | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 18:33:02 | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 18:33:02 | INFO     | _split_phantoms_by_id | Split 'test': 1/10 phantoms (10.0%)
+2025-07-22 18:33:02 | INFO     | _build_sample_index | Built sample index: 1500 total samples
+2025-07-22 18:33:02 | INFO     | __init__        | Dataset initialized: 1 phantoms, 1500 samples
+2025-07-22 18:33:02 | INFO     | create_nir_dataloaders | Created test DataLoader: 1500 samples, ~750 batches per epoch, with tissue patches
+2025-07-22 18:33:47 | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=train, patch_size=(7, 7, 7), use_tissue_patches=True
+2025-07-22 18:33:47 | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 18:33:47 | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 18:33:47 | INFO     | _split_phantoms_by_id | Split 'train': 8/10 phantoms (80.0%)
+2025-07-22 18:33:47 | INFO     | _build_sample_index | Built sample index: 12000 total samples
+2025-07-22 18:33:47 | INFO     | __init__        | Dataset initialized: 8 phantoms, 12000 samples
+2025-07-22 18:33:47 | INFO     | create_nir_dataloaders | Created train DataLoader: 12000 samples, ~6000 batches per epoch, with tissue patches
+2025-07-22 18:33:47 | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=val, patch_size=(7, 7, 7), use_tissue_patches=True
+2025-07-22 18:33:47 | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 18:33:47 | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 18:33:47 | INFO     | _split_phantoms_by_id | Split 'val': 1/10 phantoms (10.0%)
+2025-07-22 18:33:47 | INFO     | _build_sample_index | Built sample index: 1500 total samples
+2025-07-22 18:33:47 | INFO     | __init__        | Dataset initialized: 1 phantoms, 1500 samples
+2025-07-22 18:33:47 | INFO     | create_nir_dataloaders | Created val DataLoader: 1500 samples, ~750 batches per epoch, with tissue patches
+2025-07-22 18:33:47 | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=test, patch_size=(7, 7, 7), use_tissue_patches=True
+2025-07-22 18:33:47 | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 18:33:47 | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 18:33:47 | INFO     | _split_phantoms_by_id | Split 'test': 1/10 phantoms (10.0%)
+2025-07-22 18:33:47 | INFO     | _build_sample_index | Built sample index: 1500 total samples
+2025-07-22 18:33:47 | INFO     | __init__        | Dataset initialized: 1 phantoms, 1500 samples
+2025-07-22 18:33:47 | INFO     | create_nir_dataloaders | Created test DataLoader: 1500 samples, ~750 batches per epoch, with tissue patches
+2025-07-22 18:34:13 | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=train, patch_size=(7, 7, 7), use_tissue_patches=True
+2025-07-22 18:34:13 | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 18:34:13 | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 18:34:13 | INFO     | _split_phantoms_by_id | Split 'train': 8/10 phantoms (80.0%)
+2025-07-22 18:34:13 | INFO     | _build_sample_index | Built sample index: 12000 total samples
+2025-07-22 18:34:13 | INFO     | __init__        | Dataset initialized: 8 phantoms, 12000 samples
+2025-07-22 18:34:13 | INFO     | create_nir_dataloaders | Created train DataLoader: 12000 samples, ~3000 batches per epoch, with tissue patches
+2025-07-22 18:34:13 | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=val, patch_size=(7, 7, 7), use_tissue_patches=True
+2025-07-22 18:34:13 | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 18:34:13 | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 18:34:13 | INFO     | _split_phantoms_by_id | Split 'val': 1/10 phantoms (10.0%)
+2025-07-22 18:34:13 | INFO     | _build_sample_index | Built sample index: 1500 total samples
+2025-07-22 18:34:13 | INFO     | __init__        | Dataset initialized: 1 phantoms, 1500 samples
+2025-07-22 18:34:13 | INFO     | create_nir_dataloaders | Created val DataLoader: 1500 samples, ~375 batches per epoch, with tissue patches
+2025-07-22 18:34:13 | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=test, patch_size=(7, 7, 7), use_tissue_patches=True
+2025-07-22 18:34:13 | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 18:34:13 | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 18:34:13 | INFO     | _split_phantoms_by_id | Split 'test': 1/10 phantoms (10.0%)
+2025-07-22 18:34:13 | INFO     | _build_sample_index | Built sample index: 1500 total samples
+2025-07-22 18:34:13 | INFO     | __init__        | Dataset initialized: 1 phantoms, 1500 samples
+2025-07-22 18:34:13 | INFO     | create_nir_dataloaders | Created test DataLoader: 1500 samples, ~375 batches per epoch, with tissue patches
+2025-07-22 18:34:37 | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=train, patch_size=(7, 7, 7), use_tissue_patches=True
+2025-07-22 18:34:37 | WARNING  | _discover_phantom_files | No phantom H5 files found in nonexistent_directory
+2025-07-22 18:34:37 | INFO     | _build_sample_index | Built sample index: 0 total samples
+2025-07-22 18:34:37 | INFO     | __init__        | Dataset initialized: 0 phantoms, 0 samples

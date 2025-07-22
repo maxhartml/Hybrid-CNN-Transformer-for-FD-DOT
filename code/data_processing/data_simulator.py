@@ -1,69 +1,85 @@
 #!/usr/bin/env python3
 """
-Near-Infrared Frequency-Domain (FD) Phantom Data Simulator with Robust Random Geometry Sampling
+🧬 NIR PHANTOM DATA SIMULATOR 🧬
 
-This script generates synthetic NIR optical tomography datasets by:
-1. Creating a 3D phantom geometry with realistic tissue distributions
-2. Embedding randomly positioned ellipsoidal healthy tissue and tumours
-3. Generating unstructured tetrahedral finite element meshes for accurate light propagation modeling
-4. Assigning physiologically realistic optical properties (μₐ, μ′s) with controlled randomization
-5. Implementing spatially-invariant probe placement using surface-constrained sampling
-6. Solving the frequency-domain diffusion equation via FEM for forward modeling
-7. Adding realistic measurement noise and saving complete datasets to HDF5
+Advanced phantom data generation for NIR tomography training datasets:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-The approach ensures robust training data generation for machine learning models by:
-- Preventing spatial bias through fully randomized probe positioning
-- Maintaining physiological realism in optical property distributions
-- Ensuring geometric validity through surface-aware optode placement
-- Providing complete ground truth information for supervised learning
+🏗️ CORE FUNCTIONALITY:
+• 3D phantom geometry with realistic tissue distributions
+• Random ellipsoidal tissue and tumor embedding with rotation
+• Tetrahedral finite element mesh generation for light transport
+• Physiologically realistic optical property assignment
+• Surface-constrained probe placement for clinical realism
+• Frequency-domain diffusion equation solving (140MHz)
+• Complete HDF5 dataset output with ground truth
 
-Technical Implementation Notes:
-- Uses NIRFASTer-FF library for finite element light transport modeling
-- Implements frequency-domain diffusion equation at 140 MHz modulation
-- Applies binary morphological operations for surface extraction
-- Utilizes scipy.spatial for efficient distance computations in probe placement
+🎯 MACHINE LEARNING OPTIMIZED:
+• Prevents spatial bias through randomized positioning
+• Maintains physiological realism for robust training
+• Surface-aware probe placement for clinical validity
+• Complete ground truth for supervised learning
+
+🔬 TECHNICAL FEATURES:
+• NIRFASTer-FF finite element light transport modeling
+• Binary morphological operations for surface extraction
+• Efficient spatial computations with scipy
+• Controlled randomization for reproducible datasets
+
+Author: Max Hart - NIR Tomography Research
+Version: 2.0 - ML-Optimized Phantom Generation
 """
 
 # System path configuration for NIRFASTer-FF library access
 import sys
-sys.path.append("/Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/nirfaster-FF")
+import os
+from pathlib import Path
 
-# Core numerical and scientific computing libraries
-import numpy as np                           # Primary array operations and linear algebra
-import nirfasterff as ff                     # type: ignore # NIR light transport modeling via finite elements
-import matplotlib.pyplot as plt             # 2D/3D visualization and plotting
-from mpl_toolkits.mplot3d import Axes3D     # 3D scatter plot capabilities
+# Add NIRFASTer-FF to path dynamically
+current_dir = Path(__file__).parent.parent.parent  # Go up to mah422 directory
+nirfaster_path = current_dir / "nirfaster-FF"
+if nirfaster_path.exists():
+    sys.path.append(str(nirfaster_path))
+else:
+    # Fallback for development environment
+    sys.path.append("/Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/nirfaster-FF")
 
-# Data storage and file system operations
-import h5py                                  # HDF5 hierarchical data format for large datasets
-import os                                    # Operating system interface for directory management
-import logging                               # Professional logging system for pipeline monitoring
-import time                                  # Time utilities for performance monitoring
+# Core libraries for numerical computing and visualization
+import numpy as np                               # Primary array operations and linear algebra
+import nirfasterff as ff                        # type: ignore # NIR light transport modeling via finite elements
+import matplotlib.pyplot as plt                 # 2D/3D visualization and plotting
+from mpl_toolkits.mplot3d import Axes3D         # 3D scatter plot capabilities
+
+# Data storage and system operations
+import h5py                                      # HDF5 hierarchical data format for large datasets
+import os                                        # Operating system interface for directory management
+import logging                                   # Professional logging system for pipeline monitoring
+import time                                      # Time utilities for performance monitoring
 
 # Specialized scipy modules for morphological and spatial operations
-from scipy.ndimage import binary_erosion    # Morphological operation for surface extraction
-from scipy.spatial.distance import cdist    # Efficient pairwise distance computation
+from scipy.ndimage import binary_erosion        # Morphological operation for surface extraction
+from scipy.spatial.distance import cdist        # Efficient pairwise distance computation
 
 # Constants for phantom generation
-DEFAULT_PHANTOM_SHAPE = (60, 60, 60)        # Default cubic phantom dimensions in voxels (increased for better SDS coverage)
-DEFAULT_TISSUE_RADIUS_RANGE = (24, 28)      # Healthy tissue ellipsoid semi-axis range (scaled up for larger phantoms)
-DEFAULT_TUMOR_RADIUS_RANGE = (5, 10)        # Tumor ellipsoid semi-axis range (scaled proportionally with tissue)  
+DEFAULT_PHANTOM_SHAPE = (60, 60, 60)        # Default cubic phantom dimensions in voxels
+DEFAULT_TISSUE_RADIUS_RANGE = (24, 28)      # Healthy tissue ellipsoid semi-axis range
+DEFAULT_TUMOR_RADIUS_RANGE = (5, 10)        # Tumor ellipsoid semi-axis range  
 DEFAULT_MAX_TUMORS = 5                       # Maximum number of tumors per phantom
-DEFAULT_N_PROBES = 500                      # Optimal balance: geometric coverage vs computational efficiency (ML scaling strategy)
-DEFAULT_MIN_PROBE_DISTANCE = 10             # Minimum source-detector separation [mm] (clinical range)
-DEFAULT_MAX_PROBE_DISTANCE = 40             # Maximum source-detector separation [mm] (clinical range)
-DEFAULT_PATCH_RADIUS = 30                   # Patch radius [mm] for surface-constrained probe placement (ensures full SDS range utilization)
-DEFAULT_MIN_PATCH_VOXELS = 500              # Minimum surface voxels required for valid patch placement (ensures adequate sampling for 500 probes)
+DEFAULT_N_PROBES = 500                       # Optimal probe count for ML training
+DEFAULT_MIN_PROBE_DISTANCE = 10              # Minimum source-detector separation [mm]
+DEFAULT_MAX_PROBE_DISTANCE = 40              # Maximum source-detector separation [mm]
+DEFAULT_PATCH_RADIUS = 30                    # Patch radius [mm] for surface probe placement
+DEFAULT_MIN_PATCH_VOXELS = 500               # Minimum surface voxels for valid patch placement
 DEFAULT_FD_FREQUENCY = 140e6                 # Frequency-domain modulation frequency [Hz]
 DEFAULT_MESH_CELL_SIZE = 1.65                # CGAL mesh characteristic cell size [mm]
-VOXEL_SIZE_MM = 1.0                         # Voxel size in millimeters for spatial calibration
+VOXEL_SIZE_MM = 1.0                          # Voxel size in millimeters for spatial calibration
 
 # Tissue label constants for clarity and consistency
 AIR_LABEL = 0                                # Background air regions
 HEALTHY_TISSUE_LABEL = 1                     # Healthy tissue regions  
 TUMOR_START_LABEL = 2                        # Starting label for tumor regions (incremented)
 
-# Optical property constants at 800nm wavelength (literature-based physiological ranges)
+# Optical property constants at 800nm wavelength (physiological ranges)
 HEALTHY_MUA_RANGE = (0.003, 0.007)          # Healthy tissue absorption coefficient [mm⁻¹]
 HEALTHY_MUSP_RANGE = (0.78, 1.18)           # Healthy tissue reduced scattering [mm⁻¹]
 TUMOR_MUA_MULTIPLIER_RANGE = (1.5, 3.5)     # Tumor absorption enhancement factor
@@ -71,23 +87,26 @@ TUMOR_MUSP_MULTIPLIER_RANGE = (1.5, 2.5)    # Tumor scattering enhancement facto
 TISSUE_REFRACTIVE_INDEX = 1.33               # Fixed refractive index for biological tissues
 
 # Measurement noise parameters (based on clinical NIR system performance)
-AMPLITUDE_NOISE_PERCENTAGE = 0.02            # 2% relative amplitude noise (typical 40-60 dB SNR)
-PHASE_NOISE_STD_DEGREES = 2.0                # ±2° phase noise (typical commercial system precision)
+AMPLITUDE_NOISE_PERCENTAGE = 0.02            # 2% relative amplitude noise (typical SNR)
+PHASE_NOISE_STD_DEGREES = 2.0                # ±2° phase noise (typical precision)
 
 # Configure logging system for NIR phantom data simulation pipeline
 def setup_logging(level=logging.INFO, log_file=None):
     """
     Configure professional logging system for phantom data generation pipeline.
     
-    This function sets up a comprehensive logging framework that provides:
-    - Structured output with timestamps and log levels
-    - Flexible control over verbosity (DEBUG, INFO, WARNING, ERROR)
-    - Optional file output for permanent record keeping
-    - Consistent formatting across all pipeline components
+    Sets up comprehensive logging with:
+    • Structured output with timestamps and log levels
+    • Flexible control over verbosity levels
+    • Optional file output for permanent record keeping
+    • Consistent formatting across all pipeline components
     
     Args:
         level (int): Logging level (logging.DEBUG, INFO, WARNING, ERROR)
         log_file (str, optional): Path to log file. If None, logs only to console.
+    
+    Returns:
+        logging.Logger: Configured logger instance
     """
     # Create custom formatter for professional log output
     formatter = logging.Formatter(
@@ -124,9 +143,9 @@ def setup_logging(level=logging.INFO, log_file=None):
 logger = setup_logging()
 
 
-# --------------------------------------------------------------
+# ============================================================================
 # STEP 1: VOLUMETRIC PHANTOM CONSTRUCTION WITH EMBEDDED GEOMETRIES
-# --------------------------------------------------------------
+# ============================================================================
 
 def build_phantom_with_tissue_and_tumours(phantom_shape=DEFAULT_PHANTOM_SHAPE,
                                           tissue_radius_range=DEFAULT_TISSUE_RADIUS_RANGE,
@@ -137,39 +156,32 @@ def build_phantom_with_tissue_and_tumours(phantom_shape=DEFAULT_PHANTOM_SHAPE,
                                           tumour_start_label=TUMOR_START_LABEL,
                                           rng_seed=None):
     """
-    Constructs a 3D phantom volume with realistic tissue and tumour distributions using arbitrary pose variation.
+    Construct 3D phantom volume with realistic tissue and tumor distributions.
     
-    This function implements a hierarchical geometry construction approach with advanced spatial realism:
-    1. Initialize a cubic air-filled domain (background medium)
-    2. Embed a large ellipsoidal healthy tissue region with random 3D rotation
-    3. Insert multiple smaller ellipsoidal tumour inclusions with random orientations and strict containment
+    Creates a hierarchical geometry with:
+    • Air-filled background domain
+    • Large ellipsoidal healthy tissue region with random 3D rotation
+    • Multiple smaller tumor inclusions with random orientations
     
-    Major Technical Improvements:
-    - ARBITRARY POSE VARIATION: Both tissue and tumors use random 3D rotation matrices to eliminate directional bias
-    - ENHANCED TUMOR EMBEDDING: Requires 80% of tumor volume to be inside tissue, but only places the contained portion
-    - CLIPPED TUMOR PLACEMENT: Prevents unrealistic "floating tumor" voxels in air space for physiological accuracy
-    - Uses implicit surface representation via quadratic forms for rotated ellipsoids
-    - Applies robust rejection sampling with comprehensive geometric validation
-    - Implements label-based segmentation for multi-region FEM meshing
-    
-    Rotation Implementation:
-    - Generates random Euler angles (α, β, γ) for full SO(3) rotation coverage
-    - Applies rotation matrices to coordinate systems before ellipsoid evaluation
-    - Eliminates axis-aligned bias that could affect machine learning training
+    Key Features:
+    • Random 3D rotation matrices eliminate directional bias
+    • Enhanced tumor embedding requires 80% volume inside tissue
+    • Prevents unrealistic "floating tumor" voxels in air space
+    • Uses implicit surface representation via quadratic forms
+    • Robust rejection sampling with geometric validation
     
     Args:
-        phantom_shape (tuple): 3D dimensions of the phantom domain in voxels (Nx, Ny, Nz)
-        tissue_radius_range (tuple): Min/max semi-axes lengths for healthy tissue ellipsoid
-        max_tumours (int): Maximum number of tumour inclusions to embed
-        tumour_radius_range (tuple): Min/max semi-axes lengths for tumour ellipsoids
-        air_label (int): Integer label for air/background regions (typically 0)
-        tissue_label (int): Integer label for healthy tissue regions (typically 1)
-        tumour_start_label (int): Starting label for tumour regions (incremented for each tumour)
-        rng_seed (int): Random seed for reproducible phantom generation
+        phantom_shape (tuple): 3D phantom dimensions (Nx, Ny, Nz)
+        tissue_radius_range (tuple): Min/max semi-axes for healthy tissue ellipsoid
+        max_tumours (int): Maximum number of tumor inclusions
+        tumour_radius_range (tuple): Min/max semi-axes for tumor ellipsoids
+        air_label (int): Label for air/background regions (typically 0)
+        tissue_label (int): Label for healthy tissue (typically 1)
+        tumour_start_label (int): Starting label for tumors (incremented)
+        rng_seed (int): Random seed for reproducible generation
         
     Returns:
-        numpy.ndarray: 3D volume array with integer labels for each tissue type
-                      Shape: (Nx, Ny, Nz), dtype: uint8
+        numpy.ndarray: 3D volume with integer labels, shape (Nx, Ny, Nz)
     """
     # Initialize pseudorandom number generator with specified seed for reproducibility
     rng = np.random.default_rng(rng_seed)
@@ -184,65 +196,45 @@ def build_phantom_with_tissue_and_tumours(phantom_shape=DEFAULT_PHANTOM_SHAPE,
 
     def random_rotation_matrix(rng):
         """
-        Generate a random 3D rotation matrix using Euler angles for arbitrary ellipsoid orientations.
+        Generate random 3D rotation matrix using Euler angles.
         
-        This function implements proper 3D rotation sampling to eliminate directional bias in phantom generation.
-        The approach uses the ZYX Euler angle convention (Tait-Bryan angles) to generate uniformly distributed
-        rotations over the special orthogonal group SO(3).
+        Implements proper 3D rotation sampling to eliminate directional bias
+        in phantom generation. Uses ZYX Euler angle convention to generate
+        uniformly distributed rotations over SO(3).
         
-        Mathematical Foundation:
-        - Generates proper orthogonal matrices R ∈ SO(3) with det(R) = 1
-        - Uses composition of elementary rotations: R = R_z(α) · R_y(β) · R_x(γ)
-        - Ensures uniform sampling over rotation space by appropriate angle range selection
-        - Maintains matrix orthogonality: R^T · R = I and ||R·v|| = ||v|| for any vector v
-        
-        Rotation Sequence (ZYX Tait-Bryan Convention):
-        1. Rotate around x-axis by angle γ ∈ [0, 2π] (roll)
-        2. Rotate around y-axis by angle β ∈ [0, π] (pitch) 
-        3. Rotate around z-axis by angle α ∈ [0, 2π] (yaw)
-        
-        Clinical Relevance:
-        - Eliminates axis-aligned bias that could affect ML model training
-        - Simulates realistic tumor orientations (not restricted to coordinate axes)
-        - Ensures tissue geometry variation matches clinical anatomical diversity
+        Key Benefits:
+        • Eliminates axis-aligned bias affecting ML model training
+        • Simulates realistic tumor orientations
+        • Ensures tissue geometry variation matches clinical diversity
         
         Args:
             rng (numpy.random.Generator): Controlled PRNG for reproducible rotations
             
         Returns:
-            numpy.ndarray: 3×3 orthogonal rotation matrix with det(R)=1, shape (3, 3)
+            numpy.ndarray: 3×3 orthogonal rotation matrix, shape (3, 3)
         """
         # Sample random Euler angles for uniform rotation coverage
-        # Note: Beta uses [0,π] range to avoid gimbal lock singularities at poles
-        alpha = rng.uniform(0, 2*np.pi)  # Z-axis rotation (yaw): full rotation [0°, 360°]
-        beta = rng.uniform(0, np.pi)     # Y-axis rotation (pitch): hemisphere [0°, 180°]  
-        gamma = rng.uniform(0, 2*np.pi)  # X-axis rotation (roll): full rotation [0°, 360°]
+        alpha = rng.uniform(0, 2*np.pi)  # Z-axis rotation (yaw)
+        beta = rng.uniform(0, np.pi)     # Y-axis rotation (pitch)  
+        gamma = rng.uniform(0, 2*np.pi)  # X-axis rotation (roll)
         
-        # Construct elementary rotation matrices using Rodrigues' rotation formula
-        # Each matrix represents rotation around a single coordinate axis
-        
-        # X-axis rotation matrix (roll): R_x(γ)
-        # Rotates points in the YZ-plane, preserving X-coordinates
+        # Construct elementary rotation matrices
+        # X-axis rotation matrix (roll)
         Rx = np.array([[1, 0, 0],
                       [0, np.cos(gamma), -np.sin(gamma)],
                       [0, np.sin(gamma), np.cos(gamma)]])
                       
-        # Y-axis rotation matrix (pitch): R_y(β)  
-        # Rotates points in the XZ-plane, preserving Y-coordinates
-        # Note: Sign convention follows right-hand rule
+        # Y-axis rotation matrix (pitch)
         Ry = np.array([[np.cos(beta), 0, np.sin(beta)],
                       [0, 1, 0],
                       [-np.sin(beta), 0, np.cos(beta)]])
                       
-        # Z-axis rotation matrix (yaw): R_z(α)
-        # Rotates points in the XY-plane, preserving Z-coordinates
+        # Z-axis rotation matrix (yaw)
         Rz = np.array([[np.cos(alpha), -np.sin(alpha), 0],
                       [np.sin(alpha), np.cos(alpha), 0],
                       [0, 0, 1]])
         
-        # Compose final rotation matrix using proper matrix multiplication order
-        # Order is critical: R = R_z(α) · R_y(β) · R_x(γ) for ZYX Euler convention
-        # This applies rotations in sequence: first X, then Y, finally Z
+        # Compose final rotation matrix: R = R_z(α) · R_y(β) · R_x(γ)
         return Rz @ Ry @ Rx
 
     # ----------------------
@@ -422,36 +414,27 @@ def build_phantom_with_tissue_and_tumours(phantom_shape=DEFAULT_PHANTOM_SHAPE,
     return vol
 
 
-# --------------------------------------------------------------
-# STEP 2: FINITE ELEMENT MESH GENERATION FOR LIGHT TRANSPORT MODELING
-# --------------------------------------------------------------
+# ============================================================================
+# STEP 2: FINITE ELEMENT MESH GENERATION FOR LIGHT TRANSPORT
+# ============================================================================
 
 def mesh_volume(volume):
     """
-    Converts labeled voxel-based phantom geometry into unstructured tetrahedral finite element mesh.
+    Convert labeled phantom geometry into tetrahedral finite element mesh.
     
-    This function performs automatic mesh generation specifically for NIR light transport simulations:
-    - Excludes air regions (label=0) from meshing to reduce computational overhead
-    - Generates conforming tetrahedral elements that respect tissue boundaries
-    - Applies CGAL-based Delaunay triangulation with quality guarantees
-    - Ensures mesh suitability for finite element diffusion equation solving
-    
-    Technical Implementation:
-    - Uses advancing front algorithm for boundary conforming mesh generation
-    - Applies Delaunay refinement to maintain element quality metrics
-    - Implements automatic feature preservation at tissue interfaces
-    - Optimizes cell size for numerical accuracy vs computational efficiency balance
+    Performs automatic mesh generation for NIR light transport simulations:
+    • Excludes air regions (label=0) to reduce computational overhead
+    • Generates conforming tetrahedral elements respecting tissue boundaries
+    • Uses CGAL-based Delaunay triangulation with quality guarantees
+    • Optimizes for finite element diffusion equation solving
     
     Args:
-        volume (numpy.ndarray): 3D labeled phantom volume
-                               Shape: (Nx, Ny, Nz), integer labels for tissue types
+        volume (numpy.ndarray): 3D labeled phantom volume, shape (Nx, Ny, Nz)
                                
     Returns:
         tuple: (elements, nodes) where:
-            - elements (numpy.ndarray): Tetrahedral connectivity matrix, shape (N_tet, 4)
-                                       Each row contains 4 node indices forming a tetrahedron
-            - nodes (numpy.ndarray): Node coordinate matrix, shape (N_nodes, 3)
-                                   Each row is (x, y, z) spatial coordinates in mm
+            - elements: Tetrahedral connectivity matrix, shape (N_tet, 4)
+            - nodes: Node coordinate matrix, shape (N_nodes, 3)
     """
     # Configure meshing parameters for optimal FEM performance
     mesh_params = ff.utils.MeshingParams()
@@ -535,40 +518,34 @@ def create_stndmesh(mesh_elements, mesh_nodes):
     return phantom_mesh
 
 
-# --------------------------------------------------------------
+# ============================================================================
 # STEP 3: OPTICAL PROPERTY ASSIGNMENT AND GROUND TRUTH GENERATION
-# --------------------------------------------------------------
+# ============================================================================
 
 def assign_optical_properties(phantom_mesh, phantom_volume, rng_seed=None):
     """
-    Assigns physiologically realistic optical properties to mesh regions and generates ground truth.
+    Assign physiologically realistic optical properties to mesh regions and generate ground truth.
     
-    This function implements clinically-informed optical property distributions for NIR tomography:
-    - Assigns absorption coefficient (μₐ) and reduced scattering coefficient (μ′s) per tissue type
-    - Uses randomized sampling within physiological bounds for dataset diversity
-    - Maintains realistic contrast ratios between healthy tissue and tumours
-    - Generates pixel-wise ground truth maps for supervised learning validation
+    Implements clinically-informed optical property distributions:
+    • Assigns absorption (μₐ) and reduced scattering (μ′s) per tissue type
+    • Uses randomized sampling within physiological bounds for diversity
+    • Maintains realistic contrast ratios between healthy tissue and tumors
+    • Generates pixel-wise ground truth maps for supervised learning
     
-    Optical Property Ranges (based on literature at 800nm wavelength):
-    - Healthy tissue: μₐ ∈ [0.003, 0.007] mm⁻¹, μ′s ∈ [0.78, 1.18] mm⁻¹
-    - Tumour tissue: μₐ = (1.5-3.5)×healthy, μ′s = (1.5-2.5)×healthy
-    - Fixed refractive index: n = 1.33 (typical for biological tissues)
-    
-    Technical Implementation:
-    - Uses per-phantom randomization to simulate biological variability
-    - Maintains spatial coherence within each tissue region
-    - Creates lookup tables for efficient property queries during FEM assembly
-    - Generates dense voxel-wise ground truth for pixel-level reconstruction evaluation
+    Optical Property Ranges (800nm wavelength):
+    • Healthy tissue: μₐ ∈ [0.003, 0.007] mm⁻¹, μ′s ∈ [0.78, 1.18] mm⁻¹
+    • Tumor tissue: μₐ = (1.5-3.5)×healthy, μ′s = (1.5-2.5)×healthy
+    • Fixed refractive index: n = 1.33 (biological tissues)
     
     Args:
         phantom_mesh (nirfasterff.base.stndmesh): Finite element mesh with region labels
-        phantom_volume (numpy.ndarray): Original voxel-based phantom for ground truth mapping
+        phantom_volume (numpy.ndarray): Original voxel phantom for ground truth mapping
         rng_seed (int): Random seed for reproducible property assignment
         
     Returns:
         tuple: (phantom_mesh, ground_truth_maps) where:
-            - phantom_mesh: Updated mesh object with optical properties assigned to each element
-            - ground_truth_maps: Dense (Nx, Ny, Nz, 2) array containing μₐ and μ′s maps
+            - phantom_mesh: Updated mesh with optical properties
+            - ground_truth_maps: Dense (Nx, Ny, Nz, 2) array with μₐ and μ′s maps
     """
     # Initialize controlled random number generator for reproducible property sampling
     rng = np.random.default_rng(rng_seed)
@@ -640,28 +617,23 @@ def assign_optical_properties(phantom_mesh, phantom_volume, rng_seed=None):
     return phantom_mesh, ground_truth_maps
 
 
-# --------------------------------------------------------------
+# ============================================================================
 # STEP 4: TISSUE SURFACE EXTRACTION VIA MORPHOLOGICAL OPERATIONS
-# --------------------------------------------------------------
+# ============================================================================
 
 def extract_surface_voxels(phantom_volume, tissue_threshold=HEALTHY_TISSUE_LABEL):
     """
-    Extracts explicit 3D coordinates of tissue surface voxels for optode placement constraints.
+    Extract 3D coordinates of tissue surface voxels for probe placement.
     
-    This function identifies the boundary interface between tissue and air using binary morphological 
-    operations. Surface extraction is critical for realistic optode placement since NIR sources and 
-    detectors must be positioned on accessible tissue surfaces in clinical imaging scenarios.
+    Identifies boundary interface between tissue and air using binary morphological 
+    operations. Critical for realistic probe placement since NIR sources and 
+    detectors must be positioned on accessible tissue surfaces.
     
     Technical Implementation:
-    - Applies binary erosion to identify tissue interior voxels  
-    - Computes surface as set difference: tissue_bulk ∖ tissue_interior
-    - Uses 3×3×3 structuring element for 26-connected neighborhood analysis
-    - Returns explicit (x,y,z) coordinates for efficient spatial indexing
-    
-    Mathematical Foundation:
-    - Binary erosion: B ⊖ S = {p | S_p ⊆ B} where S is structuring element
-    - Surface extraction: ∂B = B ∖ (B ⊖ S) yields morphological boundary
-    - Ensures surface voxels have at least one air-adjacent neighbor
+    • Applies binary erosion to identify tissue interior voxels  
+    • Computes surface as set difference: tissue_bulk ∖ tissue_interior
+    • Uses 3×3×3 structuring element for 26-connected neighborhood
+    • Returns explicit (x,y,z) coordinates for efficient spatial indexing
     
     Args:
         phantom_volume (numpy.ndarray): 3D labeled phantom volume with tissue regions
