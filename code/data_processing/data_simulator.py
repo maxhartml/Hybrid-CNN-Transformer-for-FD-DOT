@@ -35,9 +35,11 @@ import sys
 import os
 from pathlib import Path
 
+# Get the project root directory (mah422) - works regardless of where script is run from
+project_root = Path(__file__).parent.parent.parent  # Go up to mah422 directory
+
 # Add NIRFASTer-FF to path dynamically
-current_dir = Path(__file__).parent.parent.parent  # Go up to mah422 directory
-nirfaster_path = current_dir / "nirfaster-FF"
+nirfaster_path = project_root / "nirfaster-FF"
 if nirfaster_path.exists():
     sys.path.append(str(nirfaster_path))
 else:
@@ -59,6 +61,10 @@ import time                                      # Time utilities for performanc
 # Specialized scipy modules for morphological and spatial operations
 from scipy.ndimage import binary_erosion        # Morphological operation for surface extraction
 from scipy.spatial.distance import cdist        # Efficient pairwise distance computation
+
+# Import centralized logging configuration
+sys.path.append(str(project_root / "code"))  # Add code directory to path using absolute path
+from utils.logging_config import get_data_logger, NIRDOTLogger
 
 # Constants for phantom generation
 DEFAULT_PHANTOM_SHAPE = (60, 60, 60)        # Default cubic phantom dimensions in voxels
@@ -90,57 +96,8 @@ TISSUE_REFRACTIVE_INDEX = 1.33               # Fixed refractive index for biolog
 AMPLITUDE_NOISE_PERCENTAGE = 0.02            # 2% relative amplitude noise (typical SNR)
 PHASE_NOISE_STD_DEGREES = 2.0                # ±2° phase noise (typical precision)
 
-# Configure logging system for NIR phantom data simulation pipeline
-def setup_logging(level=logging.INFO, log_file=None):
-    """
-    Configure professional logging system for phantom data generation pipeline.
-    
-    Sets up comprehensive logging with:
-    • Structured output with timestamps and log levels
-    • Flexible control over verbosity levels
-    • Optional file output for permanent record keeping
-    • Consistent formatting across all pipeline components
-    
-    Args:
-        level (int): Logging level (logging.DEBUG, INFO, WARNING, ERROR)
-        log_file (str, optional): Path to log file. If None, logs only to console.
-    
-    Returns:
-        logging.Logger: Configured logger instance
-    """
-    # Create custom formatter for professional log output
-    formatter = logging.Formatter(
-        fmt='%(asctime)s | %(levelname)-8s | %(funcName)-25s | %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    
-    # Configure root logger
-    logger = logging.getLogger()
-    logger.setLevel(level)
-    
-    # Clear any existing handlers to avoid duplicates
-    logger.handlers.clear()
-    
-    # Console handler for real-time monitoring
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(level)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-    
-    # Optional file handler for permanent record keeping
-    if log_file:
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(level)
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-    
-    # Suppress matplotlib debug messages for cleaner output
-    logging.getLogger('matplotlib').setLevel(logging.WARNING)
-    
-    return logger
-
-# Initialize logger for the module
-logger = setup_logging()
+# Initialize logger for the module using centralized logging system
+logger = get_data_logger(__name__)
 
 
 # ============================================================================
@@ -921,91 +878,28 @@ def build_patch_based_probe_layout(surface_coordinates, n_probes=DEFAULT_N_PROBE
 def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, probe_detectors, measurement_links,
                                phantom_volume=None, fd_frequency_hz=DEFAULT_FD_FREQUENCY, output_h5_filename="phantom_fd_scan.h5"):
     """
-    Executes comprehensive frequency-domain finite element forward modeling and saves complete ML-ready dataset.
-    
-    This function performs the complete NIR light transport simulation pipeline, from mesh configuration
-    through physics simulation to final data processing and storage. It represents the core computational
-    component that transforms geometric phantom descriptions into realistic measurement data suitable
-    for machine learning algorithm training and validation.
-    
-    Comprehensive Pipeline Architecture:
-    1. **Mesh Configuration**: Integrates source-detector optode positions with finite element geometry
-    2. **Geometric Validation**: Projects optodes onto tissue surface and verifies measurement validity
-    3. **Physics Simulation**: Solves complex-valued frequency-domain diffusion equation via FEM
-    4. **Signal Processing**: Extracts amplitude and phase with realistic clinical noise simulation
-    5. **ML Preprocessing**: Applies log-amplitude transformation and measurement reshaping
-    6. **Data Storage**: Saves complete dataset with metadata in hierarchical HDF5 format
-    
-    Frequency-Domain Light Transport Theory:
-    The fundamental equation governing NIR light propagation in turbid media at modulation frequency ω:
-    
-    -∇·(D(r)∇Φ(r,ω)) + [μₐ(r) + iω/(c(r))] Φ(r,ω) = S(r,ω)
-    
-    Physical Parameters:
-    - Φ(r,ω): Complex photon fluence [photons·mm⁻²·s⁻¹] at position r and frequency ω
-    - D(r) = 1/[3(μₐ(r) + μ′s(r))]: Diffusion coefficient [mm] controlling light spreading
-    - μₐ(r): Absorption coefficient [mm⁻¹] determining energy loss per unit path length
-    - μ′s(r): Reduced scattering coefficient [mm⁻¹] characterizing directional randomization
-    - c(r) = c₀/n(r): Speed of light in medium [mm·s⁻¹] where c₀ is vacuum light speed
-    - S(r,ω): Isotropic point source distribution [photons·mm⁻³·s⁻¹] at optode positions
-    
-    Measurement Signal Processing:
-    - **Amplitude**: |Φ(r,ω)| represents photon density modulation magnitude
-    - **Phase**: arg(Φ(r,ω)) represents temporal phase delay relative to source modulation
-    - **Log-amplitude**: ln(|Φ|) linearizes exponential spatial decay for neural network stability
-    - **Noise Model**: Realistic amplitude (2% relative) and phase (±2°) noise matching clinical systems
-    
-    Machine Learning Optimizations:
-    - **Log-transformation**: Prevents gradient explosion from exponential distance dependence
-    - **Measurement Reshaping**: (N_sources, 3) format for source-detector grouping
-    - **Noise Injection**: Improves model robustness to real-world measurement uncertainties
-    - **Range Validation**: Ensures numerical stability and prevents overflow/underflow
-    
-    Clinical Realism Features:
-    - **Surface Projection**: Ensures optodes lie exactly on tissue boundaries (no floating positions)
-    - **Frequency Selection**: 140 MHz modulation matching commercial NIR tomography systems
-    - **SNR Modeling**: Noise levels based on published clinical system performance specifications
-    - **Measurement Geometry**: Source-detector separations within physiological ranges (10-40mm)
-    
+    Runs frequency-domain FEM simulation and saves the dataset for ML training.
+
+    Steps:
+    1. Configures mesh with source/detector positions and measurement links.
+    2. Projects optodes onto mesh surface for valid boundary conditions.
+    3. Solves the frequency-domain diffusion equation for amplitude and phase.
+    4. Adds realistic amplitude and phase noise.
+    5. Applies log-amplitude transformation and reshapes data for ML.
+    6. Saves all results, geometry, and ground truth to HDF5 with metadata.
+
     Args:
-        phantom_mesh (nirfasterff.base.stndmesh): Complete FEM mesh with optical properties assigned
-                                                 Contains nodes, elements, regions, and material properties
-        ground_truth_maps (numpy.ndarray): Dense voxel-wise optical property reference maps
-                                          Shape: (Nx, Ny, Nz, 2) for [μₐ, μ′s] ground truth
-        probe_sources (numpy.ndarray): NIR source positions in phantom coordinates [mm]
-                                      Shape: (N_sources, 3) with [x, y, z] coordinates
-        probe_detectors (numpy.ndarray): Detector positions in phantom coordinates [mm]
-                                        Shape: (N_detectors, 3) with [x, y, z] coordinates
-        measurement_links (numpy.ndarray): Source-detector connectivity matrix defining measurement pairs
-                                          Shape: (N_measurements, 3) with [source_idx, detector_idx, active]
-        phantom_volume (numpy.ndarray, optional): Original labeled phantom volume for metadata storage
-                                                 Shape: (Nx, Ny, Nz) with integer tissue labels
-        fd_frequency_hz (float): Modulation frequency in Hz (default: 140 MHz for clinical compatibility)
-        output_h5_filename (str): Complete file path for HDF5 dataset storage with .h5 extension
-        
+        phantom_mesh: NIRFASTer mesh with assigned optical properties.
+        ground_truth_maps: Voxel-wise optical property maps (Nx, Ny, Nz, 2).
+        probe_sources: Source positions (N, 3).
+        probe_detectors: Detector positions (M, 3).
+        measurement_links: Source-detector connectivity (K, 3).
+        phantom_volume: (Optional) Labeled phantom volume (Nx, Ny, Nz).
+        fd_frequency_hz: Modulation frequency in Hz.
+        output_h5_filename: Output HDF5 file path.
+
     Returns:
-        None: Function generates dataset files as side effect with comprehensive logging
-        
-    Side Effects:
-        - Creates HDF5 file containing complete measurement dataset
-        - Logs detailed progress and performance metrics
-        - Validates measurement quality and numerical stability
-        - Updates phantom mesh with optode positions for visualization
-        
-    Output HDF5 Structure:
-        - /log_amplitude: Processed amplitude measurements [ln(photons/mm²)]
-        - /phase: Phase measurements with noise [degrees]
-        - /source_positions: Source coordinates [mm]
-        - /detector_positions: Detector coordinates [mm]
-        - /measurement_links: Connectivity matrix [dimensionless indices]
-        - /ground_truth: Optical property maps [mm⁻¹]
-        - /metadata: Complete simulation parameters and phantom description
-        
-    Performance Characteristics:
-        - Simulation time: ~30-60 seconds per phantom depending on mesh complexity
-        - Memory usage: ~500MB-2GB during FEM solution phase
-        - Output size: ~50-100MB per phantom dataset (compressed HDF5)
-        - Numerical precision: Float64 for physics calculations, optimized storage formats
+        None. Writes HDF5 file and logs progress.
     """
     
     # STEP 1: Configure mesh with comprehensive optode integration and geometric validation
@@ -1187,73 +1081,23 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
 
 def visualize_probe_on_mesh(phantom_volume, phantom_mesh, source_position, detector_positions, probe_index, save_directory, patch_info=None, show_interactive=False):
     """
-    Generates comprehensive 3D visualization of patch-based probe configuration on tissue geometry with enhanced surface rendering.
-    
-    This function creates publication-quality 3D renderings for geometric validation, algorithm verification, and 
-    educational demonstration purposes. The visualization provides detailed spatial understanding of the complete
-    measurement geometry including tissue boundaries, probe positioning, and patch constraints.
-    
-    Visualization Architecture:
-    - Multi-layer rendering with distinct visual elements for each geometric component
-    - Surface boundary extraction using morphological operations for shape clarity
-    - Consistent color coding and sizing across all tissue types for fair representation
-    - High-contrast probe highlighting for measurement geometry identification
-    - Patch region visualization for spatial constraint verification
-    
-    Color Scheme and Visual Encoding:
-    - Healthy tissue: Light green surface + lime green boundaries for tissue identification
-    - Tumor regions: Red-spectrum surface + nodes with numbered labeling for multi-tumor scenarios
-    - Patch region: Purple markers (square shape) indicating surface-constrained probe placement area
-    - Source position: Large yellow circle with black outline for maximum visibility
-    - Detector positions: Cyan circles with black outline, distinguishable from source
-    - Background: Professional black background for scientific presentation clarity
-    
-    Technical Implementation Details:
-    - Adaptive downsampling for performance optimization without losing spatial detail
-    - Morphological surface extraction using binary erosion for boundary identification
-    - Consistent node visualization with balanced opacity and size across tissue types
-    - Aspect ratio preservation to maintain accurate spatial relationships
-    - High-resolution output (300 DPI) for publication-quality documentation
-    
-    Clinical Relevance:
-    - Demonstrates realistic probe placement constraints imposed by tissue geometry
-    - Visualizes patch-based placement strategy simulating clinical probe array limitations
-    - Shows source-detector separation distances within physiological measurement ranges
-    - Provides visual validation of tumor embedding quality and containment ratios
-    
-    Educational Value:
-    - Clear visualization of complex 3D geometric relationships for algorithm understanding
-    - Surface boundaries help interpret finite element mesh structure and quality
-    - Probe positioning demonstrates clinical measurement setup constraints
-    - Multi-tissue scenarios illustrate realistic pathological configurations
-    
+    Generates a 3D visualization of the patch-based probe configuration on the phantom.
+
+    Shows tissue and tumor surfaces, mesh nodes, probe source and detectors, and the patch region.
+    Uses color coding for tissue, tumors, patch, and probes. Saves a high-resolution PNG and optionally displays interactively.
+
     Args:
-        phantom_volume (numpy.ndarray): Original labeled voxel phantom for tissue surface extraction
-                                       Shape: (Nx, Ny, Nz), integer labels defining tissue regions
-        phantom_mesh (nirfasterff.base.stndmesh): Complete FEM mesh with node coordinates and region labels
-                                                  Contains computed tetrahedral elements and surface geometry
-        source_position (numpy.ndarray): Current NIR source position coordinates [x, y, z] in mm
-                                        Represents the light injection point for forward modeling
-        detector_positions (numpy.ndarray): Current detector array positions, shape (3, 3) for 3 detectors
-                                           Each row contains [x, y, z] coordinates of detection points
-        probe_index (int): Sequential probe identifier for systematic filename generation (0-based indexing)
-        save_directory (str): Absolute output directory path for storing rendered visualization images
-        patch_info (dict, optional): Patch metadata containing center position, radius, and surface coordinates
-                                    Used for visualizing surface-constrained probe placement region
-        show_interactive (bool): Controls display behavior - True enables interactive matplotlib window with
-                               mouse-controlled rotation/zoom, False generates static image only
-                               
+        phantom_volume (np.ndarray): Labeled phantom volume (Nx, Ny, Nz).
+        phantom_mesh (nirfasterff.base.stndmesh): FEM mesh with node coordinates and region labels.
+        source_position (np.ndarray): Source position [x, y, z].
+        detector_positions (np.ndarray): Detector positions (3, 3).
+        probe_index (int): Probe index (0-based).
+        save_directory (str): Directory to save the PNG.
+        patch_info (dict, optional): Patch metadata for region visualization.
+        show_interactive (bool): If True, show interactive plot; else, save PNG.
+
     Returns:
-        None: Function generates visualization files as side effect
-              
-    Output Files:
-        - High-resolution PNG image: "probe_{index:03d}.png" (300 DPI for publication quality)
-        - Interactive display: Optional real-time 3D exploration window
-        
-    Performance Notes:
-        - Adaptive downsampling scales with mesh complexity for consistent rendering performance
-        - Memory-efficient rendering suitable for batch processing of large phantom datasets
-        - Automatic cleanup prevents memory accumulation during high-volume generation
+        None
     """
 
     logger.debug(f"Generating comprehensive 3D visualization for probe {probe_index+1} with enhanced surface rendering")
@@ -1290,9 +1134,8 @@ def visualize_probe_on_mesh(phantom_volume, phantom_mesh, source_position, detec
                       healthy_surface_coords[::downsample_factor, 2],
                       color='lime', s=5, alpha=0.55, label='Healthy tissue surface', marker='o')
     
-    # SUBSTEP 2.2: Extract and visualize tumor surface boundaries with region-specific coloring
-    # Each tumor receives distinct color encoding for multi-lesion scenario identification
-    tumor_visualization_colors = ['red', 'orange', 'purple', 'pink', 'brown']  # Distinct color palette
+    # SUBSTEP 2.2: Extract and visualize tumor surface boundaries with unified red coloring
+    # All tumors use the same red color for simplified visualization
     for region_label in np.unique(phantom_mesh.region):  # Iterate through all mesh regions
         if region_label >= TUMOR_START_LABEL:  # Process only tumor regions (labels ≥ TUMOR_START_LABEL)
             tumor_mask = (phantom_volume == region_label)  # Create binary mask for current tumor
@@ -1302,9 +1145,8 @@ def visualize_probe_on_mesh(phantom_volume, phantom_mesh, source_position, detec
                 tumor_surface_coords = np.argwhere(tumor_surface)  # Get surface coordinate list
                 
                 if len(tumor_surface_coords) > 0:  # Ensure tumor has identifiable surface
-                    # Apply consistent color indexing with wraparound for multiple tumors
-                    color_index = int(region_label - TUMOR_START_LABEL) % len(tumor_visualization_colors)
-                    color = tumor_visualization_colors[color_index]  # Select color from palette
+                    # Use red color for all tumors for simplified visualization
+                    color = 'red'  # Unified red color for all tumor regions
                     
                     # Use targeted downsampling for tumor surfaces (typically smaller than tissue)
                     downsample_factor = max(1, len(tumor_surface_coords) // 500)  # Target ~500 tumor surface points
@@ -1314,7 +1156,7 @@ def visualize_probe_on_mesh(phantom_volume, phantom_mesh, source_position, detec
                               tumor_surface_coords[::downsample_factor, 1], 
                               tumor_surface_coords[::downsample_factor, 2],
                               color=color, s=6, alpha=0.65, 
-                              label=f'Tumor {tumor_number} surface', marker='o')
+                              label=f'Tumor {tumor_number} surface' if tumor_number == 1 else '', marker='o')  # Only label first tumor
 
     # SUBSTEP 2.3: Visualize patch surface region for spatial constraint demonstration
     # Patch visualization shows the surface-constrained region where probes can be placed
@@ -1330,7 +1172,7 @@ def visualize_probe_on_mesh(phantom_volume, phantom_mesh, source_position, detec
                       patch_surface_coords[::patch_downsample_factor, 1], 
                       patch_surface_coords[::patch_downsample_factor, 2],
                       color='purple', s=8, alpha=0.7, 
-                      label=f'Patch region (r={patch_info["radius"]}mm)', marker='s')  # Square markers for distinction
+                      label=f'Patch region (r={patch_info["radius"]}mm)', marker='o')  # Circle markers same as tissue surface
 
     # STEP 3: Add comprehensive mesh node visualization for internal structure representation
     # Provides uniform visualization of finite element nodes across all tissue types for geometric understanding
@@ -1349,25 +1191,24 @@ def visualize_probe_on_mesh(phantom_volume, phantom_mesh, source_position, detec
                   color='lightgreen', s=standard_node_size, alpha=standard_alpha, 
                   label='Healthy nodes', marker='.')  # Small dots for subtle internal structure
 
-    # SUBSTEP 3.2: Visualize tumor mesh nodes with region-specific identification
+    # SUBSTEP 3.2: Visualize tumor mesh nodes with unified red coloring
     # Maintains color consistency with surface visualization for coherent representation
     for region_label in np.unique(phantom_mesh.region):  # Process all mesh regions
         if region_label >= TUMOR_START_LABEL:  # Focus on tumor regions only
             tumor_nodes = phantom_mesh.nodes[phantom_mesh.region == region_label]  # Extract tumor node coordinates
             if len(tumor_nodes) > 0:  # Ensure tumor nodes exist in current region
-                # Apply consistent color scheme matching surface visualization
-                color_index = int(region_label - TUMOR_START_LABEL) % len(tumor_visualization_colors)
-                color = tumor_visualization_colors[color_index]  # Match surface color for coherence
+                # Apply unified red color scheme matching surface visualization
+                color = 'red'  # Unified red color for all tumor regions
                 tumor_number = region_label - TUMOR_START_LABEL + 1  # Convert to 1-based display numbering
                 
                 ax.scatter(tumor_nodes[::node_downsample_factor, 0],
                           tumor_nodes[::node_downsample_factor, 1], 
                           tumor_nodes[::node_downsample_factor, 2],
                           color=color, s=standard_node_size, alpha=standard_alpha,
-                          label=f'Tumor {tumor_number} nodes', marker='.')  # Consistent marker style
+                          label=f'Tumor {tumor_number} nodes' if tumor_number == 1 else '', marker='.')  # Only label first tumor
 
     # STEP 4: Highlight current probe configuration with maximum visual contrast
-    # Critical for understanding measurement geometry and source-detector relationships
+    # Critical for understanding measurement geometry and source-detector relationships 
     
     # SUBSTEP 4.1: Visualize NIR source position with distinctive high-contrast markers
     # Large yellow marker with black outline ensures visibility against any background
@@ -1438,95 +1279,40 @@ def visualize_probe_on_mesh(phantom_volume, phantom_mesh, source_position, detec
 
 def main():
     """
-    Orchestrates complete phantom dataset generation pipeline for comprehensive machine learning training data.
-    
-    This main execution function coordinates all simulation stages to produce a scientifically rigorous
-    dataset of synthetic NIR frequency-domain tomography measurements with pixel-perfect ground truth 
-    optical property maps. The pipeline generates multiple unique phantoms to ensure dataset diversity,
-    prevent overfitting, and provide robust training data for deep learning reconstruction algorithms.
-    
-    Complete Pipeline Architecture:
-    1. **Phantom Geometry Construction**: Randomized tissue distributions with arbitrary 3D rotations
-    2. **Finite Element Mesh Generation**: CGAL-based tetrahedral discretization for accurate FEM
-    3. **Optical Property Assignment**: Physiologically realistic μₐ and μ′s with clinical variability
-    4. **Surface Extraction**: Morphological boundary identification for realistic probe placement
-    5. **Patch-Based Probe Layout**: Surface-constrained placement simulating clinical array limitations
-    6. **Frequency-Domain Simulation**: Complete FEM solution of diffusion equation with noise modeling
-    7. **Ground Truth Generation**: Dense voxel-wise optical property maps for supervised learning
-    8. **Visualization**: Publication-quality 3D renderings for geometric validation and education
-    9. **Data Storage**: Hierarchical HDF5 format with comprehensive metadata for reproducibility
-    
-    Scientific Methodology:
-    - **Spatial Bias Elimination**: Patch-based probe placement prevents "god's eye view" artifacts
-    - **Physiological Realism**: Evidence-based optical property ranges and tissue geometry constraints
-    - **Measurement Noise**: Realistic amplitude and phase noise matching clinical NIR system performance
-    - **Geometric Diversity**: Arbitrary 3D rotations and randomized tissue distributions
-    - **Clinical Constraints**: SDS ranges (10-40mm) and surface-only probe placement
-    
-    Machine Learning Optimizations:
-    - **Log-amplitude Processing**: Prevents gradient explosion from exponential light decay
-    - **Normalized Measurements**: Consistent data ranges for stable neural network training
-    - **Comprehensive Ground Truth**: Pixel-level optical property maps for detailed reconstruction validation
-    - **Batch Processing**: Efficient memory management for large-scale dataset generation
-    - **Quality Control**: Automatic validation of mesh quality, probe placement, and measurement validity
-    
-    Technical Implementation Details:
-    - **Thread-Safe RNG**: Independent random seeds ensure reproducible phantom generation
-    - **Memory Management**: Automatic cleanup prevents accumulation during batch processing
-    - **Error Handling**: Robust exception handling with detailed logging for debugging
-    - **Performance Optimization**: Adaptive downsampling and efficient algorithms for production-scale generation
-    - **Cross-Platform Compatibility**: Platform-independent file paths and system interactions
-    
-    Output Dataset Structure:
-    ```
-    data/
-    ├── phantom_001/
-    │   ├── phantom_001_scan.h5          # Complete measurement dataset
-    │   └── probe_001.png                # Visualization (if enabled)
-    ├── phantom_002/
-    │   ├── phantom_002_scan.h5
-    │   └── probe_001.png
-    └── ...
-    ```
-    
-    HDF5 Dataset Contents:
-    - **Measurements**: Log-amplitude and phase data with realistic noise
-    - **Geometry**: Source/detector positions and measurement connectivity
-    - **Ground Truth**: Dense optical property maps (μₐ, μ′s) for reconstruction validation
-    - **Metadata**: Complete phantom parameters for reproducibility analysis
-    
-    Clinical Translation Relevance:
-    - **Realistic Constraints**: Surface-only probe placement matching clinical limitations
-    - **Physiological Properties**: Literature-based optical coefficients for 800nm NIR wavelength
-    - **Measurement Noise**: SNR and phase precision matching commercial NIR systems
-    - **Tumor Characteristics**: Clinically observed contrast ratios and size distributions
-    
-    Performance Characteristics:
-    - **Generation Rate**: ~2-5 phantoms/minute depending on complexity and visualization settings
-    - **Memory Usage**: ~1-2 GB RAM per phantom during generation (released automatically)
-    - **Storage Requirements**: ~50-100 MB per phantom (HDF5 + visualization)
-    - **Scalability**: Tested with 1000+ phantom datasets for production ML training
-    
-    Quality Assurance:
-    - **Mesh Quality**: Automatic validation of tetrahedral element quality and topology
-    - **Probe Placement**: Validation of SDS ranges and surface constraint compliance
-    - **Optical Properties**: Range checking and contrast ratio validation
-    - **Measurement Quality**: SNR verification and phase consistency checking
-    
+    Orchestrates the complete phantom dataset generation pipeline for machine learning training.
+
+    This main function coordinates all simulation stages to produce a dataset of synthetic NIR frequency-domain tomography measurements with ground truth optical property maps. Multiple unique phantoms are generated to ensure dataset diversity and robust training data for deep learning reconstruction.
+
+    Pipeline Overview:
+    1. Phantom geometry construction with randomized tissue/tumor distributions
+    2. Finite element mesh generation (CGAL-based tetrahedral mesh)
+    3. Optical property assignment (physiological μₐ and μ′s)
+    4. Surface extraction for probe placement
+    5. Patch-based probe layout (surface-constrained, clinical SDS)
+    6. Frequency-domain FEM simulation with realistic noise
+    7. Ground truth map generation
+    8. Visualization (optional, for validation)
+    9. Data storage in HDF5 format with metadata
+
+    Key Features:
+    - Patch-based probe placement to avoid spatial bias
+    - Physiological optical properties and tumor contrast
+    - Realistic measurement noise (amplitude/phase)
+    - Pixel-level ground truth for supervised learning
+    - Batch processing and quality control
+
+    Output Structure:
+        data/
+        ├── phantom_001/
+        │   ├── phantom_001_scan.h5
+        │   └── probe_001.png
+        ├── phantom_002/
+        │   ├── phantom_002_scan.h5
+        │   └── probe_001.png
+        └── ...
+
     Returns:
-        None: Function orchestrates dataset generation as side effect with comprehensive logging
-        
-    Side Effects:
-        - Creates complete directory structure with phantom datasets
-        - Generates HDF5 files containing measurements and ground truth
-        - Produces visualization images (if ENABLE_VISUALIZATIONS=True)
-        - Extensive logging output for monitoring and debugging
-        
-    Configuration:
-        - Phantom count: Controlled by n_phantoms parameter
-        - Visualization: Controlled by ENABLE_VISUALIZATIONS global flag
-        - Output location: data/ directory (created automatically)
-        - Logging level: INFO by default, DEBUG available for development
+        None. Generates datasets and logs progress.
     """
     
     # VISUALIZATION CONTROL: Toggle between development and production modes
@@ -1535,27 +1321,29 @@ def main():
     ENABLE_VISUALIZATIONS = True  # Change to False for production runs
     
     # STEP 1: Initialize comprehensive output directory structure and logging framework
-    # Create hierarchical data directory in parent mah422 folder for systematic dataset organization
-    # This ensures datasets are stored outside the code directory for better project organization
-    data_dir = "../data"  # Relative path to maintain portability across different systems
-    os.makedirs(data_dir, exist_ok=True)  # Create directory if it doesn't exist, ignore if it does
+    # Create hierarchical data directory in mah422 folder using absolute paths
+    # This ensures datasets are always stored in the correct location regardless of where script is run
+    data_dir = project_root / "data"  # Absolute path to mah422/data directory
+    data_dir.mkdir(exist_ok=True)  # Create directory if it doesn't exist, ignore if it does
     
-    # Configure professional logging system for complete pipeline monitoring and debugging
-    # Logs are saved in parent mah422 directory for centralized monitoring across all simulation runs
-    log_file = "../logging.log"  # Centralized log file for all pipeline executions
-    logger = setup_logging(level=logging.INFO, log_file=log_file)  # INFO level for production, DEBUG for development
+    # Configure professional logging system using centralized NIRDOTLogger
+    # Initialize logging system for complete pipeline monitoring and debugging with absolute paths
+    logs_dir = project_root / "logs"
+    NIRDOTLogger.setup_logging(log_dir=str(logs_dir), log_level="INFO")  # Setup centralized logging system
+    logger = get_data_logger(__name__)  # Get data processing specific logger
     
     # Generate comprehensive pipeline initialization summary for monitoring and reproducibility
     logger.info("="*80)
     logger.info("STARTING NIR FREQUENCY-DOMAIN PHANTOM DATASET GENERATION PIPELINE")
     logger.info("="*80)
-    logger.info(f"Output directory: {os.path.abspath(data_dir)}")  # Absolute path for clarity
-    logger.info(f"Log file: {log_file}")
+    logger.info(f"Output directory: {data_dir.absolute()}")  # Absolute path for clarity
+    logger.info(f"Logs directory: {logs_dir.absolute()}")  # Show where logs are actually stored
+    logger.info(f"Project root: {project_root.absolute()}")  # Show project root for reference
     logger.info(f"Visualization mode: {'ENABLED (Development)' if ENABLE_VISUALIZATIONS else 'DISABLED (Production)'}")
 
     # STEP 2: Configure dataset generation parameters for machine learning training requirements
     # Generate multiple phantoms to ensure statistical diversity and prevent overfitting in ML models
-    n_phantoms = 10  # Development dataset size - increase to 100+ for production ML training
+    n_phantoms = 10  # Production dataset size for robust ML training
     expected_measurements = n_phantoms * DEFAULT_N_PROBES * 3  # Total measurement count for memory planning
     
     logger.info(f"Generating {n_phantoms} phantom datasets for machine learning training")
@@ -1575,9 +1363,9 @@ def main():
         
         # SUBSTEP 3.1: Create phantom-specific output directory with systematic naming convention
         # Each phantom gets its own subdirectory for organized dataset storage and easy access
-        phantom_dir = os.path.join(data_dir, f"phantom_{phantom_idx+1:02d}")
-        os.makedirs(phantom_dir, exist_ok=True)  # Create directory with error handling
-        logger.debug(f"Created phantom directory: {phantom_dir}")
+        phantom_dir = data_dir / f"phantom_{phantom_idx+1:02d}"  # Use pathlib for cleaner path handling
+        phantom_dir.mkdir(exist_ok=True)  # Create directory with error handling
+        logger.debug(f"Created phantom directory: {phantom_dir.absolute()}")
 
         # SUBSTEP 3.2: Construct phantom geometry with controlled randomization and biological realism
         # Uses unique random seed per phantom to ensure statistical independence between phantoms
@@ -1613,8 +1401,10 @@ def main():
 
         # SUBSTEP 3.6: Generate comprehensive probe visualizations for quality assurance and validation
         # Visualization enables geometric validation and provides educational/presentation materials
-        # Optional in production mode to optimize generation speed for large datasets
-        if ENABLE_VISUALIZATIONS:
+        # Generate visualizations only every 100 phantoms (starting with phantom 1) for efficiency
+        should_generate_visualization = ENABLE_VISUALIZATIONS and (phantom_idx == 0 or (phantom_idx + 1) % 100 == 0)
+        
+        if should_generate_visualization:
             logger.info("Step 5/6: Generating publication-quality probe visualization and geometric validation")
             vis_start_time = time.time()  # Track visualization generation time
             
@@ -1623,33 +1413,29 @@ def main():
                 first_source = probe_sources[0]  # Select first source for visualization
                 first_detectors = probe_detectors[0:3]  # First 3 detectors associated with first source
                 
-                # Control interactive display: show interactive 3D only for first phantom (demonstration purposes)
-                # Subsequent phantoms generate static PNG images only for efficient batch processing
-                show_interactive_3d = (phantom_idx == 0)  # Interactive mode only for first phantom
+                # No interactive 3D displays for production efficiency - only save PNG files
+                show_interactive_3d = False  # Disabled for production speed
                 
                 # Generate comprehensive 3D visualization with surface boundaries and probe positioning
-                visualize_probe_on_mesh(phantom_volume, phantom_mesh, first_source, first_detectors, 0, phantom_dir, 
+                visualize_probe_on_mesh(phantom_volume, phantom_mesh, first_source, first_detectors, 0, str(phantom_dir), 
                                        patch_info=patch_info, show_interactive=show_interactive_3d)
                 
-                if show_interactive_3d:
-                    logger.info(f"Generated INTERACTIVE 3D visualization for phantom {phantom_idx+1} probe 1 (demonstration mode)")
-                else:
-                    logger.info(f"Generated static PNG visualization for phantom {phantom_idx+1} probe 1 (batch processing mode)")
+                logger.info(f"Generated static PNG visualization for phantom {phantom_idx+1} probe 1 (milestone visualization)")
             
             vis_time = time.time() - vis_start_time  # Calculate visualization generation time
             logger.debug(f"Visualization generation completed in {vis_time:.1f}s")
         else:
-            logger.info("Step 5/6: Skipping visualizations (disabled for production efficiency and speed optimization)")
+            logger.info("Step 5/6: Skipping visualization (will generate every 100 phantoms for efficiency)")
 
         # SUBSTEP 3.7: Execute frequency-domain finite element simulation and save complete dataset
         # This is the core physics simulation that generates realistic NIR measurement data
         # Solves complex-valued diffusion equation and processes results for machine learning
         logger.info("Step 6/6: Executing frequency-domain diffusion equation simulation and dataset generation")
-        h5_output_path = os.path.join(phantom_dir, f"phantom_{phantom_idx+1:03d}_scan.h5")  # Systematic HDF5 naming
+        h5_output_path = phantom_dir / f"phantom_{phantom_idx+1:03d}_scan.h5"  # Use pathlib for systematic HDF5 naming
         
         # Execute complete forward modeling pipeline with noise simulation and data processing
         run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, probe_detectors, measurement_links, 
-                                   phantom_volume=phantom_volume, output_h5_filename=h5_output_path)
+                                   phantom_volume=phantom_volume, output_h5_filename=str(h5_output_path))
         
         # Calculate and log per-phantom generation performance metrics
         phantom_time = time.time() - phantom_start_time
@@ -1657,10 +1443,10 @@ def main():
         logger.debug(f"Complete dataset saved: {h5_output_path}")
         
         # Log visualization status based on generation mode
-        if ENABLE_VISUALIZATIONS and phantom_idx == 0:
-            logger.debug(f"Interactive visualization generated: {phantom_dir}/probe_001.png")
-        elif ENABLE_VISUALIZATIONS:
-            logger.debug(f"Static PNG visualization saved: {phantom_dir}/probe_001.png")
+        if should_generate_visualization:
+            logger.debug(f"Milestone PNG visualization saved: {phantom_dir}/probe_001.png (phantom {phantom_idx+1})")
+        else:
+            logger.debug(f"Visualization skipped for phantom {phantom_idx+1} (generates every 100 phantoms)")
 
     # STEP 4: Generate comprehensive pipeline completion summary and validation report
     # Provides complete performance metrics and dataset validation for quality assurance
@@ -1673,7 +1459,7 @@ def main():
     logger.info(f"Generated {n_phantoms} complete phantom datasets with full ground truth")
     logger.info(f"Total processing time: {total_pipeline_time:.1f}s ({average_time_per_phantom:.1f}s per phantom)")
     logger.info(f"Generation rate: {n_phantoms / (total_pipeline_time/60):.1f} phantoms/minute")
-    logger.info(f"Dataset storage location: {os.path.abspath(data_dir)}")
+    logger.info(f"Dataset storage location: {data_dir.absolute()}")
     
     # Detailed dataset contents summary for user reference
     logger.info("\nDataset Architecture and Contents:")
@@ -1686,10 +1472,11 @@ def main():
     logger.info("    - Complete geometry and metadata for reproducibility")
     
     if ENABLE_VISUALIZATIONS:
-        logger.info("  • High-quality 3D visualization (probe_001.png)")
+        logger.info("  • High-quality 3D visualization (probe_001.png) - Generated every 100 phantoms")
         logger.info("    - Publication-quality rendering for geometric validation")
-        logger.info("    - Surface boundaries and patch regions clearly displayed")
-        logger.info("    - Interactive mode enabled for first phantom (demonstration)")
+        logger.info("    - Tumor surfaces: unified red coloring for all tumor regions")
+        logger.info("    - Patch regions: purple circular markers matching tissue surface")
+        logger.info("    - No interactive displays for production efficiency")
     else:
         logger.info("  • No visualizations (production mode - optimized for speed)")
     
