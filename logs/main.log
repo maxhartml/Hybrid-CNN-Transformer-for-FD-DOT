@@ -1,0 +1,770 @@
+2025-07-22 15:55:21 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 15:55:21 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 15:55:21 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 15:55:21 | __main__             | INFO     | test_basic_functionality | 🧪 Testing Robin Dale's Pipeline - Simple Version
+2025-07-22 15:55:21 | __main__             | INFO     | test_basic_functionality | 1️⃣  Testing data loading...
+2025-07-22 15:55:21 | code.data_processing.data_loader | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=train, patch_size=(7, 7, 7), use_tissue_patches=False
+2025-07-22 15:55:21 | code.data_processing.data_loader | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 15:55:21 | code.data_processing.data_loader | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 15:55:21 | code.data_processing.data_loader | INFO     | _split_phantoms_by_id | Split 'train': 8/10 phantoms (80.0%)
+2025-07-22 15:55:21 | code.data_processing.data_loader | INFO     | _build_sample_index | Built sample index: 12000 total samples
+2025-07-22 15:55:21 | code.data_processing.data_loader | INFO     | __init__        | Dataset initialized: 8 phantoms, 12000 samples
+2025-07-22 15:55:21 | code.data_processing.data_loader | INFO     | create_nir_dataloaders | Created train DataLoader: 12000 samples, ~6000 batches per epoch, baseline (no tissue patches)
+2025-07-22 15:55:21 | code.data_processing.data_loader | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=val, patch_size=(7, 7, 7), use_tissue_patches=False
+2025-07-22 15:55:21 | code.data_processing.data_loader | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 15:55:21 | code.data_processing.data_loader | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 15:55:21 | code.data_processing.data_loader | INFO     | _split_phantoms_by_id | Split 'val': 1/10 phantoms (10.0%)
+2025-07-22 15:55:21 | code.data_processing.data_loader | INFO     | _build_sample_index | Built sample index: 1500 total samples
+2025-07-22 15:55:21 | code.data_processing.data_loader | INFO     | __init__        | Dataset initialized: 1 phantoms, 1500 samples
+2025-07-22 15:55:21 | code.data_processing.data_loader | INFO     | create_nir_dataloaders | Created val DataLoader: 1500 samples, ~750 batches per epoch, baseline (no tissue patches)
+2025-07-22 15:55:21 | code.data_processing.data_loader | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=test, patch_size=(7, 7, 7), use_tissue_patches=False
+2025-07-22 15:55:21 | code.data_processing.data_loader | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 15:55:21 | code.data_processing.data_loader | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 15:55:21 | code.data_processing.data_loader | INFO     | _split_phantoms_by_id | Split 'test': 1/10 phantoms (10.0%)
+2025-07-22 15:55:21 | code.data_processing.data_loader | INFO     | _build_sample_index | Built sample index: 1500 total samples
+2025-07-22 15:55:21 | code.data_processing.data_loader | INFO     | __init__        | Dataset initialized: 1 phantoms, 1500 samples
+2025-07-22 15:55:21 | code.data_processing.data_loader | INFO     | create_nir_dataloaders | Created test DataLoader: 1500 samples, ~750 batches per epoch, baseline (no tissue patches)
+2025-07-22 15:55:21 | __main__             | INFO     | test_basic_functionality | ✅ Data loading works
+2025-07-22 15:55:21 | __main__             | INFO     | test_basic_functionality | 2️⃣  Testing model creation...
+2025-07-22 15:55:21 | code.models.cnn_autoencoder | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 15:55:22 | code.models.cnn_autoencoder | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 15:55:22 | __main__             | INFO     | test_basic_functionality | ✅ Model creation works
+2025-07-22 15:55:22 | __main__             | INFO     | test_basic_functionality | 3️⃣  Testing loss function...
+2025-07-22 15:55:22 | __main__             | INFO     | test_basic_functionality | ✅ RMSE loss works: 1.414307
+2025-07-22 15:55:22 | __main__             | INFO     | test_basic_functionality | 4️⃣  Testing toggle functionality...
+2025-07-22 15:55:22 | code.models.cnn_autoencoder | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 15:55:22 | code.models.cnn_autoencoder | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 15:55:25 | code.models.cnn_autoencoder | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 15:55:25 | code.models.cnn_autoencoder | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 15:55:25 | code.models.tissue_context_encoder | INFO     | __init__        | 🧠 Initializing TissueContextEncoder: patch_size=7, num_patches=2, embed_dim=256
+2025-07-22 15:55:26 | __main__             | INFO     | test_basic_functionality | ✅ Toggle functionality works
+2025-07-22 15:55:26 | __main__             | INFO     | test_basic_functionality | 5️⃣  Testing Stage1 Trainer...
+2025-07-22 15:55:27 | code.models.cnn_autoencoder | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 15:55:27 | code.models.cnn_autoencoder | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 15:55:33 | code.training.stage1_trainer | INFO     | __init__        | 🏋️  Stage 1 Trainer initialized on cpu
+2025-07-22 15:55:33 | code.training.stage1_trainer | INFO     | __init__        | 📈 Learning rate: 0.0001
+2025-07-22 15:55:33 | code.training.stage1_trainer | INFO     | __init__        | 📊 Model parameters: 106,006,593
+2025-07-22 15:55:33 | __main__             | INFO     | test_basic_functionality | ✅ Stage1 Trainer works
+2025-07-22 15:55:33 | __main__             | INFO     | test_basic_functionality | 🎯 Tests Summary: 5/5 passed
+2025-07-22 15:55:33 | __main__             | INFO     | test_basic_functionality | 🎉 ALL TESTS PASSED - Robin Dale's pipeline is ready!
+2025-07-22 16:04:44 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 16:04:44 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 16:04:44 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 16:04:44 | __main__             | INFO     | test_basic_functionality | 🧪 Testing Robin Dale's Pipeline - Simple Version
+2025-07-22 16:04:44 | __main__             | INFO     | test_basic_functionality | 1️⃣  Testing data loading...
+2025-07-22 16:04:44 | code.data_processing.data_loader | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=train, patch_size=(7, 7, 7), use_tissue_patches=False
+2025-07-22 16:04:44 | code.data_processing.data_loader | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 16:04:44 | code.data_processing.data_loader | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 16:04:44 | code.data_processing.data_loader | INFO     | _split_phantoms_by_id | Split 'train': 8/10 phantoms (80.0%)
+2025-07-22 16:04:44 | code.data_processing.data_loader | INFO     | _build_sample_index | Built sample index: 12000 total samples
+2025-07-22 16:04:44 | code.data_processing.data_loader | INFO     | __init__        | Dataset initialized: 8 phantoms, 12000 samples
+2025-07-22 16:04:44 | code.data_processing.data_loader | INFO     | create_nir_dataloaders | Created train DataLoader: 12000 samples, ~6000 batches per epoch, baseline (no tissue patches)
+2025-07-22 16:04:44 | code.data_processing.data_loader | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=val, patch_size=(7, 7, 7), use_tissue_patches=False
+2025-07-22 16:04:44 | code.data_processing.data_loader | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 16:04:44 | code.data_processing.data_loader | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 16:04:44 | code.data_processing.data_loader | INFO     | _split_phantoms_by_id | Split 'val': 1/10 phantoms (10.0%)
+2025-07-22 16:04:44 | code.data_processing.data_loader | INFO     | _build_sample_index | Built sample index: 1500 total samples
+2025-07-22 16:04:44 | code.data_processing.data_loader | INFO     | __init__        | Dataset initialized: 1 phantoms, 1500 samples
+2025-07-22 16:04:44 | code.data_processing.data_loader | INFO     | create_nir_dataloaders | Created val DataLoader: 1500 samples, ~750 batches per epoch, baseline (no tissue patches)
+2025-07-22 16:04:44 | code.data_processing.data_loader | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=test, patch_size=(7, 7, 7), use_tissue_patches=False
+2025-07-22 16:04:44 | code.data_processing.data_loader | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 16:04:44 | code.data_processing.data_loader | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 16:04:44 | code.data_processing.data_loader | INFO     | _split_phantoms_by_id | Split 'test': 1/10 phantoms (10.0%)
+2025-07-22 16:04:44 | code.data_processing.data_loader | INFO     | _build_sample_index | Built sample index: 1500 total samples
+2025-07-22 16:04:44 | code.data_processing.data_loader | INFO     | __init__        | Dataset initialized: 1 phantoms, 1500 samples
+2025-07-22 16:04:44 | code.data_processing.data_loader | INFO     | create_nir_dataloaders | Created test DataLoader: 1500 samples, ~750 batches per epoch, baseline (no tissue patches)
+2025-07-22 16:04:44 | __main__             | INFO     | test_basic_functionality | ✅ Data loading works
+2025-07-22 16:04:44 | __main__             | INFO     | test_basic_functionality | 2️⃣  Testing model creation...
+2025-07-22 16:04:44 | code.models.cnn_autoencoder | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 16:04:44 | code.models.cnn_autoencoder | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 16:04:45 | __main__             | INFO     | test_basic_functionality | ✅ Model creation works
+2025-07-22 16:04:45 | __main__             | INFO     | test_basic_functionality | 3️⃣  Testing loss function...
+2025-07-22 16:04:45 | __main__             | INFO     | test_basic_functionality | ✅ RMSE loss works: 1.414902
+2025-07-22 16:04:45 | __main__             | INFO     | test_basic_functionality | 4️⃣  Testing toggle functionality...
+2025-07-22 16:04:45 | code.models.cnn_autoencoder | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 16:04:45 | code.models.cnn_autoencoder | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 16:04:46 | code.models.cnn_autoencoder | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 16:04:47 | code.models.cnn_autoencoder | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 16:04:47 | code.models.tissue_context_encoder | INFO     | __init__        | 🧠 Initializing TissueContextEncoder: patch_size=7, num_patches=2, embed_dim=256
+2025-07-22 16:04:48 | __main__             | INFO     | test_basic_functionality | ✅ Toggle functionality works
+2025-07-22 16:04:48 | __main__             | INFO     | test_basic_functionality | 5️⃣  Testing Stage1 Trainer...
+2025-07-22 16:04:48 | code.models.cnn_autoencoder | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 16:04:48 | code.models.cnn_autoencoder | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 16:04:51 | code.training.stage1_trainer | INFO     | __init__        | 🏋️  Stage 1 Trainer initialized on cpu
+2025-07-22 16:04:51 | code.training.stage1_trainer | INFO     | __init__        | 📈 Learning rate: 0.0001
+2025-07-22 16:04:51 | code.training.stage1_trainer | INFO     | __init__        | 📊 Model parameters: 106,006,593
+2025-07-22 16:04:51 | __main__             | INFO     | test_basic_functionality | ✅ Stage1 Trainer works
+2025-07-22 16:04:51 | __main__             | INFO     | test_basic_functionality | 🎯 Tests Summary: 5/5 passed
+2025-07-22 16:04:51 | __main__             | INFO     | test_basic_functionality | 🎉 ALL TESTS PASSED - Robin Dale's pipeline is ready!
+2025-07-22 16:05:55 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 16:05:55 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 16:05:55 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 16:22:35 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 16:22:35 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 16:22:35 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 16:22:44 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 16:22:44 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 16:22:44 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 16:22:44 | __main__             | INFO     | test_basic_functionality | 🧪 Testing Robin Dale's Pipeline - Simple Version
+2025-07-22 16:22:44 | __main__             | INFO     | test_basic_functionality | 1️⃣  Testing data loading...
+2025-07-22 16:22:44 | code.data_processing.data_loader | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=train, patch_size=(7, 7, 7), use_tissue_patches=False
+2025-07-22 16:22:44 | code.data_processing.data_loader | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 16:22:44 | code.data_processing.data_loader | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 16:22:44 | code.data_processing.data_loader | INFO     | _split_phantoms_by_id | Split 'train': 8/10 phantoms (80.0%)
+2025-07-22 16:22:44 | code.data_processing.data_loader | INFO     | _build_sample_index | Built sample index: 12000 total samples
+2025-07-22 16:22:44 | code.data_processing.data_loader | INFO     | __init__        | Dataset initialized: 8 phantoms, 12000 samples
+2025-07-22 16:22:44 | code.data_processing.data_loader | INFO     | create_nir_dataloaders | Created train DataLoader: 12000 samples, ~6000 batches per epoch, baseline (no tissue patches)
+2025-07-22 16:22:44 | code.data_processing.data_loader | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=val, patch_size=(7, 7, 7), use_tissue_patches=False
+2025-07-22 16:22:44 | code.data_processing.data_loader | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 16:22:44 | code.data_processing.data_loader | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 16:22:44 | code.data_processing.data_loader | INFO     | _split_phantoms_by_id | Split 'val': 1/10 phantoms (10.0%)
+2025-07-22 16:22:44 | code.data_processing.data_loader | INFO     | _build_sample_index | Built sample index: 1500 total samples
+2025-07-22 16:22:44 | code.data_processing.data_loader | INFO     | __init__        | Dataset initialized: 1 phantoms, 1500 samples
+2025-07-22 16:22:44 | code.data_processing.data_loader | INFO     | create_nir_dataloaders | Created val DataLoader: 1500 samples, ~750 batches per epoch, baseline (no tissue patches)
+2025-07-22 16:22:44 | code.data_processing.data_loader | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=test, patch_size=(7, 7, 7), use_tissue_patches=False
+2025-07-22 16:22:44 | code.data_processing.data_loader | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 16:22:44 | code.data_processing.data_loader | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 16:22:44 | code.data_processing.data_loader | INFO     | _split_phantoms_by_id | Split 'test': 1/10 phantoms (10.0%)
+2025-07-22 16:22:44 | code.data_processing.data_loader | INFO     | _build_sample_index | Built sample index: 1500 total samples
+2025-07-22 16:22:44 | code.data_processing.data_loader | INFO     | __init__        | Dataset initialized: 1 phantoms, 1500 samples
+2025-07-22 16:22:44 | code.data_processing.data_loader | INFO     | create_nir_dataloaders | Created test DataLoader: 1500 samples, ~750 batches per epoch, baseline (no tissue patches)
+2025-07-22 16:22:44 | __main__             | INFO     | test_basic_functionality | ✅ Data loading works
+2025-07-22 16:22:44 | __main__             | INFO     | test_basic_functionality | 2️⃣  Testing model creation...
+2025-07-22 16:22:44 | code.models.hybrid_model | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 16:22:44 | code.models.cnn_autoencoder | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 16:22:45 | code.models.cnn_autoencoder | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 16:22:45 | code.models.transformer_encoder | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 16:22:45 | code.models.transformer_encoder | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 16:22:45 | code.models.hybrid_model | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 16:22:45 | __main__             | INFO     | test_basic_functionality | ✅ Model creation works
+2025-07-22 16:22:45 | __main__             | INFO     | test_basic_functionality | 3️⃣  Testing loss function...
+2025-07-22 16:22:45 | __main__             | INFO     | test_basic_functionality | ✅ RMSE loss works: 1.412959
+2025-07-22 16:22:45 | __main__             | INFO     | test_basic_functionality | 4️⃣  Testing toggle functionality...
+2025-07-22 16:22:45 | code.models.hybrid_model | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 16:22:45 | code.models.cnn_autoencoder | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 16:22:45 | code.models.cnn_autoencoder | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 16:22:45 | code.models.transformer_encoder | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 16:22:46 | code.models.transformer_encoder | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 16:22:46 | code.models.hybrid_model | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 16:22:47 | code.models.hybrid_model | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 16:22:47 | code.models.cnn_autoencoder | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 16:22:47 | code.models.cnn_autoencoder | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 16:22:48 | code.models.tissue_context_encoder | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 16:22:48 | code.models.tissue_context_encoder | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 16:22:48 | code.models.transformer_encoder | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 16:22:48 | code.models.transformer_encoder | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 16:22:48 | code.models.hybrid_model | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 16:22:49 | __main__             | INFO     | test_basic_functionality | ✅ Toggle functionality works
+2025-07-22 16:22:49 | __main__             | INFO     | test_basic_functionality | 5️⃣  Testing Stage1 Trainer...
+2025-07-22 16:22:49 | code.models.hybrid_model | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 16:22:49 | code.models.cnn_autoencoder | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 16:22:49 | code.models.cnn_autoencoder | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 16:22:49 | code.models.transformer_encoder | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 16:22:49 | code.models.transformer_encoder | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 16:22:49 | code.models.hybrid_model | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 16:22:52 | code.training.stage1_trainer | INFO     | __init__        | 🏋️  Stage 1 Trainer initialized on cpu
+2025-07-22 16:22:52 | code.training.stage1_trainer | INFO     | __init__        | 📈 Learning rate: 0.0001
+2025-07-22 16:22:52 | code.training.stage1_trainer | INFO     | __init__        | 📊 Model parameters: 106,006,593
+2025-07-22 16:22:52 | __main__             | INFO     | test_basic_functionality | ✅ Stage1 Trainer works
+2025-07-22 16:22:52 | __main__             | INFO     | test_basic_functionality | 🎯 Tests Summary: 5/5 passed
+2025-07-22 16:22:52 | __main__             | INFO     | test_basic_functionality | 🎉 ALL TESTS PASSED - Robin Dale's pipeline is ready!
+2025-07-22 16:23:39 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 16:23:39 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 16:23:39 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 16:40:53 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 16:40:53 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 16:40:53 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 16:40:53 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 16:41:14 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 16:41:14 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 16:41:14 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 16:41:14 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 16:41:14 | __main__             | INFO     | __init__        | 🧪 Simple test pipeline initialized on device: cpu
+2025-07-22 16:41:14 | __main__             | INFO     | run_all_tests   | 🔬 Running Simple Test Suite for NIR-DOT Pipeline
+2025-07-22 16:41:14 | __main__             | INFO     | run_all_tests   | ============================================================
+2025-07-22 16:41:14 | code.models.cnn_autoencoder | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 16:41:14 | code.models.cnn_autoencoder | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 16:41:16 | __main__             | INFO     | test_training_utils | Testing RMSE Loss...
+2025-07-22 16:41:16 | __main__             | INFO     | test_training_utils | ✅ Training utilities working
+2025-07-22 16:41:17 | code.data_processing.data_loader | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=train, patch_size=(7, 7, 7), use_tissue_patches=False
+2025-07-22 16:41:17 | code.data_processing.data_loader | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 16:41:17 | code.data_processing.data_loader | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 16:41:17 | code.data_processing.data_loader | INFO     | _split_phantoms_by_id | Split 'train': 8/10 phantoms (80.0%)
+2025-07-22 16:41:17 | code.data_processing.data_loader | INFO     | _build_sample_index | Built sample index: 12000 total samples
+2025-07-22 16:41:17 | code.data_processing.data_loader | INFO     | __init__        | Dataset initialized: 8 phantoms, 12000 samples
+2025-07-22 16:41:17 | code.data_processing.data_loader | INFO     | create_nir_dataloaders | Created train DataLoader: 12000 samples, ~6000 batches per epoch, baseline (no tissue patches)
+2025-07-22 16:41:17 | code.data_processing.data_loader | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=val, patch_size=(7, 7, 7), use_tissue_patches=False
+2025-07-22 16:41:17 | code.data_processing.data_loader | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 16:41:17 | code.data_processing.data_loader | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 16:41:17 | code.data_processing.data_loader | INFO     | _split_phantoms_by_id | Split 'val': 1/10 phantoms (10.0%)
+2025-07-22 16:41:17 | code.data_processing.data_loader | INFO     | _build_sample_index | Built sample index: 1500 total samples
+2025-07-22 16:41:17 | code.data_processing.data_loader | INFO     | __init__        | Dataset initialized: 1 phantoms, 1500 samples
+2025-07-22 16:41:17 | code.data_processing.data_loader | INFO     | create_nir_dataloaders | Created val DataLoader: 1500 samples, ~750 batches per epoch, baseline (no tissue patches)
+2025-07-22 16:41:17 | code.data_processing.data_loader | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=test, patch_size=(7, 7, 7), use_tissue_patches=False
+2025-07-22 16:41:17 | code.data_processing.data_loader | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 16:41:17 | code.data_processing.data_loader | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 16:41:17 | code.data_processing.data_loader | INFO     | _split_phantoms_by_id | Split 'test': 1/10 phantoms (10.0%)
+2025-07-22 16:41:17 | code.data_processing.data_loader | INFO     | _build_sample_index | Built sample index: 1500 total samples
+2025-07-22 16:41:17 | code.data_processing.data_loader | INFO     | __init__        | Dataset initialized: 1 phantoms, 1500 samples
+2025-07-22 16:41:17 | code.data_processing.data_loader | INFO     | create_nir_dataloaders | Created test DataLoader: 1500 samples, ~750 batches per epoch, baseline (no tissue patches)
+2025-07-22 16:41:18 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 16:41:18 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 16:41:18 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 16:41:18 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 16:41:18 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 16:41:18 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 16:41:18 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 16:41:18 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 16:41:18 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 16:41:18 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 16:41:18 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 16:41:18 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 16:41:18 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 16:41:18 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 16:41:18 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 16:41:18 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 16:41:18 | code.data_processing.data_loader | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=train, patch_size=(7, 7, 7), use_tissue_patches=True
+2025-07-22 16:41:18 | code.data_processing.data_loader | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 16:41:18 | code.data_processing.data_loader | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 16:41:18 | code.data_processing.data_loader | INFO     | _split_phantoms_by_id | Split 'train': 8/10 phantoms (80.0%)
+2025-07-22 16:41:18 | code.data_processing.data_loader | INFO     | _build_sample_index | Built sample index: 12000 total samples
+2025-07-22 16:41:18 | code.data_processing.data_loader | INFO     | __init__        | Dataset initialized: 8 phantoms, 12000 samples
+2025-07-22 16:41:18 | code.data_processing.data_loader | INFO     | create_nir_dataloaders | Created train DataLoader: 12000 samples, ~6000 batches per epoch, with tissue patches
+2025-07-22 16:41:18 | code.data_processing.data_loader | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=val, patch_size=(7, 7, 7), use_tissue_patches=True
+2025-07-22 16:41:18 | code.data_processing.data_loader | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 16:41:18 | code.data_processing.data_loader | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 16:41:18 | code.data_processing.data_loader | INFO     | _split_phantoms_by_id | Split 'val': 1/10 phantoms (10.0%)
+2025-07-22 16:41:18 | code.data_processing.data_loader | INFO     | _build_sample_index | Built sample index: 1500 total samples
+2025-07-22 16:41:18 | code.data_processing.data_loader | INFO     | __init__        | Dataset initialized: 1 phantoms, 1500 samples
+2025-07-22 16:41:18 | code.data_processing.data_loader | INFO     | create_nir_dataloaders | Created val DataLoader: 1500 samples, ~750 batches per epoch, with tissue patches
+2025-07-22 16:41:18 | code.data_processing.data_loader | INFO     | __init__        | 📊 Initializing NIRPhantomDataset: split=test, patch_size=(7, 7, 7), use_tissue_patches=True
+2025-07-22 16:41:18 | code.data_processing.data_loader | INFO     | _discover_phantom_files | 🗂️  Discovered 10 phantom H5 files
+2025-07-22 16:41:18 | code.data_processing.data_loader | INFO     | _discover_phantom_files | ✅ Validated 10 readable phantom files
+2025-07-22 16:41:18 | code.data_processing.data_loader | INFO     | _split_phantoms_by_id | Split 'test': 1/10 phantoms (10.0%)
+2025-07-22 16:41:18 | code.data_processing.data_loader | INFO     | _build_sample_index | Built sample index: 1500 total samples
+2025-07-22 16:41:18 | code.data_processing.data_loader | INFO     | __init__        | Dataset initialized: 1 phantoms, 1500 samples
+2025-07-22 16:41:18 | code.data_processing.data_loader | INFO     | create_nir_dataloaders | Created test DataLoader: 1500 samples, ~750 batches per epoch, with tissue patches
+2025-07-22 16:41:39 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 16:41:39 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 16:41:39 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 16:41:39 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 16:41:39 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 16:41:39 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 16:41:39 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 16:41:39 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 16:41:39 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 16:41:39 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 16:41:39 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 16:41:39 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 16:41:39 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 16:41:39 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 16:41:39 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 16:41:39 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 16:41:39 | __main__             | INFO     | test_data_loading | ✅ Data loading working
+2025-07-22 16:41:54 | __main__             | INFO     | run_all_tests   | 
+📊 TEST SUMMARY
+2025-07-22 16:41:54 | __main__             | INFO     | run_all_tests   | ============================================================
+2025-07-22 16:41:54 | __main__             | INFO     | run_all_tests   | 
+MODELS:
+2025-07-22 16:41:54 | __main__             | INFO     | run_all_tests   |   ✅ cnn_autoencoder
+2025-07-22 16:41:54 | __main__             | ERROR    | run_all_tests   |   ❌ Error: 'TissueContextToggle' object is not callable
+2025-07-22 16:41:54 | __main__             | INFO     | run_all_tests   | 
+TRAINING_UTILS:
+2025-07-22 16:41:54 | __main__             | INFO     | run_all_tests   |   ✅ rmse_loss
+2025-07-22 16:41:54 | __main__             | INFO     | run_all_tests   |   ✅ rmse_metric
+2025-07-22 16:41:54 | __main__             | INFO     | run_all_tests   |   ✅ mae_metric
+2025-07-22 16:41:54 | __main__             | INFO     | run_all_tests   | 
+DATA_LOADING:
+2025-07-22 16:41:54 | __main__             | INFO     | run_all_tests   |   ❌ data_loading_baseline
+2025-07-22 16:41:54 | __main__             | INFO     | run_all_tests   |   ❌ data_loading_enhanced
+2025-07-22 16:41:54 | __main__             | INFO     | run_all_tests   | 
+🎯 OVERALL RESULT: 4/6 tests passed
+2025-07-22 16:41:54 | __main__             | WARNING  | run_all_tests   | ❌ Some tests failed. Please check the issues above.
+2025-07-22 16:52:21 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 16:52:21 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 16:52:21 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 16:52:21 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 16:53:59 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 16:53:59 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 16:53:59 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 16:53:59 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:16:44 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:16:44 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:16:44 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:16:44 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:16:46 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:16:46 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:16:46 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:16:46 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:16:46 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:16:46 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:16:46 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:16:46 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:16:46 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:16:46 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:16:46 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:16:46 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:16:46 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:16:46 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:16:46 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:16:46 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:17:07 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:17:07 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:17:07 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:17:07 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:17:07 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:17:07 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:17:07 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:17:07 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:17:07 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:17:07 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:17:07 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:17:07 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:17:07 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:17:07 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:17:07 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:17:07 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:24:56 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:24:56 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:24:56 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:24:56 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:24:58 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:24:58 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:24:58 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:24:58 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:24:58 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:24:58 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:24:58 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:24:58 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:24:58 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:24:58 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:24:58 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:24:58 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:24:58 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:24:58 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:24:58 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:24:58 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:25:01 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:25:01 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:25:01 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:25:01 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:25:01 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:25:01 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:25:01 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:25:01 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:25:01 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:25:01 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:25:01 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:25:01 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:25:01 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:25:01 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:25:01 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:25:01 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:25:37 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:25:37 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:25:37 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:25:37 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:25:37 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:25:37 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:25:37 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:25:37 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:25:37 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:25:37 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:25:37 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:25:37 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:25:37 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:25:37 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:25:37 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:25:37 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:28:42 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:28:42 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:28:42 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:28:42 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:28:44 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:28:44 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:28:44 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:28:44 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:28:44 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:28:44 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:28:44 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:28:44 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:28:44 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:28:44 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:28:44 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:28:44 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:28:44 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:28:44 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:28:44 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:28:44 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:28:46 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:28:46 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:28:46 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:28:46 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:28:46 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:28:46 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:28:46 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:28:46 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:28:46 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:28:46 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:28:46 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:28:46 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:28:46 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:28:46 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:28:46 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:28:46 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:29:04 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:29:04 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:29:04 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:29:04 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:29:04 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:29:04 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:29:04 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:29:04 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:29:04 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:29:04 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:29:04 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:29:04 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:29:04 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:29:04 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:29:04 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:29:04 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:40:33 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:40:33 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:40:33 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:40:33 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:40:33 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:40:33 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:40:33 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:40:33 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:40:33 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:40:33 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:40:33 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:40:33 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:40:33 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:40:33 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:40:33 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:40:33 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:47:16 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:47:16 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:47:16 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:47:16 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:47:18 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:47:18 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:47:18 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:47:18 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:47:18 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:47:18 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:47:18 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:47:18 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:47:18 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:47:18 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:47:18 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:47:18 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:47:18 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:47:18 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:47:18 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:47:18 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:47:21 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:47:21 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:47:21 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:47:21 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:47:21 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:47:21 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:47:21 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:47:21 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:47:21 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:47:21 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:47:21 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:47:21 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:47:21 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:47:21 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:47:21 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:47:21 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:48:00 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:48:00 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:48:00 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:48:00 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:48:00 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:48:00 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:48:00 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:48:00 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:48:00 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:48:00 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:48:00 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:48:00 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:48:00 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:48:00 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:48:00 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:48:00 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:52:37 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:52:37 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:52:37 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:52:37 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:52:39 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:52:39 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:52:39 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:52:39 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:52:39 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:52:39 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:52:39 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:52:39 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:52:39 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:52:39 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:52:39 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:52:39 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:52:39 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:52:39 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:52:39 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:52:39 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:52:42 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:52:42 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:52:42 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:52:42 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:52:42 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:52:42 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:52:42 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:52:42 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:52:43 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:52:43 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:52:43 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:52:43 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:52:43 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:52:43 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:52:43 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:52:43 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:53:13 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:53:13 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:53:13 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:53:13 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:53:13 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:53:13 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:53:13 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:53:13 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:53:13 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:53:13 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:53:13 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:53:13 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:53:13 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:53:13 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:53:13 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:53:13 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:53:53 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:53:53 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:53:53 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:53:53 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:53:53 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:53:53 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:53:53 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:53:53 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:53:53 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:53:53 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:53:53 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:53:53 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:53:53 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:53:53 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:53:53 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:53:53 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:59:28 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:59:28 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:59:28 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:59:28 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:59:32 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:59:32 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:59:32 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:59:32 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:59:32 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:59:32 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:59:32 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:59:32 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:59:32 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:59:32 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:59:32 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:59:32 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:59:32 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:59:32 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:59:32 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:59:32 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:59:34 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:59:34 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:59:34 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:59:34 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:59:34 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:59:34 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:59:34 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:59:34 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:59:35 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:59:35 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:59:35 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:59:35 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 17:59:35 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 17:59:35 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 17:59:35 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 17:59:35 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:00:01 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:00:01 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:00:01 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:00:01 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:00:01 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:00:01 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:00:01 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:00:01 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:00:01 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:00:01 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:00:01 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:00:01 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:00:01 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:00:01 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:00:01 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:00:01 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:00:39 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:00:39 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:00:39 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:00:39 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:00:39 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:00:39 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:00:39 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:00:39 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:00:39 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:00:39 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:00:39 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:00:39 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:00:39 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:00:39 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:00:39 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:00:39 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:04:08 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:04:08 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:04:08 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:04:08 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:04:10 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:04:10 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:04:10 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:04:10 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:04:10 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:04:10 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:04:10 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:04:10 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:04:10 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:04:10 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:04:10 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:04:10 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:04:10 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:04:10 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:04:10 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:04:10 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:04:14 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:04:14 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:04:14 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:04:14 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:04:14 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:04:14 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:04:14 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:04:14 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:04:14 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:04:14 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:04:14 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:04:14 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:04:14 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:04:14 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:04:14 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:04:14 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:04:44 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:04:44 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:04:44 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:04:44 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:04:44 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:04:44 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:04:44 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:04:44 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:04:44 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:04:44 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:04:44 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:04:44 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:04:44 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:04:44 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:04:44 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:04:44 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:05:17 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:05:17 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:05:17 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:05:17 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:05:17 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:05:17 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:05:17 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:05:17 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:05:17 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:05:17 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:05:17 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:05:17 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:05:17 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:05:17 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:05:17 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:05:17 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:09:26 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:09:26 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:09:26 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:09:26 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:09:29 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:09:29 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:09:29 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:09:29 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:09:29 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:09:29 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:09:29 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:09:29 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:09:29 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:09:29 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:09:29 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:09:29 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:09:29 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:09:29 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:09:29 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:09:29 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:09:32 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:09:32 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:09:32 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:09:32 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:09:32 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:09:32 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:09:32 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:09:32 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:09:32 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:09:32 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:09:32 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:09:32 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:09:32 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:09:32 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:09:32 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:09:32 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:10:02 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:10:02 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:10:02 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:10:02 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:10:02 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:10:02 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:10:02 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:10:02 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:10:02 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:10:02 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:10:02 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:10:02 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:10:02 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:10:02 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:10:02 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:10:02 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:10:36 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:10:36 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:10:36 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:10:36 | logging_config       | INFO     | setup_logging   | 🚀 NIR-DOT Logging System Initialized
+2025-07-22 18:10:36 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:10:36 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:10:36 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:10:36 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:10:36 | logging_config       | INFO     | setup_logging   | 📂 Log directory: /Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/logs
+2025-07-22 18:10:36 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:10:36 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:10:36 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:10:36 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:10:36 | logging_config       | INFO     | setup_logging   | 📊 Log level: INFO
+2025-07-22 18:10:36 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups
+2025-07-22 18:10:36 | logging_config       | INFO     | setup_logging   | 🔄 File rotation: 10MB, 5 backups

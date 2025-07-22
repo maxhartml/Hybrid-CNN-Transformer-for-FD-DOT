@@ -1,56 +1,118 @@
 """
-Transformer Encoder for stage 2 training following Robin Dale's approach.
-Processes CNN features with optional tissue context for enhanced reconstruction.
+Transformer Encoder for NIR-DOT sequence modeling.
+
+This module implements a transformer-based encoder for processing sequential data
+in near-infrared diffuse optical tomography (NIR-DOT) applications. The transformer
+uses multi-head self-attention and positional encoding to capture long-range 
+dependencies and temporal patterns in the data.
+
+The encoder is designed for stage 2 training in a two-stage hybrid approach,
+focusing on sequence modeling and contextual understanding.
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, Tuple
 import math
+from typing import Optional, Tuple
+from ..utils.logging_config import get_model_logger
+
+# Initialize logger for this module
+logger = get_model_logger(__name__)
 
 
 class PositionalEncoding(nn.Module):
-    """Positional encoding for transformer input"""
+    """
+    Sinusoidal positional encoding for transformer sequences.
+    
+    Adds positional information to input embeddings using sine and cosine functions
+    of different frequencies. This allows the transformer to understand the relative
+    positions of elements in the sequence without using positional parameters.
+    
+    Args:
+        embed_dim (int): Embedding dimension (must be even)
+        max_len (int, optional): Maximum sequence length. Defaults to 5000.
+    """
     
     def __init__(self, embed_dim: int, max_len: int = 5000):
         super().__init__()
         
+        # Create positional encoding matrix
         pe = torch.zeros(max_len, embed_dim)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, embed_dim, 2).float() * 
                            (-math.log(10000.0) / embed_dim))
         
+        # Apply sine to even indices and cosine to odd indices
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0).transpose(0, 1)
         
+        # Register as buffer (not a parameter, but part of model state)
         self.register_buffer('pe', pe)
+        
+        logger.debug(f"PositionalEncoding initialized: embed_dim={embed_dim}, max_len={max_len}")
     
     def forward(self, x):
+        """
+        Add positional encoding to input embeddings.
+        
+        Args:
+            x (torch.Tensor): Input embeddings of shape (seq_len, batch_size, embed_dim)
+            
+        Returns:
+            torch.Tensor: Position-encoded embeddings of same shape
+        """
         return x + self.pe[:x.size(0), :]
 
 
 class MultiHeadAttention(nn.Module):
-    """Multi-head attention mechanism"""
+    """
+    Multi-head self-attention mechanism for transformers.
+    
+    Implements the core attention mechanism that allows the model to focus on
+    different parts of the input sequence simultaneously. Multiple attention heads
+    enable the model to capture various types of relationships and dependencies.
+    
+    Args:
+        embed_dim (int): Embedding dimension (must be divisible by num_heads)
+        num_heads (int): Number of attention heads
+        dropout (float, optional): Dropout probability. Defaults to 0.1.
+    """
     
     def __init__(self, embed_dim: int, num_heads: int, dropout: float = 0.1):
         super().__init__()
-        assert embed_dim % num_heads == 0
+        assert embed_dim % num_heads == 0, f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})"
         
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
         
+        # Linear projections for queries, keys, and values
         self.q_proj = nn.Linear(embed_dim, embed_dim)
         self.k_proj = nn.Linear(embed_dim, embed_dim)
         self.v_proj = nn.Linear(embed_dim, embed_dim)
         self.out_proj = nn.Linear(embed_dim, embed_dim)
         
         self.dropout = nn.Dropout(dropout)
-        self.scale = 1.0 / math.sqrt(self.head_dim)
+        self.scale = 1.0 / math.sqrt(self.head_dim)  # Scaling factor for dot-product attention
+        
+        logger.debug(f"MultiHeadAttention initialized: {num_heads} heads, "
+                    f"embed_dim={embed_dim}, head_dim={self.head_dim}")
     
     def forward(self, query, key, value, mask=None):
+        """
+        Forward pass through multi-head attention.
+        
+        Args:
+            query (torch.Tensor): Query tensor of shape (batch_size, seq_len, embed_dim)
+            key (torch.Tensor): Key tensor of shape (batch_size, seq_len, embed_dim)
+            value (torch.Tensor): Value tensor of shape (batch_size, seq_len, embed_dim)
+            mask (torch.Tensor, optional): Attention mask. Defaults to None.
+            
+        Returns:
+            torch.Tensor: Attention output of shape (batch_size, seq_len, embed_dim)
+        """
         batch_size, seq_len, _ = query.shape
         
         # Project and reshape for multi-head attention
@@ -58,19 +120,17 @@ class MultiHeadAttention(nn.Module):
         k = self.k_proj(key).view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
         v = self.v_proj(value).view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
         
-        # Compute attention scores
+        # Compute scaled dot-product attention scores
         scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
         
-        if mask is not None:
-            scores = scores.masked_fill(mask == 0, -1e9)
-        
+        # Compute attention probabilities and apply dropout
         attention_weights = F.softmax(scores, dim=-1)
         attention_weights = self.dropout(attention_weights)
         
         # Apply attention to values
         attended = torch.matmul(attention_weights, v)
         
-        # Reshape and project output
+        # Reshape and project to output dimensions
         attended = attended.transpose(1, 2).contiguous().view(
             batch_size, seq_len, self.embed_dim)
         output = self.out_proj(attended)
@@ -79,17 +139,31 @@ class MultiHeadAttention(nn.Module):
 
 
 class TransformerLayer(nn.Module):
-    """Single transformer encoder layer"""
+    """
+    Single transformer encoder layer with self-attention and feed-forward network.
+    
+    Implements a standard transformer encoder layer consisting of multi-head
+    self-attention followed by a position-wise feed-forward network. Both
+    sub-layers are wrapped with residual connections and layer normalization.
+    
+    Args:
+        embed_dim (int): Embedding dimension
+        num_heads (int): Number of attention heads  
+        mlp_ratio (int, optional): Ratio for MLP hidden dimension. Defaults to 4.
+        dropout (float, optional): Dropout probability. Defaults to 0.1.
+    """
     
     def __init__(self, embed_dim: int, num_heads: int, mlp_ratio: int = 4, 
                  dropout: float = 0.1):
         super().__init__()
-        
+        # Multi-head self-attention mechanism
         self.attention = MultiHeadAttention(embed_dim, num_heads, dropout)
+        
+        # Layer normalization for pre-norm architecture
         self.norm1 = nn.LayerNorm(embed_dim)
         self.norm2 = nn.LayerNorm(embed_dim)
         
-        # MLP block
+        # Position-wise feed-forward network (MLP)
         mlp_dim = embed_dim * mlp_ratio
         self.mlp = nn.Sequential(
             nn.Linear(embed_dim, mlp_dim),
@@ -98,13 +172,28 @@ class TransformerLayer(nn.Module):
             nn.Linear(mlp_dim, embed_dim),
             nn.Dropout(dropout)
         )
+        
+        logger.debug(f"TransformerLayer initialized: embed_dim={embed_dim}, "
+                    f"num_heads={num_heads}, mlp_dim={mlp_dim}")
     
     def forward(self, x, mask=None):
-        # Self-attention with residual connection
+        """
+        Forward pass through transformer layer.
+        
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch_size, seq_len, embed_dim)
+            mask (torch.Tensor, optional): Attention mask. Defaults to None.
+            
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: 
+                - Output tensor of shape (batch_size, seq_len, embed_dim)
+                - Attention weights of shape (batch_size, num_heads, seq_len, seq_len)
+        """
+        # Self-attention with residual connection and pre-norm
         attn_out, attn_weights = self.attention(x, x, x, mask)
         x = self.norm1(x + attn_out)
         
-        # MLP with residual connection
+        # Feed-forward network with residual connection and pre-norm
         mlp_out = self.mlp(x)
         x = self.norm2(x + mlp_out)
         
@@ -113,8 +202,24 @@ class TransformerLayer(nn.Module):
 
 class TransformerEncoder(nn.Module):
     """
-    Transformer encoder for stage 2 training following Robin Dale's approach.
-    Processes CNN features with optional tissue context for enhanced reconstruction.
+    Transformer encoder for sequence modeling in NIR-DOT reconstruction.
+    
+    Multi-layer transformer encoder that processes CNN-extracted features with
+    optional tissue context information. Uses self-attention to capture long-range
+    dependencies and contextual relationships in the data sequence.
+    
+    Designed for stage 2 training in a multi-stage learning approach, focusing
+    on sequence modeling and high-level feature integration.
+    
+    Args:
+        cnn_feature_dim (int, optional): Dimension of CNN features. Defaults to 512.
+        tissue_context_dim (int, optional): Dimension of tissue context. Defaults to 256.
+        embed_dim (int, optional): Transformer embedding dimension. Defaults to 768.
+        num_layers (int, optional): Number of transformer layers. Defaults to 6.
+        num_heads (int, optional): Number of attention heads. Defaults to 12.
+        mlp_ratio (int, optional): MLP expansion ratio. Defaults to 4.
+        dropout (float, optional): Dropout probability. Defaults to 0.1.
+        max_seq_len (int, optional): Maximum sequence length. Defaults to 1000.
     """
     
     def __init__(self, 
@@ -128,44 +233,58 @@ class TransformerEncoder(nn.Module):
                  max_seq_len: int = 1000):
         super().__init__()
         
+        logger.info(f"🏗️  Initializing Transformer Encoder: {num_layers} layers, "
+                   f"{num_heads} heads, embed_dim={embed_dim}")
+        
         self.cnn_feature_dim = cnn_feature_dim
         self.tissue_context_dim = tissue_context_dim
         self.embed_dim = embed_dim
         self.num_layers = num_layers
         
-        # Feature projection layers
+        # Linear projections to map input features to embedding space
         self.cnn_projection = nn.Linear(cnn_feature_dim, embed_dim)
         self.tissue_projection = nn.Linear(tissue_context_dim, embed_dim)
         
-        # Token type embeddings to distinguish CNN vs tissue features
+        # Token type embeddings to distinguish different input modalities
         self.token_type_embedding = nn.Embedding(2, embed_dim)  # 0: CNN, 1: tissue
         
-        # Positional encoding
+        # Positional encoding for sequence modeling
         self.positional_encoding = PositionalEncoding(embed_dim, max_seq_len)
         
-        # Transformer layers
+        # Stack of transformer encoder layers
         self.layers = nn.ModuleList([
             TransformerLayer(embed_dim, num_heads, mlp_ratio, dropout)
             for _ in range(num_layers)
         ])
         
-        # Layer normalization
+        # Final layer normalization
         self.layer_norm = nn.LayerNorm(embed_dim)
         
-        # Output projection for reconstruction features
+        # Output projection to reconstruct feature space
         self.output_projection = nn.Sequential(
             nn.Linear(embed_dim, embed_dim * 2),
             nn.GELU(),
             nn.Dropout(dropout),
-            nn.Linear(embed_dim * 2, cnn_feature_dim),  # Back to CNN feature space
+            nn.Linear(embed_dim * 2, cnn_feature_dim),  # Project back to CNN feature space
             nn.ReLU()
         )
         
-        # Initialize weights
+        # Initialize network weights
         self._init_weights()
+        
+        # Log model characteristics
+        total_params = sum(p.numel() for p in self.parameters())
+        trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        logger.info(f"📊 Transformer Encoder initialized: {total_params:,} total params, "
+                   f"{trainable_params:,} trainable params")
     
     def _init_weights(self):
-        """Initialize weights using Xavier uniform initialization"""
+        """
+        Initialize network weights using Xavier uniform initialization.
+        
+        Applies Xavier uniform initialization to linear layers and standard
+        initialization to layer normalization and embedding layers.
+        """
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 nn.init.xavier_uniform_(m.weight)
@@ -183,46 +302,53 @@ class TransformerEncoder(nn.Module):
         """
         Forward pass through transformer encoder.
         
+        Processes CNN features with optional tissue context through the transformer
+        architecture. The model can operate in two modes: CNN-only or CNN+tissue context.
+        
         Args:
-            cnn_features: CNN encoded features [batch_size, cnn_feature_dim]
-            tissue_context: Tissue context features [batch_size, tissue_context_dim] or None
-            use_tissue_patches: Boolean toggle for tissue patch usage
+            cnn_features (torch.Tensor): CNN encoded features of shape (batch_size, cnn_feature_dim)
+            tissue_context (torch.Tensor, optional): Tissue context features of shape 
+                (batch_size, tissue_context_dim). Defaults to None.
+            use_tissue_patches (bool, optional): Toggle for including tissue context. 
+                Defaults to False.
         
         Returns:
-            Tuple of (enhanced_features, attention_weights)
+            Tuple[torch.Tensor, Optional[torch.Tensor]]: 
+                - Enhanced features of shape (batch_size, cnn_feature_dim)
+                - Attention weights from the last layer (optional)
         """
         batch_size = cnn_features.shape[0]
         device = cnn_features.device
         
-        # Project CNN features to embedding dimension
+        # Project CNN features to transformer embedding space
         cnn_embedded = self.cnn_projection(cnn_features).unsqueeze(1)  # [B, 1, embed_dim]
         
-        # Create token sequence
+        # Build input token sequence
         if use_tissue_patches and tissue_context is not None:
             # Project tissue context to embedding dimension
             tissue_embedded = self.tissue_projection(tissue_context).unsqueeze(1)  # [B, 1, embed_dim]
             
-            # Combine CNN and tissue features
+            # Concatenate CNN and tissue features into sequence
             token_sequence = torch.cat([cnn_embedded, tissue_embedded], dim=1)  # [B, 2, embed_dim]
             
-            # Add token type embeddings
+            # Add token type embeddings to distinguish modalities
             token_types = torch.tensor([0, 1], device=device).unsqueeze(0).expand(batch_size, -1)
             token_type_emb = self.token_type_embedding(token_types)
             token_sequence = token_sequence + token_type_emb
             
         else:
-            # Only CNN features
+            # CNN features only mode
             token_sequence = cnn_embedded  # [B, 1, embed_dim]
             
-            # Add token type embedding for CNN only
+            # Add token type embedding for CNN-only mode
             token_types = torch.tensor([0], device=device).unsqueeze(0).expand(batch_size, -1)
             token_type_emb = self.token_type_embedding(token_types)
             token_sequence = token_sequence + token_type_emb
         
-        # Add positional encoding
+        # Add positional encoding to token sequence
         token_sequence = self.positional_encoding(token_sequence.transpose(0, 1)).transpose(0, 1)
         
-        # Apply transformer layers
+        # Process through transformer layers
         attention_weights_list = []
         x = token_sequence
         
@@ -233,13 +359,13 @@ class TransformerEncoder(nn.Module):
         # Apply final layer normalization
         x = self.layer_norm(x)
         
-        # Extract enhanced CNN features (always first token)
+        # Extract enhanced CNN features (always the first token in sequence)
         enhanced_cnn_features = x[:, 0, :]  # [B, embed_dim]
         
-        # Project back to CNN feature space
+        # Project enhanced features back to original CNN feature space
         enhanced_features = self.output_projection(enhanced_cnn_features)  # [B, cnn_feature_dim]
         
-        # Stack attention weights for analysis
+        # Combine attention weights from all layers for analysis
         attention_weights = torch.stack(attention_weights_list, dim=1) if attention_weights_list else None
         
         return enhanced_features, attention_weights
@@ -248,15 +374,19 @@ class TransformerEncoder(nn.Module):
                           tissue_context: Optional[torch.Tensor] = None,
                           use_tissue_patches: bool = False) -> Optional[torch.Tensor]:
         """
-        Get attention maps for visualization.
+        Extract attention maps for visualization and analysis.
+        
+        Provides access to the attention weights from all transformer layers,
+        useful for understanding what the model is focusing on during processing.
         
         Args:
-            cnn_features: CNN encoded features
-            tissue_context: Tissue context features or None
-            use_tissue_patches: Boolean toggle
+            cnn_features (torch.Tensor): CNN encoded features of shape (batch_size, cnn_feature_dim)
+            tissue_context (torch.Tensor, optional): Tissue context features. Defaults to None.
+            use_tissue_patches (bool, optional): Toggle for tissue context inclusion. 
+                Defaults to False.
         
         Returns:
-            Attention weights from all layers
+            torch.Tensor: Attention weights from the last layer, or None if unavailable
         """
         _, attention_weights = self.forward(cnn_features, tissue_context, use_tissue_patches)
         return attention_weights

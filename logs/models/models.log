@@ -1,0 +1,588 @@
+2025-07-22 15:55:21 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 15:55:22 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 15:55:22 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 15:55:22 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 15:55:25 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 15:55:25 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 15:55:25 | INFO     | __init__        | 🧠 Initializing TissueContextEncoder: patch_size=7, num_patches=2, embed_dim=256
+2025-07-22 15:55:27 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 15:55:27 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 16:04:44 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 16:04:44 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 16:04:45 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 16:04:45 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 16:04:46 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 16:04:47 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 16:04:47 | INFO     | __init__        | 🧠 Initializing TissueContextEncoder: patch_size=7, num_patches=2, embed_dim=256
+2025-07-22 16:04:48 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 16:04:48 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 16:22:44 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 16:22:44 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 16:22:45 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 16:22:45 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 16:22:45 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 16:22:45 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 16:22:45 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 16:22:45 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 16:22:45 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 16:22:45 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 16:22:46 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 16:22:46 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 16:22:47 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 16:22:47 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 16:22:47 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 16:22:48 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 16:22:48 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 16:22:48 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 16:22:48 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 16:22:48 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 16:22:49 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 16:22:49 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 16:22:49 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 16:22:49 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 16:22:49 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 16:22:49 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 16:41:14 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 16:41:14 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:16:45 | INFO     | _test_infrastructure | Model test log
+2025-07-22 17:17:02 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:17:03 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:17:04 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:17:04 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:17:05 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:17:05 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:17:05 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:17:05 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:17:13 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 17:17:13 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:17:13 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:17:13 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 17:17:13 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 17:17:13 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:17:13 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 17:17:13 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 17:17:13 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:17:13 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:17:14 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:17:14 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:17:14 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:17:14 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:17:14 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 17:17:14 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:17:14 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:17:14 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 17:17:14 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 17:17:14 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:17:14 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 17:17:14 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 17:17:14 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:17:14 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:17:15 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:17:15 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:17:15 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:17:15 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:24:57 | INFO     | _test_infrastructure | Model test log
+2025-07-22 17:25:32 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:25:33 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:25:35 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=(7, 7, 7), embed_dim=256
+2025-07-22 17:25:35 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 17:25:35 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:25:35 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:25:35 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:25:35 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:25:35 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:25:35 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:25:44 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 17:25:44 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:25:44 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:25:44 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 17:25:44 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 17:25:44 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:25:44 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 17:25:44 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 17:25:44 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:25:44 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:25:44 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:25:44 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:25:45 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:25:45 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:25:45 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 17:25:45 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:25:45 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:25:45 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 17:25:45 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 17:25:45 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:25:45 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 17:25:45 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 17:25:45 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:25:45 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:25:46 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:25:46 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:25:46 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:25:46 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:28:43 | INFO     | _test_infrastructure | Model test log
+2025-07-22 17:28:57 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:28:57 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:28:59 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=(7, 7, 7), embed_dim=256
+2025-07-22 17:28:59 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 17:28:59 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:28:59 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:28:59 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:28:59 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:29:00 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:29:00 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:29:01 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:29:01 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:29:02 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:29:02 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:29:02 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:29:02 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:29:02 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 17:29:02 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:29:02 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:29:02 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 17:29:02 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 17:29:02 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:29:03 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 17:29:03 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 17:29:05 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:29:05 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:29:06 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:29:06 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:29:06 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:29:06 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:29:08 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 17:29:08 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:29:08 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:29:08 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 17:29:08 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 17:29:08 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:29:08 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 17:29:08 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 17:29:25 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 17:29:25 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:29:25 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:29:25 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 17:29:25 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 17:29:25 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:29:25 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 17:29:25 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 17:40:54 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:40:54 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:40:55 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:40:55 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:40:55 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:40:55 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:40:55 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 17:40:55 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:40:55 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:40:55 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 17:40:55 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 17:40:55 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:40:56 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 17:40:56 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 17:40:56 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:40:56 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:40:56 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:40:56 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:40:57 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:40:57 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:47:17 | INFO     | _test_infrastructure | Model test log
+2025-07-22 17:47:52 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:47:53 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:47:54 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=(7, 7, 7), embed_dim=256
+2025-07-22 17:47:54 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 17:47:54 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 8 heads, embed_dim=768
+2025-07-22 17:47:55 | INFO     | __init__        | 📊 Transformer Encoder initialized: 46,269,952 total params, 46,269,952 trainable params
+2025-07-22 17:47:55 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:47:55 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:47:55 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:47:55 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:47:55 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:47:55 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:47:57 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:47:57 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:47:57 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:47:57 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:47:57 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:47:57 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:47:57 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 17:47:57 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:47:58 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:47:58 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 17:47:58 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 17:47:58 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:47:58 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 17:47:58 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 17:48:02 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:48:02 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:48:02 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:48:02 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:48:03 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:48:03 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:48:04 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 17:48:04 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:48:04 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:48:04 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 17:48:05 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 17:48:05 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:48:05 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 17:48:05 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 17:48:27 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 17:48:27 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:48:27 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:48:27 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 17:48:27 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 17:48:27 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:48:27 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 17:48:27 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 17:52:38 | INFO     | _test_infrastructure | Model test log
+2025-07-22 17:53:04 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:53:04 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:53:06 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=(7, 7, 7), embed_dim=256
+2025-07-22 17:53:06 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 17:53:06 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 8 heads, embed_dim=768
+2025-07-22 17:53:07 | INFO     | __init__        | 📊 Transformer Encoder initialized: 46,269,952 total params, 46,269,952 trainable params
+2025-07-22 17:53:07 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:53:07 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:53:07 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:53:07 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:53:07 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:53:07 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:53:09 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:53:09 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:53:10 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:53:10 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:53:10 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:53:10 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:53:10 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 17:53:10 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:53:11 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:53:11 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 17:53:11 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 17:53:11 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:53:11 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 17:53:11 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 17:53:14 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:53:14 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:53:15 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:53:15 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:53:15 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:53:15 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:53:17 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 17:53:17 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:53:17 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:53:17 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 17:53:17 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 17:53:17 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:53:17 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 17:53:17 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 17:53:39 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 17:53:39 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:53:40 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:53:40 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 17:53:40 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 17:53:40 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:53:40 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 17:53:40 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 17:54:15 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:54:15 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:54:15 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:54:15 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:54:15 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:54:15 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:54:15 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 17:54:15 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:54:16 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:54:16 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 17:54:16 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 17:54:16 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:54:16 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 17:54:16 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 17:54:16 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:54:16 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:54:16 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:54:16 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:54:17 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:54:17 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:59:30 | INFO     | _test_infrastructure | Model test log
+2025-07-22 17:59:51 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:59:51 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:59:53 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=(7, 7, 7), embed_dim=256
+2025-07-22 17:59:53 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 17:59:53 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 8 heads, embed_dim=768
+2025-07-22 17:59:53 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 17:59:53 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:59:53 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:59:53 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:59:53 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:59:54 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:59:54 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:59:55 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:59:55 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:59:56 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:59:56 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:59:56 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:59:56 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:59:58 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 17:59:58 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:59:58 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:59:58 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:59:58 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 17:59:58 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 17:59:58 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 17:59:58 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 17:59:59 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 17:59:59 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 17:59:59 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 17:59:59 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 17:59:59 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 17:59:59 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 18:00:22 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 18:00:22 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:00:23 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:00:23 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 18:00:23 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 18:00:23 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:00:23 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 18:00:23 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 18:01:01 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 18:01:01 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:01:01 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:01:01 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:01:01 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 18:01:01 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 18:01:01 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 18:01:01 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:01:02 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:01:02 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 18:01:02 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 18:01:02 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:01:02 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 18:01:02 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 18:01:02 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 18:01:02 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:01:03 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:01:03 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:01:03 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 18:01:03 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 18:04:09 | INFO     | _test_infrastructure | Model test log
+2025-07-22 18:04:30 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:04:30 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:04:32 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=(7, 7, 7), embed_dim=256
+2025-07-22 18:04:32 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 18:04:32 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 8 heads, embed_dim=768
+2025-07-22 18:04:32 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 18:04:32 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 18:04:32 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:04:32 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:04:32 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:04:33 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 18:04:33 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 18:04:34 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 18:04:34 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:04:35 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:04:35 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 18:04:35 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 18:04:35 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:04:35 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 18:04:35 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 18:04:36 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:04:37 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:04:37 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=(7, 7, 7), embed_dim=256
+2025-07-22 18:04:37 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 18:04:37 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 8 heads, embed_dim=768
+2025-07-22 18:04:37 | INFO     | __init__        | 📊 Transformer Encoder initialized: 46,269,952 total params, 46,269,952 trainable params
+2025-07-22 18:04:37 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 18:04:37 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:04:38 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:04:38 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:04:38 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 18:04:38 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 18:04:38 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 18:04:38 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:04:38 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:04:38 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 18:04:38 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 18:04:38 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:04:38 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 18:04:38 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 18:04:39 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 18:04:39 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:04:39 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:04:39 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:04:40 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 18:04:40 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 18:04:41 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 18:04:41 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:04:42 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:04:42 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:04:42 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 18:04:42 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 18:04:42 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 18:04:42 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:04:42 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:04:42 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 18:04:42 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 18:04:42 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:04:43 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 18:04:43 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 18:04:46 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 18:04:46 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:04:46 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:04:46 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:04:46 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 18:04:46 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 18:04:48 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 18:04:48 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:04:49 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:04:49 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 18:04:49 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 18:04:49 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:04:49 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 18:04:49 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 18:05:06 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 18:05:06 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:05:06 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:05:06 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 18:05:06 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 18:05:06 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:05:06 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 18:05:06 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 18:05:39 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 18:05:39 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:05:39 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:05:39 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:05:39 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 18:05:39 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 18:05:39 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 18:05:39 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:05:40 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:05:40 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 18:05:40 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 18:05:40 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:05:40 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 18:05:40 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 18:05:40 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 18:05:40 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:05:41 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:05:41 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:05:41 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 18:05:41 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 18:09:28 | INFO     | _test_infrastructure | Model test log
+2025-07-22 18:09:48 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:09:48 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:09:50 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=(7, 7, 7), embed_dim=256
+2025-07-22 18:09:50 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 18:09:50 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 8 heads, embed_dim=768
+2025-07-22 18:09:50 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 18:09:50 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 18:09:50 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:09:50 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:09:50 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:09:50 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 18:09:50 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 18:09:53 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 18:09:53 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:09:53 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:09:53 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 18:09:53 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 18:09:53 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:09:54 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 18:09:54 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 18:09:55 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:09:55 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:09:55 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=(7, 7, 7), embed_dim=256
+2025-07-22 18:09:55 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 18:09:55 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 8 heads, embed_dim=768
+2025-07-22 18:09:55 | INFO     | __init__        | 📊 Transformer Encoder initialized: 46,269,952 total params, 46,269,952 trainable params
+2025-07-22 18:09:55 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 18:09:55 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:09:56 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:09:56 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:09:56 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 18:09:56 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 18:09:56 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 18:09:56 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:09:56 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:09:56 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 18:09:56 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 18:09:56 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:09:57 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 18:09:57 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 18:09:57 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 18:09:57 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:09:57 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:09:57 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:09:57 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 18:09:57 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 18:09:59 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 18:09:59 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:09:59 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:09:59 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:10:00 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 18:10:00 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 18:10:00 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 18:10:00 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:10:00 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:10:00 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 18:10:00 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 18:10:00 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:10:00 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 18:10:00 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 18:10:03 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 18:10:03 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(60, 60, 60), base_channels=64
+2025-07-22 18:10:03 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:10:03 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:10:04 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 18:10:04 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 18:10:05 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 18:10:05 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(60, 60, 60), base_channels=64
+2025-07-22 18:10:05 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:10:05 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 18:10:05 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 18:10:05 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:10:06 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 18:10:06 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 18:10:10 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 18:10:10 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:10:11 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:10:11 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:10:11 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 18:10:11 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 18:10:12 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 18:10:12 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:10:12 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:10:12 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 18:10:12 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 18:10:12 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:10:12 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 18:10:12 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 18:10:28 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 18:10:28 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:10:29 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:10:29 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 18:10:29 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 18:10:29 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:10:29 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 18:10:29 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 18:10:58 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 18:10:58 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:10:58 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:10:58 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:10:58 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 18:10:58 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
+2025-07-22 18:10:58 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=enabled
+2025-07-22 18:10:58 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:10:59 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:10:59 | INFO     | __init__        | 🏗️  Initializing Tissue Context Encoder: 2 patches, patch_size=7, embed_dim=256
+2025-07-22 18:10:59 | INFO     | __init__        | 📊 Tissue Context Encoder initialized: 2,940,160 total params, 2,940,160 trainable params
+2025-07-22 18:10:59 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:10:59 | INFO     | __init__        | 📊 Transformer Encoder initialized: 45,089,792 total params, 45,089,792 trainable params
+2025-07-22 18:10:59 | INFO     | __init__        | 📊 Hybrid Model initialized: 109,143,361 total params, 109,143,361 trainable params
+2025-07-22 18:10:59 | INFO     | __init__        | 🏗️  Initializing Hybrid CNN-Transformer: stage1 mode, tissue_patches=disabled
+2025-07-22 18:10:59 | INFO     | __init__        | 🏗️  Initializing CNN Autoencoder: input_channels=1, output_size=(64, 64, 64), base_channels=64
+2025-07-22 18:10:59 | INFO     | __init__        | 📊 CNN Autoencoder initialized: 61,113,409 total params, 61,113,409 trainable params
+2025-07-22 18:10:59 | INFO     | __init__        | 🏗️  Initializing Transformer Encoder: 6 layers, 12 heads, embed_dim=768
+2025-07-22 18:10:59 | INFO     | __init__        | 📊 Transformer Encoder initialized: 44,893,184 total params, 44,893,184 trainable params
+2025-07-22 18:10:59 | INFO     | __init__        | 📊 Hybrid Model initialized: 106,006,593 total params, 106,006,593 trainable params
