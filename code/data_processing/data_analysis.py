@@ -57,6 +57,9 @@ import time
 import warnings
 warnings.filterwarnings('ignore')
 
+# Get the project root directory (mah422) - works regardless of where script is run from
+project_root = Path(__file__).parent.parent.parent  # Go up to mah422 directory
+
 # Configure matplotlib for ultra-high-quality scientific plots
 plt.style.use('dark_background')  # Dark theme for modern look
 plt.rcParams.update({
@@ -124,25 +127,28 @@ class NIRDatasetAnalyzer:
     - Professional reporting with scientific rigor
     """
     
-    def __init__(self, data_directory="../data"):
+    def __init__(self, data_directory=None):
         """
         Initialize the comprehensive analyzer.
         
         Args:
             data_directory (str): Path to directory containing phantom datasets
+                                If None, uses project_root/data automatically
         """
         print("\n" + "="*80)
         print("🔬 INITIALIZING COMPREHENSIVE NIR DATASET ANALYZER 🔬")
         print("="*80)
         
+        # Set default data directory to project_root/data if not specified
+        if data_directory is None:
+            data_directory = project_root / "data"
+        
         self.data_dir = Path(data_directory)
+        print(f"🔍 Looking for data in: {self.data_dir.absolute()}")
+        
         self.phantom_files = []
         self.all_data = {}  # Store loaded datasets
         self.analysis_results = {}
-        
-        # Create output directory for visualizations
-        self.output_dir = self.data_dir / "analysis_output"
-        self.output_dir.mkdir(parents=True, exist_ok=True)
         
         self._discover_datasets()
         
@@ -161,6 +167,14 @@ class NIRDatasetAnalyzer:
         
         if not phantom_dirs:
             print(f"❌ No phantom directories found in {self.data_dir}")
+            print("💡 Expected directory structure:")
+            print("   data/")
+            print("   ├── phantom_01/")
+            print("   │   └── phantom_001_scan.h5")
+            print("   ├── phantom_02/")
+            print("   │   └── phantom_002_scan.h5")
+            print("   └── ...")
+            print("\n💡 Run the data simulator first to generate phantom datasets!")
             return
             
         print(f"� Scanning {len(phantom_dirs)} phantom directories...")

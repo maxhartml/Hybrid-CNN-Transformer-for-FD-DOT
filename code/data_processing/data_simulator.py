@@ -966,6 +966,31 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
     # Commercial systems typically achieve ±1-3 degree phase precision
     noisy_phase = raw_phase + noise_rng.normal(0, PHASE_NOISE_STD_DEGREES, raw_phase.shape)
     
+    # FIX: Ensure physical validity by clamping phase to [0°, 360°) range
+    # Prevents negative phase values that are physically impossible in NIR measurements
+    phase_before_clamp = noisy_phase.copy()  # Store original values for logging
+    noisy_phase = np.clip(noisy_phase, 0.0, 360.0)
+    
+    # Log clamping statistics for quality monitoring
+    negative_count = np.sum(phase_before_clamp < 0)
+    above_360_count = np.sum(phase_before_clamp > 360)
+    total_clamped = negative_count + above_360_count
+    
+    if total_clamped > 0:
+        percentage_clamped = total_clamped / noisy_phase.size * 100
+        logger.debug(f"Phase clamping applied: {total_clamped}/{noisy_phase.size} values ({percentage_clamped:.2f}%)")
+        logger.debug(f"  • Negative phases clamped to 0°: {negative_count}")
+        logger.debug(f"  • Phases >360° clamped to 360°: {above_360_count}")
+        
+        if negative_count > 0:
+            min_negative = np.min(phase_before_clamp[phase_before_clamp < 0])
+            logger.debug(f"  • Most negative value clamped: {min_negative:.2f}°")
+        if above_360_count > 0:
+            max_above = np.max(phase_before_clamp[phase_before_clamp > 360])
+            logger.debug(f"  • Highest value clamped: {max_above:.2f}°")
+    else:
+        logger.debug("Phase clamping: No values required clamping (all phases within [0°, 360°))")
+    
     # Calculate effective signal-to-noise ratios for quality validation
     amplitude_snr_db = 20 * np.log10(np.mean(raw_amplitude) / amplitude_noise_std)
     phase_snr_ratio = PHASE_NOISE_STD_DEGREES / np.std(raw_phase)
@@ -1315,11 +1340,6 @@ def main():
         None. Generates datasets and logs progress.
     """
     
-    # VISUALIZATION CONTROL: Toggle between development and production modes
-    # Set to True for development/debugging (enables PNG saves and interactive 3D plots)
-    # Set to False for production runs (disables visualizations for faster execution)
-    ENABLE_VISUALIZATIONS = True  # Change to False for production runs
-    
     # STEP 1: Initialize comprehensive output directory structure and logging framework
     # Create hierarchical data directory in mah422 folder using absolute paths
     # This ensures datasets are always stored in the correct location regardless of where script is run
@@ -1339,11 +1359,11 @@ def main():
     logger.info(f"Output directory: {data_dir.absolute()}")  # Absolute path for clarity
     logger.info(f"Logs directory: {logs_dir.absolute()}")  # Show where logs are actually stored
     logger.info(f"Project root: {project_root.absolute()}")  # Show project root for reference
-    logger.info(f"Visualization mode: {'ENABLED (Development)' if ENABLE_VISUALIZATIONS else 'DISABLED (Production)'}")
+    logger.info("Visualizations: ENABLED (static PNG images generated for all phantoms)")
 
     # STEP 2: Configure dataset generation parameters for machine learning training requirements
     # Generate multiple phantoms to ensure statistical diversity and prevent overfitting in ML models
-    n_phantoms = 10  # Production dataset size for robust ML training
+    n_phantoms = 200  # Production dataset size for robust ML training
     expected_measurements = n_phantoms * DEFAULT_N_PROBES * 3  # Total measurement count for memory planning
     
     logger.info(f"Generating {n_phantoms} phantom datasets for machine learning training")
@@ -1399,33 +1419,25 @@ def main():
         probe_sources, probe_detectors, measurement_links, patch_info = build_patch_based_probe_layout(
             surface_coordinates, n_probes=DEFAULT_N_PROBES, rng_seed=123+phantom_idx)  # Unique seed per phantom
 
-        # SUBSTEP 3.6: Generate comprehensive probe visualizations for quality assurance and validation
-        # Visualization enables geometric validation and provides educational/presentation materials
-        # Generate visualizations only every 100 phantoms (starting with phantom 1) for efficiency
-        should_generate_visualization = ENABLE_VISUALIZATIONS and (phantom_idx == 0 or (phantom_idx + 1) % 100 == 0)
+        # SUBSTEP 3.6: Generate probe visualizations for quality assurance and validation
+        # Visualization enables geometric validation and provides educational materials
+        logger.info("Step 5/6: Generating probe visualization for quality assurance")
+        vis_start_time = time.time()  # Track visualization generation time
         
-        if should_generate_visualization:
-            logger.info("Step 5/6: Generating publication-quality probe visualization and geometric validation")
-            vis_start_time = time.time()  # Track visualization generation time
+        # Generate detailed visualization for the first probe of each phantom
+        if len(probe_sources) > 0:  # Ensure probes were successfully placed
+            first_source = probe_sources[0]  # Select first source for visualization
+            first_detectors = probe_detectors[0:3]  # First 3 detectors associated with first source
             
-            # Generate detailed visualization for the first probe of each phantom for quality assessment
-            if len(probe_sources) > 0:  # Ensure probes were successfully placed
-                first_source = probe_sources[0]  # Select first source for visualization
-                first_detectors = probe_detectors[0:3]  # First 3 detectors associated with first source
-                
-                # No interactive 3D displays for production efficiency - only save PNG files
-                show_interactive_3d = False  # Disabled for production speed
-                
-                # Generate comprehensive 3D visualization with surface boundaries and probe positioning
-                visualize_probe_on_mesh(phantom_volume, phantom_mesh, first_source, first_detectors, 0, str(phantom_dir), 
-                                       patch_info=patch_info, show_interactive=show_interactive_3d)
-                
-                logger.info(f"Generated static PNG visualization for phantom {phantom_idx+1} probe 1 (milestone visualization)")
+            # Generate 3D visualization with surface boundaries and probe positioning
+            # Note: show_interactive=False to avoid popup windows
+            visualize_probe_on_mesh(phantom_volume, phantom_mesh, first_source, first_detectors, 0, str(phantom_dir), 
+                                   patch_info=patch_info, show_interactive=False)
             
-            vis_time = time.time() - vis_start_time  # Calculate visualization generation time
-            logger.debug(f"Visualization generation completed in {vis_time:.1f}s")
-        else:
-            logger.info("Step 5/6: Skipping visualization (will generate every 100 phantoms for efficiency)")
+            logger.info(f"Generated static PNG visualization for phantom {phantom_idx+1}")
+        
+        vis_time = time.time() - vis_start_time  # Calculate visualization generation time
+        logger.debug(f"Visualization generation completed in {vis_time:.1f}s")
 
         # SUBSTEP 3.7: Execute frequency-domain finite element simulation and save complete dataset
         # This is the core physics simulation that generates realistic NIR measurement data
@@ -1441,12 +1453,7 @@ def main():
         phantom_time = time.time() - phantom_start_time
         logger.info(f"✓ PHANTOM {phantom_idx+1:02d} COMPLETED in {phantom_time:.1f}s")
         logger.debug(f"Complete dataset saved: {h5_output_path}")
-        
-        # Log visualization status based on generation mode
-        if should_generate_visualization:
-            logger.debug(f"Milestone PNG visualization saved: {phantom_dir}/probe_001.png (phantom {phantom_idx+1})")
-        else:
-            logger.debug(f"Visualization skipped for phantom {phantom_idx+1} (generates every 100 phantoms)")
+        logger.debug(f"PNG visualization saved: {phantom_dir}/probe_001.png")
 
     # STEP 4: Generate comprehensive pipeline completion summary and validation report
     # Provides complete performance metrics and dataset validation for quality assurance
@@ -1471,14 +1478,11 @@ def main():
     logger.info("    - Ground truth optical property maps (μₐ, μ′s)")
     logger.info("    - Complete geometry and metadata for reproducibility")
     
-    if ENABLE_VISUALIZATIONS:
-        logger.info("  • High-quality 3D visualization (probe_001.png) - Generated every 100 phantoms")
-        logger.info("    - Publication-quality rendering for geometric validation")
-        logger.info("    - Tumor surfaces: unified red coloring for all tumor regions")
-        logger.info("    - Patch regions: purple circular markers matching tissue surface")
-        logger.info("    - No interactive displays for production efficiency")
-    else:
-        logger.info("  • No visualizations (production mode - optimized for speed)")
+    logger.info("  • High-quality 3D visualization (probe_001.png) - Generated for all phantoms")
+    logger.info("    - Publication-quality rendering for geometric validation")
+    logger.info("    - Tumor surfaces: unified red coloring for all tumor regions")
+    logger.info("    - Patch regions: purple circular markers matching tissue surface")
+    logger.info("    - Static PNG files only (no interactive displays)")
     
     # Technical specifications summary for dataset users
     logger.info("\nTechnical Dataset Specifications:")
