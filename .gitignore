@@ -14,6 +14,15 @@ __pycache__/
 data/
 logs/
 
-# HDF5 and visualization files
+# NIRFASTer-FF library - too large for Git, download from source
+nirfaster-FF/
+
+# Compiled Python bytecode
+__pycache__/
+*.pyc
+
+# HDF5 files
 *.h5
+
+# Image files from simulations
 *.png
