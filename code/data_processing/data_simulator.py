@@ -26,7 +26,7 @@ Technical Implementation Notes:
 
 # System path configuration for NIRFASTer-FF library access
 import sys
-sys.path.append("/Users/maxhart/Documents/MSc_AI_ML/Dissertation/gitlab/mah422/nirfaster-FF")
+sys.path.append("/Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/nirfaster-FF")
 
 # Core numerical and scientific computing libraries
 import numpy as np                           # Primary array operations and linear algebra

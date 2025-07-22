@@ -33,14 +33,14 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 from pathlib import Path
-import logging
 from typing import Dict, List, Tuple, Optional
 import warnings
+from ..utils.logging_config import get_data_logger
+
 warnings.filterwarnings('ignore')
 
-# Configure logging for data loading operations
-logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)-8s | %(funcName)s | %(message)s')
-logger = logging.getLogger(__name__)
+# Initialize logger for this module
+logger = get_data_logger(__name__)
 
 # ===============================================================================
 # CONFIGURATION CONSTANTS
@@ -272,7 +272,7 @@ class NIRPhantomDataset(Dataset):
         self.patch_size = patch_size
         self.use_tissue_patches = use_tissue_patches
         
-        logger.info(f"Initializing NIRPhantomDataset: split={split}, patch_size={patch_size}, "
+        logger.info(f"📊 Initializing NIRPhantomDataset: split={split}, patch_size={patch_size}, "
                    f"use_tissue_patches={use_tissue_patches}")
         
         # Discover all phantom H5 files
@@ -304,7 +304,7 @@ class NIRPhantomDataset(Dataset):
         # Sort by phantom number for consistent ordering
         h5_files.sort(key=lambda x: int(x.stem.split('_')[1]))
         
-        logger.info(f"Discovered {len(h5_files)} phantom H5 files")
+        logger.info(f"🗂️  Discovered {len(h5_files)} phantom H5 files")
         
         # Validate files are readable
         valid_files = []
@@ -320,7 +320,7 @@ class NIRPhantomDataset(Dataset):
             except Exception as e:
                 logger.warning(f"Skipping {h5_file}: error reading file - {e}")
         
-        logger.info(f"Validated {len(valid_files)} readable phantom files")
+        logger.info(f"✅ Validated {len(valid_files)} readable phantom files")
         return valid_files
     
     def _split_phantoms_by_id(self, phantom_files: List[Path], split: str, random_seed: int) -> List[Path]:
@@ -487,8 +487,10 @@ class NIRPhantomDataset(Dataset):
         
         # Build return dictionary
         sample = {
-            'dot_measurements': torch.tensor(dot_measurements, dtype=torch.float32).permute(3, 0, 1, 2),  # (C, H, W, D)
+            'measurements': torch.tensor(dot_measurements, dtype=torch.float32).permute(3, 0, 1, 2),  # (C, H, W, D)
+            'dot_measurements': torch.tensor(dot_measurements, dtype=torch.float32).permute(3, 0, 1, 2),  # (C, H, W, D) - backward compatibility
             'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),
+            'volumes': torch.tensor(ground_truth, dtype=torch.float32),  # Add for training compatibility
             'metadata': torch.tensor([phantom_id, probe_idx, det_idx], dtype=torch.long)
         }
         
@@ -502,8 +504,10 @@ class NIRPhantomDataset(Dataset):
         """Return zero-filled sample for error handling."""
         # Create empty sample with correct dimensions based on actual data
         sample = {
-            'dot_measurements': torch.zeros(1, 60, 60, 60, dtype=torch.float32),  # (C, H, W, D)
+            'measurements': torch.zeros(1, 60, 60, 60, dtype=torch.float32),     # (C, H, W, D)
+            'dot_measurements': torch.zeros(1, 60, 60, 60, dtype=torch.float32), # (C, H, W, D) - backward compatibility
             'ground_truth': torch.zeros(60, 60, 60, 2, dtype=torch.float32),     # (H, W, D, channels)
+            'volumes': torch.zeros(60, 60, 60, 2, dtype=torch.float32),          # Add for training compatibility
             'metadata': torch.zeros(3, dtype=torch.long)
         }
         
