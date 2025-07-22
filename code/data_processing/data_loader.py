@@ -1,33 +1,29 @@
 #!/usr/bin/env python3
 """
-🔬 NIR PHANTOM DATASET LOADER WITH PATCH EXTRACTION 🔬
+🔬 NIR PHANTOM DATASET LOADER 🔬
 
-A comprehensive PyTorch DataLoader for NIR phantom datasets featuring:
+A streamlined PyTorch DataLoader for NIR phantom datasets featuring:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 📊 CORE FUNCTIONALITY:
 • Lazy loading from distributed HDF5 phantom files (efficient memory usage)
-• Automatic patch extraction around source/detector positions
-• Shared CNN encoder for local tissue feature embedding
+• Automatic tissue patch extraction around source/detector positions
 • Cross-phantom shuffling for robust training
 • 90/5/5 train/validation/test splits at phantom level
+• Toggle functionality for Robin Dale's two-stage training approach
 
-🎯 TOKEN STRUCTURE:
-Each training sample represents one source-detector measurement:
-- Geometry coordinates: [xs, ys, zs, xd, yd, zd] (6D)
-- FD measurements: [log_amplitude, phase] (2D)
-- Source patch: 7×7×7×2 local tissue properties (μa, μ′s)
-- Detector patch: 7×7×7×2 local tissue properties (μa, μ′s)
-- CNN embeddings: Learned feature vectors from patches
+🎯 ROBIN DALE INTEGRATION:
+• Stage 1: Full ground truth volumes for CNN autoencoder training
+• Stage 2: Ground truth + optional tissue patches for transformer training
+• Clean toggle switches throughout pipeline (use_tissue_patches parameter)
 
 🏗️ ARCHITECTURE:
-• NIRPhantomDataset: Main PyTorch Dataset class
-• extract_patch_around_position: Robust patch extraction with boundary handling
-• TissuePatchCNN: Lightweight 3D CNN encoder for patch embedding
+• NIRPhantomDataset: Main PyTorch Dataset class with toggle support
 • Efficient H5 file management with lazy loading
+• Phantom-level train/val/test splits to prevent data leakage
 
 Author: Max Hart - NIR Tomography Research
-Version: 1.0 - Production DataLoader
+Version: 2.0 - Robin Dale Integration with Toggle Functionality
 """
 
 import os
@@ -35,8 +31,6 @@ import glob
 import h5py
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from pathlib import Path
 import logging
@@ -55,7 +49,6 @@ logger = logging.getLogger(__name__)
 # Patch extraction parameters
 DEFAULT_PATCH_SIZE = (7, 7, 7)                    # Local tissue patch dimensions
 AIR_VALUE = 0.0                                   # Air padding value for out-of-bounds regions
-PATCH_PADDING_MODE = 'constant'                   # Padding strategy for boundary handling
 
 # Dataset split ratios (must sum to 1.0)
 TRAIN_RATIO = 0.90                                # 90% for training
@@ -74,79 +67,44 @@ H5_KEYS = {
 
 
 # ===============================================================================
-# PATCH EXTRACTION UTILITIES
+# UTILITY FUNCTIONS
 # ===============================================================================
 
-def extract_patch_around_position(ground_truth: np.ndarray, 
-                                 position: np.ndarray, 
-                                 patch_size: Tuple[int, int, int] = DEFAULT_PATCH_SIZE,
-                                 pad_value: float = AIR_VALUE) -> np.ndarray:
+def extract_tissue_patch(ground_truth: np.ndarray, 
+                        position: np.ndarray, 
+                        patch_size: Tuple[int, int, int] = DEFAULT_PATCH_SIZE) -> np.ndarray:
     """
-    Extract 3D tissue property patch centered at specified position with robust boundary handling.
-    
-    This function implements safe patch extraction that handles edge cases where patches
-    extend beyond phantom boundaries. Out-of-bounds regions are padded with air values
-    (μa=0, μ′s=0) which is physically realistic for NIR imaging scenarios.
-    
-    Technical Implementation:
-    - Uses integer coordinates from mesh/surface extraction
-    - Applies symmetric padding around center position
-    - Handles boundary conditions gracefully without crashes
-    - Maintains consistent patch dimensions across all samples
-    
-    Physical Interpretation:
-    - Extracted patches contain mixed air/tissue regions near phantom surfaces
-    - Air padding represents realistic boundary conditions for light transport
-    - Local heterogeneity captured in 7×7×7 neighborhood around optodes
+    Extract tissue patch around a position for Robin Dale's tissue context encoder.
+    Simplified version focused on compatibility with our TissueContextEncoder.
     
     Args:
         ground_truth (np.ndarray): Full phantom optical properties, shape (Nx, Ny, Nz, 2)
-                                  Channel 0: absorption coefficient μa [mm⁻¹]
-                                  Channel 1: reduced scattering μ′s [mm⁻¹]
         position (np.ndarray): Center position coordinates [x, y, z] in voxel indices
         patch_size (tuple): Patch dimensions (px, py, pz), default (7,7,7)
-        pad_value (float): Value for out-of-bounds padding (air = 0.0)
         
     Returns:
-        np.ndarray: Extracted patch, shape (px, py, pz, 2)
-                   Contains local tissue properties with air padding at boundaries
-                   
-    Raises:
-        ValueError: If patch_size dimensions are invalid or position is malformed
+        np.ndarray: Flattened patch for tissue context encoder, shape (patch_size^3 * 2,)
     """
     Nx, Ny, Nz, n_channels = ground_truth.shape
     px, py, pz = patch_size
     
-    # Input validation
-    if any(dim <= 0 for dim in patch_size):
-        raise ValueError(f"Invalid patch_size: {patch_size}. All dimensions must be positive.")
-    if len(position) != 3:
-        raise ValueError(f"Position must be 3D coordinates, got: {position}")
-    
-    # Convert position to integer indices (handles potential floating point coordinates)
+    # Convert position to integer indices
     cx, cy, cz = int(position[0]), int(position[1]), int(position[2])
     
-    # Calculate patch boundaries with symmetric padding around center
+    # Calculate patch boundaries
     half_px, half_py, half_pz = px // 2, py // 2, pz // 2
-    
-    # Determine extraction and padding regions
     x_start, x_end = cx - half_px, cx + half_px + 1
     y_start, y_end = cy - half_py, cy + half_py + 1  
     z_start, z_end = cz - half_pz, cz + half_pz + 1
     
-    # Initialize output patch with air padding
-    patch = np.full((px, py, pz, n_channels), pad_value, dtype=ground_truth.dtype)
+    # Initialize patch with air padding
+    patch = np.full((px, py, pz, n_channels), AIR_VALUE, dtype=ground_truth.dtype)
     
-    # Calculate valid intersection between patch and phantom volume
-    # This handles cases where patch extends beyond phantom boundaries
-    gt_x_start = max(0, x_start)
-    gt_x_end = min(Nx, x_end)
-    gt_y_start = max(0, y_start)
-    gt_y_end = min(Ny, y_end)
-    gt_z_start = max(0, z_start)
-    gt_z_end = min(Nz, z_end)
+    # Extract valid region
+    gt_x_start, gt_x_end = max(0, x_start), min(Nx, x_end)
+    gt_y_start, gt_y_end = max(0, y_start), min(Ny, y_end)
+    gt_z_start, gt_z_end = max(0, z_start), min(Nz, z_end)
     
-    # Calculate corresponding patch indices
     patch_x_start = max(0, -x_start)
     patch_x_end = patch_x_start + (gt_x_end - gt_x_start)
     patch_y_start = max(0, -y_start)
@@ -154,7 +112,7 @@ def extract_patch_around_position(ground_truth: np.ndarray,
     patch_z_start = max(0, -z_start)
     patch_z_end = patch_z_start + (gt_z_end - gt_z_start)
     
-    # Extract valid region from ground truth and copy to patch
+    # Copy valid region
     if (gt_x_end > gt_x_start and gt_y_end > gt_y_start and gt_z_end > gt_z_start):
         patch[patch_x_start:patch_x_end, 
               patch_y_start:patch_y_end, 
@@ -162,17 +120,8 @@ def extract_patch_around_position(ground_truth: np.ndarray,
                                                        gt_y_start:gt_y_end,
                                                        gt_z_start:gt_z_end]
     
-    logger.debug(f"Extracted patch at position {position}: "
-                f"valid_region=({gt_x_start}:{gt_x_end}, {gt_y_start}:{gt_y_end}, {gt_z_start}:{gt_z_end})")
-    
-    return patch
-
-
-# ===============================================================================
-# 3D CNN ENCODER FOR PATCH EMBEDDING
-# ===============================================================================
-
-class TissuePatchCNN(nn.Module):
+    # Return flattened patch for tissue context encoder
+    return patch.reshape(-1)
     """
     Lightweight 3D CNN encoder for tissue patch feature extraction.
     
@@ -279,6 +228,7 @@ class TissuePatchCNN(nn.Module):
 class NIRPhantomDataset(Dataset):
     """
     PyTorch Dataset for NIR phantom data with lazy loading and patch extraction.
+    Enhanced with toggle functionality for Robin Dale's two-stage training approach.
     
     This dataset provides efficient access to distributed HDF5 phantom files with
     on-demand patch extraction around source and detector positions. Implements
@@ -287,17 +237,16 @@ class NIRPhantomDataset(Dataset):
     
     Key Features:
     - Lazy loading: H5 files opened only when needed (memory efficient)
-    - Patch extraction: 7×7×7 local tissue patches around optodes
+    - Patch extraction: 7×7×7 local tissue patches around optodes (toggle-enabled)
     - Cross-phantom mixing: Samples shuffled across all phantoms
     - Phantom-level splits: Prevents overfitting to specific phantom types
     - Boundary handling: Robust patch extraction with air padding
+    - Toggle functionality: Clean enable/disable of tissue patches for A/B testing
     
     Dataset Structure:
     Each sample represents one source-detector measurement:
-    - Geometry: [xs, ys, zs, xd, yd, zd] spatial coordinates
-    - Measurements: [log_amplitude, phase] frequency-domain data
-    - Source patch: 7×7×7×2 local tissue around source
-    - Detector patch: 7×7×7×2 local tissue around detector
+    - DOT measurements: Ground truth volume (for both stages)
+    - Tissue patches: Optional 7×7×7×2 local tissue around optodes (stage 2 enhanced)
     - Metadata: phantom_id, probe_id, detector_id for tracking
     """
     
@@ -305,21 +254,26 @@ class NIRPhantomDataset(Dataset):
                  data_dir: str = "../data",
                  split: str = "train",
                  patch_size: Tuple[int, int, int] = DEFAULT_PATCH_SIZE,
+                 use_tissue_patches: bool = True,
                  random_seed: int = 42):
         """
         Initialize NIR phantom dataset with automatic file discovery and indexing.
+        Enhanced with toggle functionality for tissue patches.
         
         Args:
             data_dir (str): Path to directory containing phantom_XX subdirectories
             split (str): Dataset split - 'train', 'val', or 'test'
             patch_size (tuple): Patch dimensions for local tissue extraction
+            use_tissue_patches (bool): Toggle for enabling tissue patch extraction
             random_seed (int): Random seed for reproducible splits
         """
         self.data_dir = Path(data_dir)
         self.split = split
         self.patch_size = patch_size
+        self.use_tissue_patches = use_tissue_patches
         
-        logger.info(f"Initializing NIRPhantomDataset: split={split}, patch_size={patch_size}")
+        logger.info(f"Initializing NIRPhantomDataset: split={split}, patch_size={patch_size}, "
+                   f"use_tissue_patches={use_tissue_patches}")
         
         # Discover all phantom H5 files
         self.phantom_files = self._discover_phantom_files()
@@ -484,37 +438,44 @@ class NIRPhantomDataset(Dataset):
     
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         """
-        Load single sample with patch extraction and return as tensor dictionary.
+        Load single sample with optional patch extraction and return as tensor dictionary.
+        Enhanced with toggle functionality for Robin Dale's two-stage training.
         
         Args:
             idx (int): Sample index
             
         Returns:
             Dict[str, torch.Tensor]: Sample data containing:
-                - 'geometry': [xs, ys, zs, xd, yd, zd] coordinates (6,)
-                - 'measurements': [log_amplitude, phase] FD data (2,)
-                - 'source_patch': Source tissue patch (2, 7, 7, 7)
-                - 'detector_patch': Detector tissue patch (2, 7, 7, 7)
+                - 'dot_measurements': Ground truth volume (Nx, Ny, Nz) for reconstruction
+                - 'ground_truth': Same as dot_measurements (for consistency)
+                - 'tissue_patches': Combined tissue patches (num_patches, patch_size^3) if enabled
                 - 'metadata': [phantom_id, probe_id, detector_id] (3,)
         """
         phantom_file, probe_idx, det_idx = self.sample_index[idx]
         
         try:
             with h5py.File(phantom_file, 'r') as f:
-                # Load measurement data
-                log_amplitude = f[H5_KEYS['log_amplitude']][probe_idx, det_idx]
-                phase = f[H5_KEYS['phase']][probe_idx, det_idx]
+                # Load ground truth volume (primary input for both stages)
+                ground_truth = f[H5_KEYS['ground_truth']][:]  # (Nx, Ny, Nz, 2)
                 
-                # Load geometry
-                source_pos = f[H5_KEYS['source_pos']][probe_idx]
-                detector_pos = f[H5_KEYS['det_pos']][probe_idx, det_idx]
+                # For Robin Dale's approach, we use the full ground truth volume as input
+                # This represents the "measurement" data for reconstruction
+                dot_measurements = ground_truth[..., 0:1]  # Use absorption coefficient as measurement
                 
-                # Load ground truth for patch extraction
-                ground_truth = f[H5_KEYS['ground_truth']][:]
-                
-                # Extract tissue patches around source and detector
-                source_patch = extract_patch_around_position(ground_truth, source_pos, self.patch_size)
-                detector_patch = extract_patch_around_position(ground_truth, detector_pos, self.patch_size)
+                # Extract tissue patches if enabled (for stage 2 enhanced training)
+                tissue_patches = None
+                if self.use_tissue_patches:
+                    # Load geometry for patch extraction
+                    source_pos = f[H5_KEYS['source_pos']][probe_idx]
+                    detector_pos = f[H5_KEYS['det_pos']][probe_idx, det_idx]
+                    
+                    # Extract patches around source and detector
+                    source_patch = extract_tissue_patch(ground_truth, source_pos, self.patch_size)
+                    detector_patch = extract_tissue_patch(ground_truth, detector_pos, self.patch_size)
+                    
+                    # Combine patches into a single tensor for tissue context encoder
+                    # Each patch is already flattened, so we just stack them
+                    tissue_patches = np.stack([source_patch, detector_patch], axis=0)  # (2, patch_size^3 * 2)
                 
                 # Extract phantom ID from filename
                 phantom_id = int(phantom_file.stem.split('_')[1])
@@ -524,25 +485,35 @@ class NIRPhantomDataset(Dataset):
             # Return zero-filled sample to prevent training crashes
             return self._get_empty_sample()
         
-        # Convert to PyTorch tensors with correct shapes for CNN
-        return {
-            'geometry': torch.tensor([*source_pos, *detector_pos], dtype=torch.float32),
-            'measurements': torch.tensor([log_amplitude, phase], dtype=torch.float32),
-            'source_patch': torch.tensor(source_patch.transpose(3, 0, 1, 2), dtype=torch.float32),  # (2, 7, 7, 7)
-            'detector_patch': torch.tensor(detector_patch.transpose(3, 0, 1, 2), dtype=torch.float32),  # (2, 7, 7, 7)
+        # Build return dictionary
+        sample = {
+            'dot_measurements': torch.tensor(dot_measurements, dtype=torch.float32).permute(3, 0, 1, 2),  # (C, H, W, D)
+            'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),
             'metadata': torch.tensor([phantom_id, probe_idx, det_idx], dtype=torch.long)
         }
+        
+        # Add tissue patches if enabled
+        if self.use_tissue_patches and tissue_patches is not None:
+            sample['tissue_patches'] = torch.tensor(tissue_patches, dtype=torch.float32)
+        
+        return sample
     
     def _get_empty_sample(self) -> Dict[str, torch.Tensor]:
         """Return zero-filled sample for error handling."""
-        px, py, pz = self.patch_size
-        return {
-            'geometry': torch.zeros(6, dtype=torch.float32),
-            'measurements': torch.zeros(2, dtype=torch.float32),
-            'source_patch': torch.zeros(2, px, py, pz, dtype=torch.float32),
-            'detector_patch': torch.zeros(2, px, py, pz, dtype=torch.float32),
+        # Create empty sample with correct dimensions based on actual data
+        sample = {
+            'dot_measurements': torch.zeros(1, 60, 60, 60, dtype=torch.float32),  # (C, H, W, D)
+            'ground_truth': torch.zeros(60, 60, 60, 2, dtype=torch.float32),     # (H, W, D, channels)
             'metadata': torch.zeros(3, dtype=torch.long)
         }
+        
+        # Add empty tissue patches if using them
+        if self.use_tissue_patches:
+            px, py, pz = self.patch_size
+            patch_size_flat = px * py * pz * 2  # 2 channels (mu_a, mu_s)
+            sample['tissue_patches'] = torch.zeros(2, patch_size_flat, dtype=torch.float32)
+        
+        return sample
 
 
 # ===============================================================================
@@ -553,9 +524,11 @@ def create_nir_dataloaders(data_dir: str = "../data",
                           batch_size: int = 32,
                           num_workers: int = 4,
                           patch_size: Tuple[int, int, int] = DEFAULT_PATCH_SIZE,
+                          use_tissue_patches: bool = True,
                           random_seed: int = 42) -> Dict[str, DataLoader]:
     """
     Create train/validation/test DataLoaders for NIR phantom dataset.
+    Enhanced with toggle functionality for Robin Dale's two-stage approach.
     
     This factory function creates properly configured DataLoaders with consistent
     settings across all splits. Implements cross-phantom shuffling for training
@@ -566,6 +539,7 @@ def create_nir_dataloaders(data_dir: str = "../data",
         batch_size (int): Batch size for training
         num_workers (int): Number of worker processes for data loading
         patch_size (tuple): Patch dimensions for tissue extraction
+        use_tissue_patches (bool): Toggle for enabling tissue patch extraction
         random_seed (int): Random seed for reproducible splits
         
     Returns:
@@ -578,6 +552,7 @@ def create_nir_dataloaders(data_dir: str = "../data",
             data_dir=data_dir,
             split=split,
             patch_size=patch_size,
+            use_tissue_patches=use_tissue_patches,
             random_seed=random_seed
         )
         
@@ -597,8 +572,9 @@ def create_nir_dataloaders(data_dir: str = "../data",
         
         dataloaders[split] = dataloader
         
+        tissue_info = "with tissue patches" if use_tissue_patches else "baseline (no tissue patches)"
         logger.info(f"Created {split} DataLoader: {len(dataset)} samples, "
-                   f"~{len(dataloader)} batches per epoch")
+                   f"~{len(dataloader)} batches per epoch, {tissue_info}")
     
     return dataloaders
 
@@ -617,31 +593,24 @@ if __name__ == "__main__":
     print("Testing patch extraction...")
     dummy_ground_truth = np.random.random((50, 50, 50, 2))
     test_position = np.array([25, 25, 25])
-    patch = extract_patch_around_position(dummy_ground_truth, test_position)
-    print(f"✅ Patch extraction: shape {patch.shape}, expected (7, 7, 7, 2)")
-    
-    # Test CNN encoder
-    print("\nTesting CNN encoder...")
-    cnn = TissuePatchCNN(embed_dim=128)
-    dummy_patches = torch.randn(4, 2, 7, 7, 7)  # Batch of 4 patches
-    embeddings = cnn(dummy_patches)
-    print(f"✅ CNN encoding: input {dummy_patches.shape} -> output {embeddings.shape}")
+    patch = extract_tissue_patch(dummy_ground_truth, test_position)
+    print(f"✅ Patch extraction: shape {patch.shape}, expected (686,) [7^3 * 2]")
     
     # Test dataset loading
     print("\nTesting dataset loading...")
     try:
-        dataloaders = create_nir_dataloaders(batch_size=2, num_workers=0)
+        dataloaders = create_nir_dataloaders(batch_size=2, num_workers=0, use_tissue_patches=True)
         
         for split, dataloader in dataloaders.items():
             if len(dataloader) > 0:
                 sample_batch = next(iter(dataloader))
                 print(f"✅ {split} DataLoader: {len(dataloader.dataset)} samples")
-                print(f"   Sample shapes: geometry={sample_batch['geometry'].shape}, "
-                      f"measurements={sample_batch['measurements'].shape}")
-                print(f"   Patch shapes: source={sample_batch['source_patch'].shape}, "
-                      f"detector={sample_batch['detector_patch'].shape}")
+                print(f"   Sample keys: {list(sample_batch.keys())}")
+                print(f"   DOT measurements: {sample_batch['dot_measurements'].shape}")
+                if 'tissue_patches' in sample_batch:
+                    print(f"   Tissue patches: {sample_batch['tissue_patches'].shape}")
                 break
     except Exception as e:
         print(f"⚠️  Dataset loading test failed (expected if no data files): {e}")
     
-    print("\n🎯 DataLoader ready for training!")
+    print("\n🎯 DataLoader ready for Robin Dale's two-stage training!")
