@@ -9,3 +9,11 @@ __pycache__/
 .DS_Store
 
 /env_diss
+
+# Generated data files - too large for Git, recreate with data_simulator.py
+data/
+logs/
+
+# HDF5 and visualization files
+*.h5
+*.png
