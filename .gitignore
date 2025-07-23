@@ -9,3 +9,20 @@ __pycache__/
 .DS_Store
 
 /env_diss
+
+# Generated data files - too large for Git, recreate with data_simulator.py
+data/
+logs/
+
+# NIRFASTer-FF library - too large for Git, download from source
+nirfaster-FF/
+
+# Compiled Python bytecode
+__pycache__/
+*.pyc
+
+# HDF5 files
+*.h5
+
+# Image files from simulations
+*.png
