@@ -363,12 +363,36 @@ class NIRPhantomDataset(Dataset):
         
         try:
             with h5py.File(phantom_file, 'r') as f:
-                # Load ground truth volume (primary input for both stages)
-                ground_truth = f[H5_KEYS['ground_truth']][:]  # (Nx, Ny, Nz, 2)
+                # Load actual NIR measurement data (log amplitude and phase)
+                log_amplitude = f[H5_KEYS['log_amplitude']][probe_idx, det_idx]  # Shape: (3,) for 3 wavelengths
+                phase = f[H5_KEYS['phase']][probe_idx, det_idx]                   # Shape: (3,) for 3 wavelengths
                 
-                # For proper autoencoder training, we use the full ground truth volume as input
-                # This allows the model to learn meaningful representations of both optical properties
-                dot_measurements = ground_truth  # Use both absorption and scattering coefficients as input
+                # Load geometry data for the measurement
+                source_pos = f[H5_KEYS['source_pos']][probe_idx]                  # Shape: (3,) for [x, y, z]
+                detector_pos = f[H5_KEYS['det_pos']][probe_idx, det_idx]          # Shape: (3,) for [x, y, z]
+                
+                # Combine measurements into a feature vector
+                # This is what the transformer should learn to map to the 512D CNN features
+                # Combine into NIR measurement feature vector
+                # CORRECTED: Single wavelength system (800nm), not multi-wavelength
+                nir_measurements = np.array([
+                    float(log_amplitude),  # 1 scalar value (log amplitude)
+                    float(phase),          # 1 scalar value (phase)
+                    source_pos[0],         # source x coordinate
+                    source_pos[1],         # source y coordinate  
+                    source_pos[2],         # source z coordinate
+                    detector_pos[0],       # detector x coordinate
+                    detector_pos[1],       # detector y coordinate
+                    detector_pos[2]        # detector z coordinate
+                ])  # Total: 8 features per measurement (CORRECTED from 12)
+                
+                # Load ground truth volume (this is what we're trying to reconstruct)
+                ground_truth = f[H5_KEYS['ground_truth']][:]  # Shape: (60, 60, 60, 2)
+                ground_truth = np.transpose(ground_truth, (3, 0, 1, 2))  # Convert to (2, 60, 60, 60)
+                
+                # The key insight: NIR measurements → Transformer → 512D features → CNN decoder → Ground truth
+                # Stage 1: Ground truth → CNN encoder → 512D → CNN decoder → Ground truth (learns compression)
+                # Stage 2: NIR measurements → Transformer → 512D → Frozen CNN decoder → Ground truth
                 
                 # Extract tissue patches if enabled (for stage 2 enhanced training)
                 tissue_patches = None
@@ -393,12 +417,14 @@ class NIRPhantomDataset(Dataset):
             # Return zero-filled sample to prevent training crashes
             return self._get_empty_sample()
         
-        # Build return dictionary
+        # Build return dictionary with proper data flow
         sample = {
-            'measurements': torch.tensor(dot_measurements, dtype=torch.float32).permute(3, 0, 1, 2),  # (C, H, W, D) - 2 channels
-            'dot_measurements': torch.tensor(dot_measurements, dtype=torch.float32).permute(3, 0, 1, 2),  # (C, H, W, D) - backward compatibility
-            'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),
-            'volumes': torch.tensor(ground_truth, dtype=torch.float32),  # Add for training compatibility
+            # For Stage 1: Use ground truth as both input and target (CNN autoencoder training)
+            # For Stage 2: Use NIR measurements as input, ground truth as target
+            'measurements': torch.tensor(nir_measurements, dtype=torch.float32),        # (8,) NIR measurement vector - CORRECTED
+            'nir_measurements': torch.tensor(nir_measurements, dtype=torch.float32),    # (8,) Raw NIR data - CORRECTED
+            'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),            # (2, 60, 60, 60) Target volume  
+            'volumes': torch.tensor(ground_truth, dtype=torch.float32),                 # (2, 60, 60, 60) For Stage 1 input
             'metadata': torch.tensor([phantom_id, probe_idx, det_idx], dtype=torch.long)
         }
         
@@ -408,14 +434,88 @@ class NIRPhantomDataset(Dataset):
         
         return sample
     
+    def get_complete_phantom(self, phantom_idx: int) -> Dict[str, torch.Tensor]:
+        """
+        Load complete phantom data with all 1500 measurements for batch training.
+        
+        This method loads the entire phantom dataset (500 sources × 3 detectors = 1500 measurements)
+        which is the correct format for our hybrid CNN-Transformer architecture.
+        
+        Args:
+            phantom_idx (int): Index of phantom to load (0 to len(phantom_files)-1)
+            
+        Returns:
+            Dict[str, torch.Tensor]: Complete phantom data containing:
+                - 'nir_measurements': All NIR measurements (1500, 8) - 8D features per measurement
+                - 'ground_truth': Target volume (2, 60, 60, 60) - same for all measurements
+                - 'phantom_id': Phantom identifier for tracking
+        """
+        if phantom_idx >= len(self.phantom_files):
+            raise IndexError(f"Phantom index {phantom_idx} out of range (0-{len(self.phantom_files)-1})")
+        
+        phantom_file = self.phantom_files[phantom_idx]
+        
+        try:
+            with h5py.File(phantom_file, 'r') as f:
+                # Load all NIR measurement data
+                log_amplitude = f[H5_KEYS['log_amplitude']][:]  # Shape: (500, 3) for 500 sources, 3 detectors
+                phase = f[H5_KEYS['phase']][:]                   # Shape: (500, 3)
+                
+                # Load geometry data
+                source_pos = f[H5_KEYS['source_pos']][:]         # Shape: (500, 3) for [x, y, z]
+                detector_pos = f[H5_KEYS['det_pos']][:]          # Shape: (500, 3, 3) for source/detector/coord
+                
+                # Load ground truth volume (same for all measurements in phantom)
+                ground_truth = f[H5_KEYS['ground_truth']][:]     # Shape: (60, 60, 60, 2)
+                ground_truth = np.transpose(ground_truth, (3, 0, 1, 2))  # Convert to (2, 60, 60, 60)
+                
+                # Build complete measurement array (1500, 8)
+                n_sources, n_detectors = log_amplitude.shape
+                total_measurements = n_sources * n_detectors  # Should be 1500
+                
+                nir_measurements = np.zeros((total_measurements, 8), dtype=np.float32)
+                
+                measurement_idx = 0
+                for source_idx in range(n_sources):
+                    for det_idx in range(n_detectors):
+                        nir_measurements[measurement_idx] = np.array([
+                            float(log_amplitude[source_idx, det_idx]),  # log amplitude
+                            float(phase[source_idx, det_idx]),          # phase
+                            source_pos[source_idx, 0],                  # source x
+                            source_pos[source_idx, 1],                  # source y
+                            source_pos[source_idx, 2],                  # source z
+                            detector_pos[source_idx, det_idx, 0],       # detector x
+                            detector_pos[source_idx, det_idx, 1],       # detector y
+                            detector_pos[source_idx, det_idx, 2]        # detector z
+                        ])
+                        measurement_idx += 1
+                
+                # Extract phantom ID
+                phantom_id = int(phantom_file.stem.split('_')[1])
+                
+        except Exception as e:
+            logger.error(f"Error loading complete phantom {phantom_idx} from {phantom_file}: {e}")
+            # Return zero-filled phantom
+            return {
+                'nir_measurements': torch.zeros(1500, 8, dtype=torch.float32),
+                'ground_truth': torch.zeros(2, 60, 60, 60, dtype=torch.float32),
+                'phantom_id': torch.tensor(0, dtype=torch.long)
+            }
+        
+        return {
+            'nir_measurements': torch.tensor(nir_measurements, dtype=torch.float32),  # (1500, 8)
+            'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),          # (2, 60, 60, 60)
+            'phantom_id': torch.tensor(phantom_id, dtype=torch.long)
+        }
+
     def _get_empty_sample(self) -> Dict[str, torch.Tensor]:
         """Return zero-filled sample for error handling."""
         # Create empty sample with correct dimensions based on actual data
         sample = {
-            'measurements': torch.zeros(2, 60, 60, 60, dtype=torch.float32),     # (C, H, W, D) - 2 channels
-            'dot_measurements': torch.zeros(2, 60, 60, 60, dtype=torch.float32), # (C, H, W, D) - backward compatibility  
-            'ground_truth': torch.zeros(60, 60, 60, 2, dtype=torch.float32),     # (H, W, D, channels)
-            'volumes': torch.zeros(60, 60, 60, 2, dtype=torch.float32),          # Add for training compatibility
+            'measurements': torch.zeros(8, dtype=torch.float32),                # (8,) NIR measurement vector - CORRECTED
+            'nir_measurements': torch.zeros(8, dtype=torch.float32),            # (8,) Raw NIR data - CORRECTED
+            'ground_truth': torch.zeros(2, 60, 60, 60, dtype=torch.float32),     # (channels, H, W, D)
+            'volumes': torch.zeros(2, 60, 60, 60, dtype=torch.float32),          # (channels, H, W, D)
             'metadata': torch.zeros(3, dtype=torch.long)
         }
         
@@ -487,6 +587,73 @@ def create_nir_dataloaders(data_dir: str = "../data",
         tissue_info = "with tissue patches" if use_tissue_patches else "baseline (no tissue patches)"
         logger.info(f"Created {split} DataLoader: {len(dataset)} samples, "
                    f"~{len(dataloader)} batches per epoch, {tissue_info}")
+    
+    return dataloaders
+
+
+def create_phantom_dataloaders(data_dir: str = "../data",
+                              batch_size: int = 4,
+                              num_workers: int = 4,
+                              use_tissue_patches: bool = True,
+                              random_seed: int = 42) -> Dict[str, DataLoader]:
+    """
+    Create DataLoaders for complete phantom batching (batches of complete phantoms).
+    
+    This creates a custom DataLoader that returns batches of complete phantoms,
+    where each phantom contains all 1500 measurements. This is the correct format
+    for our hybrid CNN-Transformer architecture.
+    
+    Args:
+        data_dir (str): Path to phantom data directory
+        batch_size (int): Number of phantoms per batch
+        num_workers (int): Number of worker processes
+        use_tissue_patches (bool): Whether to include tissue patches
+        random_seed (int): Random seed for splits
+        
+    Returns:
+        Dict[str, DataLoader]: Dictionary with 'train', 'val', 'test' DataLoaders
+    """
+    
+    class PhantomBatchDataset(Dataset):
+        """Custom dataset for phantom-level batching."""
+        
+        def __init__(self, data_dir: str, split: str, use_tissue_patches: bool, random_seed: int):
+            self.base_dataset = NIRPhantomDataset(
+                data_dir=data_dir,
+                split=split,
+                use_tissue_patches=use_tissue_patches,
+                random_seed=random_seed
+            )
+            # We work at phantom level, not measurement level
+            self.n_phantoms = len(self.base_dataset.phantom_files)
+            
+        def __len__(self):
+            return self.n_phantoms
+            
+        def __getitem__(self, idx):
+            return self.base_dataset.get_complete_phantom(idx)
+    
+    dataloaders = {}
+    
+    for split in ['train', 'val', 'test']:
+        dataset = PhantomBatchDataset(data_dir, split, use_tissue_patches, random_seed)
+        
+        shuffle = (split == 'train') 
+        
+        dataloader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            num_workers=num_workers,
+            pin_memory=torch.cuda.is_available(),
+            drop_last=(split == 'train'),
+            persistent_workers=(num_workers > 0)
+        )
+        
+        dataloaders[split] = dataloader
+        
+        logger.info(f"Created phantom-level {split} DataLoader: {len(dataset)} phantoms, "
+                   f"~{len(dataloader)} batches per epoch")
     
     return dataloaders
 

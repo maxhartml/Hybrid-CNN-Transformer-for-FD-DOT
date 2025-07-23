@@ -103,8 +103,11 @@ class Stage1Trainer:
         self.device = torch.device(device)
         self.learning_rate = learning_rate
         
-        # Initialize model (no tissue patches for stage 1)
-        self.model = HybridCNNTransformer(use_tissue_patches=False)
+        # Initialize model (stage 1: CNN autoencoder only, no tissue patches)
+        self.model = HybridCNNTransformer(
+            use_tissue_patches=False,
+            training_stage="stage1"  # Explicit stage 1 setting
+        )
         self.model.to(self.device)
         
         # Loss and optimizer
@@ -128,7 +131,7 @@ class Stage1Trainer:
         
         Args:
             data_loader: DataLoader containing training batches with
-                        'measurements' and 'volumes' keys
+                        'ground_truth' key from phantom DataLoader
         
         Returns:
             float: Average training loss across all batches in the epoch
@@ -138,15 +141,15 @@ class Stage1Trainer:
         num_batches = 0
         
         for batch in data_loader:
-            measurements = batch['measurements'].to(self.device)
-            targets = batch['volumes'].to(self.device).permute(0, 4, 1, 2, 3)  # Convert (B, H, W, D, C) to (B, C, H, W, D)
+            # Stage 1: Only use ground truth volumes (no NIR measurements)
+            ground_truth = batch['ground_truth'].to(self.device)  # Shape: (batch_size, 2, 60, 60, 60)
             
-            # Forward pass (no tissue patches for stage 1)
+            # Forward pass - ground truth as both input and target for autoencoder training
             self.optimizer.zero_grad()
-            outputs = self.model(measurements, tissue_patches=None)
+            outputs = self.model(ground_truth, tissue_patches=None)
             
-            # Compute loss
-            loss = self.criterion(outputs['reconstructed'], targets)
+            # Compute loss - reconstruction vs original
+            loss = self.criterion(outputs['reconstructed'], ground_truth)
             
             # Backward pass
             loss.backward()
@@ -167,7 +170,7 @@ class Stage1Trainer:
         
         Args:
             data_loader: DataLoader containing validation batches with
-                        'measurements' and 'volumes' keys
+                        'ground_truth' key from phantom DataLoader
         
         Returns:
             float: Average validation loss across all validation batches
@@ -178,11 +181,11 @@ class Stage1Trainer:
         
         with torch.no_grad():
             for batch in data_loader:
-                measurements = batch['measurements'].to(self.device)
-                targets = batch['volumes'].to(self.device).permute(0, 4, 1, 2, 3)  # Convert (B, H, W, D, C) to (B, C, H, W, D)
+                # Stage 1: Only use ground truth volumes (no NIR measurements)
+                ground_truth = batch['ground_truth'].to(self.device)  # Shape: (batch_size, 2, 60, 60, 60)
                 
-                outputs = self.model(measurements, tissue_patches=None)
-                loss = self.criterion(outputs['reconstructed'], targets)
+                outputs = self.model(ground_truth, tissue_patches=None)
+                loss = self.criterion(outputs['reconstructed'], ground_truth)
                 
                 total_loss += loss.item()
                 num_batches += 1

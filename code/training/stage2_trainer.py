@@ -121,7 +121,10 @@ class Stage2Trainer:
         self.use_tissue_patches = use_tissue_patches
         
         # Initialize model
-        self.model = HybridCNNTransformer(use_tissue_patches=use_tissue_patches)
+        self.model = HybridCNNTransformer(
+            use_tissue_patches=use_tissue_patches,
+            training_stage="stage2"  # IMPORTANT: Set to stage 2 for correct forward pass
+        )
         self.model.to(self.device)
         
         # Load Stage 1 checkpoint
@@ -232,17 +235,21 @@ class Stage2Trainer:
         num_batches = 0
         
         for batch in data_loader:
-            measurements = batch['measurements'].to(self.device)
-            targets = batch['volumes'].to(self.device).permute(0, 4, 1, 2, 3)  # Convert (B, H, W, D, C) to (B, C, H, W, D)
+            # In Stage 2: Complete phantom NIR measurements are input, ground truth volumes are target
+            # NEW FORMAT: Complete phantom data from create_phantom_dataloaders()
+            nir_measurements = batch['nir_measurements'].to(self.device)  # Shape: (batch_size, 1500, 8)
+            targets = batch['ground_truth'].to(self.device)               # Shape: (batch_size, 2, 60, 60, 60)
             
-            # Get tissue patches if using them
+            # Get tissue patches if using them (not yet implemented for complete phantom format)
             tissue_patches = None
-            if self.use_tissue_patches:
+            if self.use_tissue_patches and 'tissue_patches' in batch:
                 tissue_patches = batch['tissue_patches'].to(self.device)
             
-            # Forward pass
+            # Forward pass through hybrid model
             self.optimizer.zero_grad()
-            outputs = self.model(measurements, tissue_patches)
+            
+            # The hybrid model handles: NIR measurements (batch, 1500, 8) → 512D features → reconstruction
+            outputs = self.model(nir_measurements, tissue_patches)
             
             # Compute loss
             loss = self.criterion(outputs['reconstructed'], targets)
@@ -277,14 +284,15 @@ class Stage2Trainer:
         
         with torch.no_grad():
             for batch in data_loader:
-                measurements = batch['measurements'].to(self.device)
-                targets = batch['volumes'].to(self.device).permute(0, 4, 1, 2, 3)  # Convert (B, H, W, D, C) to (B, C, H, W, D)
+                # NEW FORMAT: Complete phantom data from create_phantom_dataloaders()
+                nir_measurements = batch['nir_measurements'].to(self.device)  # Shape: (batch_size, 1500, 8)
+                targets = batch['ground_truth'].to(self.device)               # Shape: (batch_size, 2, 60, 60, 60)
                 
                 tissue_patches = None
-                if self.use_tissue_patches:
+                if self.use_tissue_patches and 'tissue_patches' in batch:
                     tissue_patches = batch['tissue_patches'].to(self.device)
                 
-                outputs = self.model(measurements, tissue_patches)
+                outputs = self.model(nir_measurements, tissue_patches)
                 loss = self.criterion(outputs['reconstructed'], targets)
                 
                 total_loss += loss.item()

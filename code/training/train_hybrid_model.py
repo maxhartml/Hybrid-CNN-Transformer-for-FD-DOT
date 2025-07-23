@@ -40,7 +40,7 @@ import argparse
 from pathlib import Path
 
 # Import our components
-from code.data_processing.data_loader import create_nir_dataloaders
+from code.data_processing.data_loader import create_nir_dataloaders, create_phantom_dataloaders
 from code.training.stage1_trainer import Stage1Trainer
 from code.training.stage2_trainer import Stage2Trainer
 from code.utils.logging_config import get_training_logger, NIRDOTLogger
@@ -105,13 +105,23 @@ def main():
     if args.stage == 'stage2':
         logger.info(f"🧬 Use tissue patches: {args.use_tissue_patches}")
 
-    # Load data
+    # Load data - both stages use phantom-level batching but access different data keys
     logger.info("📊 Loading NIR-DOT phantom datasets...")
-    data_loaders = create_nir_dataloaders(
-        data_dir="data",
-        batch_size=BATCH_SIZE,
-        use_tissue_patches=args.use_tissue_patches if args.stage == 'stage2' else False
-    )
+    
+    if args.stage == 'stage1':
+        # Stage 1: Use phantom DataLoader for ground truth batching (CNN autoencoder training)
+        data_loaders = create_phantom_dataloaders(
+            data_dir="data",
+            batch_size=BATCH_SIZE,  # Can use larger batch since only ground truth volumes
+            use_tissue_patches=False  # Stage 1 doesn't use tissue patches
+        )
+    else:  # stage2
+        # Stage 2: Use phantom DataLoader for NIR measurement + ground truth batching
+        data_loaders = create_phantom_dataloaders(
+            data_dir="data",
+            batch_size=4,  # Smaller batch size for complete phantoms (1500 measurements each)
+            use_tissue_patches=args.use_tissue_patches
+        )
 
     # Train based on stage
     if args.stage == 'stage1':
