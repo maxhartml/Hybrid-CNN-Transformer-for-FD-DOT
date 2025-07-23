@@ -139,7 +139,7 @@ class Stage1Trainer:
         
         for batch in data_loader:
             measurements = batch['measurements'].to(self.device)
-            targets = batch['volumes'].to(self.device)
+            targets = batch['volumes'].to(self.device).permute(0, 4, 1, 2, 3)  # Convert (B, H, W, D, C) to (B, C, H, W, D)
             
             # Forward pass (no tissue patches for stage 1)
             self.optimizer.zero_grad()
@@ -179,7 +179,7 @@ class Stage1Trainer:
         with torch.no_grad():
             for batch in data_loader:
                 measurements = batch['measurements'].to(self.device)
-                targets = batch['volumes'].to(self.device)
+                targets = batch['volumes'].to(self.device).permute(0, 4, 1, 2, 3)  # Convert (B, H, W, D, C) to (B, C, H, W, D)
                 
                 outputs = self.model(measurements, tissue_patches=None)
                 loss = self.criterion(outputs['reconstructed'], targets)

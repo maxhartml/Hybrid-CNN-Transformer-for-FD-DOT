@@ -233,7 +233,7 @@ class Stage2Trainer:
         
         for batch in data_loader:
             measurements = batch['measurements'].to(self.device)
-            targets = batch['volumes'].to(self.device)
+            targets = batch['volumes'].to(self.device).permute(0, 4, 1, 2, 3)  # Convert (B, H, W, D, C) to (B, C, H, W, D)
             
             # Get tissue patches if using them
             tissue_patches = None
@@ -278,7 +278,7 @@ class Stage2Trainer:
         with torch.no_grad():
             for batch in data_loader:
                 measurements = batch['measurements'].to(self.device)
-                targets = batch['volumes'].to(self.device)
+                targets = batch['volumes'].to(self.device).permute(0, 4, 1, 2, 3)  # Convert (B, H, W, D, C) to (B, C, H, W, D)
                 
                 tissue_patches = None
                 if self.use_tissue_patches:

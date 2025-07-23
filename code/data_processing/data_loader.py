@@ -366,9 +366,9 @@ class NIRPhantomDataset(Dataset):
                 # Load ground truth volume (primary input for both stages)
                 ground_truth = f[H5_KEYS['ground_truth']][:]  # (Nx, Ny, Nz, 2)
                 
-                # For Robin Dale's approach, we use the full ground truth volume as input
-                # This represents the "measurement" data for reconstruction
-                dot_measurements = ground_truth[..., 0:1]  # Use absorption coefficient as measurement
+                # For proper autoencoder training, we use the full ground truth volume as input
+                # This allows the model to learn meaningful representations of both optical properties
+                dot_measurements = ground_truth  # Use both absorption and scattering coefficients as input
                 
                 # Extract tissue patches if enabled (for stage 2 enhanced training)
                 tissue_patches = None
@@ -395,7 +395,7 @@ class NIRPhantomDataset(Dataset):
         
         # Build return dictionary
         sample = {
-            'measurements': torch.tensor(dot_measurements, dtype=torch.float32).permute(3, 0, 1, 2),  # (C, H, W, D)
+            'measurements': torch.tensor(dot_measurements, dtype=torch.float32).permute(3, 0, 1, 2),  # (C, H, W, D) - 2 channels
             'dot_measurements': torch.tensor(dot_measurements, dtype=torch.float32).permute(3, 0, 1, 2),  # (C, H, W, D) - backward compatibility
             'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),
             'volumes': torch.tensor(ground_truth, dtype=torch.float32),  # Add for training compatibility
@@ -412,8 +412,8 @@ class NIRPhantomDataset(Dataset):
         """Return zero-filled sample for error handling."""
         # Create empty sample with correct dimensions based on actual data
         sample = {
-            'measurements': torch.zeros(1, 60, 60, 60, dtype=torch.float32),     # (C, H, W, D)
-            'dot_measurements': torch.zeros(1, 60, 60, 60, dtype=torch.float32), # (C, H, W, D) - backward compatibility
+            'measurements': torch.zeros(2, 60, 60, 60, dtype=torch.float32),     # (C, H, W, D) - 2 channels
+            'dot_measurements': torch.zeros(2, 60, 60, 60, dtype=torch.float32), # (C, H, W, D) - backward compatibility  
             'ground_truth': torch.zeros(60, 60, 60, 2, dtype=torch.float32),     # (H, W, D, channels)
             'volumes': torch.zeros(60, 60, 60, 2, dtype=torch.float32),          # Add for training compatibility
             'metadata': torch.zeros(3, dtype=torch.long)

@@ -211,8 +211,8 @@ class CNNDecoder(nn.Module):
             nn.ReLU(inplace=True)
         )
         
-        # Final output layer to single channel volume
-        self.final_conv = nn.Conv3d(base_channels // 2, 1, kernel_size=3, padding=1)
+        # Final output layer to dual channel volume (absorption + scattering)
+        self.final_conv = nn.Conv3d(base_channels // 2, 2, kernel_size=3, padding=1)
         
         logger.debug(f"CNNDecoder initialized: feature_dim={feature_dim}, "
                     f"output_size={output_size}, base_channels={base_channels}")
@@ -270,8 +270,8 @@ class CNNAutoEncoder(nn.Module):
             Defaults to 64.
     """
     
-    def __init__(self, input_channels: int = 1, 
-                 output_size: Tuple[int, int, int] = (64, 64, 64),
+    def __init__(self, input_channels: int = 2, 
+                 output_size: Tuple[int, int, int] = (60, 60, 60),
                  base_channels: int = 64):
         super().__init__()
         

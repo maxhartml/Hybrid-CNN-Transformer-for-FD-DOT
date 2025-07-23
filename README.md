@@ -40,19 +40,20 @@ graph LR
 
 #### **Stage 1: CNN Autoencoder**
 ```yaml
-Input:  Surface measurements (N_probes × 3_detectors)
+Input:  Full optical property maps [μₐ, μₛ'] → (2, 60, 60, 60)
         ↓
 Encoder: 3D CNN with residual blocks
         ├── Progressive downsampling
-        ├── Feature extraction: 64 → 128 → 256 → 512 channels
+        ├── Feature extraction: 2 → 64 → 128 → 256 → 512 channels
         └── Latent representation: Compressed spatial features
         ↓
 Decoder: 3D CNN upsampling
-        ├── Transposed convolutions: 512 → 256 → 128 → 64
+        ├── Transposed convolutions: 512 → 256 → 128 → 64 → 2
         ├── Skip connections for detail preservation
         └── Final reconstruction layer
         ↓
-Output: Optical property maps [μₐ, μₛ'] → (60, 60, 60, 2)
+Output: Reconstructed optical maps [μₐ, μₛ'] → (60, 60, 60, 2)
+Loss:   RMSE between input and reconstructed volumes (standard autoencoder)
 ```
 
 #### **Stage 2: Hybrid CNN-Transformer**

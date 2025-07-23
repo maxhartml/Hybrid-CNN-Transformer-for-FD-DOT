@@ -61,8 +61,8 @@ class HybridCNNTransformer(nn.Module):
     
     def __init__(self,
                  # CNN autoencoder configuration
-                 input_channels: int = 1,
-                 output_size: Tuple[int, int, int] = (64, 64, 64),
+                 input_channels: int = 2,  # Both absorption and scattering coefficients
+                 output_size: Tuple[int, int, int] = (60, 60, 60),  # Match your data dimensions
                  cnn_base_channels: int = 64,
                  
                  # Tissue context encoder configuration
