@@ -14,7 +14,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Tuple, Optional
-from ..utils.logging_config import get_model_logger
+import sys
+import os
+
+# Add parent directories to path for logging
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from utils.logging_config import get_model_logger
 
 # Initialize logger for this module
 logger = get_model_logger(__name__)

@@ -9,13 +9,17 @@ dependencies and temporal patterns in the data.
 The encoder is designed for stage 2 training in a two-stage hybrid approach,
 focusing on sequence modeling and contextual understanding.
 """
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
 from typing import Optional, Tuple
-from ..utils.logging_config import get_model_logger
+import sys
+import os
+
+# Add parent directories to path for logging
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from utils.logging_config import get_model_logger
 
 # Initialize logger for this module
 logger = get_model_logger(__name__)

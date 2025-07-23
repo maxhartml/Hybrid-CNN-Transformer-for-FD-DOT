@@ -12,16 +12,20 @@ The hybrid approach uses a two-stage learning strategy:
 The model includes optional tissue context integration for improved
 reconstruction accuracy through anatomical constraints.
 """
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Optional, Tuple, Dict, Any
+import sys
+import os
 
-from .cnn_autoencoder import CNNAutoEncoder
-from .tissue_context_encoder import TissueContextEncoder, TissueContextToggle
-from .transformer_encoder import TransformerEncoder
-from ..utils.logging_config import get_model_logger
+# Add parent directories to path for logging
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from cnn_autoencoder import CNNAutoEncoder
+from tissue_context_encoder import TissueContextEncoder, TissueContextToggle
+from transformer_encoder import TransformerEncoder
+from utils.logging_config import get_model_logger
 
 # Initialize logger for this module
 logger = get_model_logger(__name__)
@@ -140,8 +144,9 @@ class HybridCNNTransformer(nn.Module):
         The CNN autoencoder initializes its own weights. This method handles
         additional components that may need specific initialization.
         """
-        # CNN autoencoder and other components handle their own initialization
-        pass
+        # Initialize any custom projection layers or additional components
+        # CNN autoencoder and transformer/tissue encoders handle their own initialization
+        logger.debug("🔧 Custom weight initialization completed for hybrid model components")
     
     def forward(self, dot_measurements: torch.Tensor,
                 tissue_patches: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:

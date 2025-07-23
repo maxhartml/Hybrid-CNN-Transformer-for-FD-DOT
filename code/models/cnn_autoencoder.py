@@ -13,7 +13,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Tuple
-from ..utils.logging_config import get_model_logger
+import sys
+import os
+
+# Add parent directories to path for logging
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from utils.logging_config import get_model_logger
 
 # Initialize logger for this module
 logger = get_model_logger(__name__)
@@ -88,7 +93,7 @@ class CNNEncoder(nn.Module):
         base_channels (int, optional): Base number of channels. Defaults to 64.
     """
     
-    def __init__(self, input_channels: int = 1, base_channels: int = 64):
+    def __init__(self, input_channels: int = 1, base_channels: int = 64, feature_dim: int = 512):
         super().__init__()
         
         # Initial feature extraction with aggressive downsampling
@@ -109,8 +114,9 @@ class CNNEncoder(nn.Module):
         # Spatial dimension reduction to fixed-size feature vector
         self.global_avg_pool = nn.AdaptiveAvgPool3d((1, 1, 1))
         
-        # Final feature dimension
-        self.feature_dim = base_channels * 8
+        # Configurable feature dimension with linear projection
+        self.feature_dim = feature_dim
+        self.feature_projection = nn.Linear(base_channels * 8, feature_dim)
         
         logger.debug(f"CNNEncoder initialized: {input_channels} input channels, "
                     f"{base_channels} base channels, feature_dim={self.feature_dim}")
@@ -151,7 +157,9 @@ class CNNEncoder(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
         x = self.global_avg_pool(x)
-        return x.view(x.size(0), -1)  # Flatten to [batch_size, feature_dim]
+        x = x.view(x.size(0), -1)  # Flatten to [batch_size, base_channels * 8]
+        x = self.feature_projection(x)  # Project to configurable feature dimension
+        return x
 
 
 class CNNDecoder(nn.Module):
@@ -169,20 +177,23 @@ class CNNDecoder(nn.Module):
         base_channels (int, optional): Base number of channels. Defaults to 64.
     """
     
-    def __init__(self, feature_dim: int = 512, output_size: Tuple[int, int, int] = (64, 64, 64),
+    def __init__(self, feature_dim: int = 512, output_size: Tuple[int, int, int] = (60, 60, 60),
                  base_channels: int = 64):
         super().__init__()
         self.feature_dim = feature_dim
         self.output_size = output_size
         self.base_channels = base_channels
         
-        # Calculate initial spatial dimensions for feature map reconstruction
-        self.init_size = 4  # Start with 4x4x4 feature maps after linear expansion
+        # Calculate proper initial spatial dimensions to match encoder
+        # Encoder path: 60 -> 30 (stride=2) -> 15 (maxpool stride=2) -> 15 -> 8 -> 4 -> 2
+        # So decoder should start from 2x2x2 to be symmetric
+        self.init_size = 2
         
         # Linear projection to expand feature vector to initial 3D volume
         self.fc = nn.Linear(feature_dim, base_channels * 8 * (self.init_size ** 3))
         
         # Progressive upsampling layers with transposed convolutions
+        # Symmetric to encoder: 2->4->8->16->32->60 (with final adjustment)
         self.deconv1 = nn.Sequential(
             nn.ConvTranspose3d(base_channels * 8, base_channels * 4, 
                                kernel_size=4, stride=2, padding=1),
@@ -211,8 +222,16 @@ class CNNDecoder(nn.Module):
             nn.ReLU(inplace=True)
         )
         
+        # Additional layer to get closer to target size (32->64)
+        self.deconv5 = nn.Sequential(
+            nn.ConvTranspose3d(base_channels // 2, base_channels // 4, 
+                               kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm3d(base_channels // 4),
+            nn.ReLU(inplace=True)
+        )
+        
         # Final output layer to dual channel volume (absorption + scattering)
-        self.final_conv = nn.Conv3d(base_channels // 2, 2, kernel_size=3, padding=1)
+        self.final_conv = nn.Conv3d(base_channels // 4, 2, kernel_size=3, padding=1)
         
         logger.debug(f"CNNDecoder initialized: feature_dim={feature_dim}, "
                     f"output_size={output_size}, base_channels={base_channels}")
@@ -225,23 +244,24 @@ class CNNDecoder(nn.Module):
             x (torch.Tensor): Encoded features of shape (batch_size, feature_dim)
             
         Returns:
-            torch.Tensor: Reconstructed volume of shape (batch_size, 1, D, H, W)
+            torch.Tensor: Reconstructed volume of shape (batch_size, 2, D, H, W)
         """
-        # Expand feature vector to 3D volume
-        x = self.fc(x)
+        # Expand feature vector to 3D volume starting from 2x2x2 (matching encoder)
+        x = self.fc(x)  # [batch, feature_dim] -> [batch, base_channels*8*8]
         x = x.view(x.size(0), self.base_channels * 8, 
-                   self.init_size, self.init_size, self.init_size)
+                   self.init_size, self.init_size, self.init_size)  # [batch, 512, 2, 2, 2]
         
         # Progressive upsampling through transposed convolutions
-        x = self.deconv1(x)  # 4x4x4 -> 8x8x8
-        x = self.deconv2(x)  # 8x8x8 -> 16x16x16
-        x = self.deconv3(x)  # 16x16x16 -> 32x32x32
-        x = self.deconv4(x)  # 32x32x32 -> 64x64x64
+        x = self.deconv1(x)  # 2x2x2 -> 4x4x4, channels: 512->256
+        x = self.deconv2(x)  # 4x4x4 -> 8x8x8, channels: 256->128
+        x = self.deconv3(x)  # 8x8x8 -> 16x16x16, channels: 128->64
+        x = self.deconv4(x)  # 16x16x16 -> 32x32x32, channels: 64->32
+        x = self.deconv5(x)  # 32x32x32 -> 64x64x64, channels: 32->16
         
-        # Generate final single-channel output
-        x = self.final_conv(x)
+        # Generate final dual-channel output (μₐ + μ′s)
+        x = self.final_conv(x)  # 64x64x64 -> 64x64x64, channels: 16->2
         
-        # Ensure exact output dimensions if needed
+        # Ensure exact output dimensions match target (64x64x64 -> 60x60x60)
         if x.shape[2:] != self.output_size:
             x = F.interpolate(x, size=self.output_size, mode='trilinear', 
                               align_corners=False)
@@ -272,14 +292,15 @@ class CNNAutoEncoder(nn.Module):
     
     def __init__(self, input_channels: int = 2, 
                  output_size: Tuple[int, int, int] = (60, 60, 60),
+                 feature_dim: int = 512,
                  base_channels: int = 64):
         super().__init__()
         
         logger.info(f"🏗️  Initializing CNN Autoencoder: input_channels={input_channels}, "
-                   f"output_size={output_size}, base_channels={base_channels}")
+                   f"output_size={output_size}, feature_dim={feature_dim}, base_channels={base_channels}")
         
-        self.encoder = CNNEncoder(input_channels, base_channels)
-        self.decoder = CNNDecoder(self.encoder.feature_dim, output_size, base_channels)
+        self.encoder = CNNEncoder(input_channels, base_channels, feature_dim)
+        self.decoder = CNNDecoder(feature_dim, output_size, base_channels)
         
         # Initialize network weights
         self._init_weights()
@@ -308,7 +329,8 @@ class CNNAutoEncoder(nn.Module):
                 nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.Linear):
                 nn.init.xavier_uniform_(m.weight)
-                nn.init.constant_(m.bias, 0)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
     
     def forward(self, x):
         """
@@ -318,7 +340,7 @@ class CNNAutoEncoder(nn.Module):
             x (torch.Tensor): Input volume of shape (batch_size, channels, D, H, W)
             
         Returns:
-            torch.Tensor: Reconstructed volume of shape (batch_size, 1, D, H, W)
+            torch.Tensor: Reconstructed volume of shape (batch_size, 2, D, H, W)
         """
         encoded = self.encoder(x)
         decoded = self.decoder(encoded)
@@ -344,7 +366,7 @@ class CNNAutoEncoder(nn.Module):
             features (torch.Tensor): Encoded features of shape (batch_size, feature_dim)
             
         Returns:
-            torch.Tensor: Reconstructed volume of shape (batch_size, 1, D, H, W)
+            torch.Tensor: Reconstructed volume of shape (batch_size, 2, D, H, W)
         """
         return self.decoder(features)
     
@@ -355,3 +377,44 @@ class CNNAutoEncoder(nn.Module):
     def get_decoder(self):
         """Get the decoder for freezing in stage 2"""
         return self.decoder
+
+
+def test_cnn_autoencoder():
+    """Test function to verify the autoencoder works correctly"""
+    print("🧪 Testing CNN Autoencoder...")
+    
+    # Create model
+    model = CNNAutoEncoder(
+        input_channels=2,
+        output_size=(60, 60, 60),
+        feature_dim=512,
+        base_channels=64
+    )
+    
+    # Test with sample input
+    batch_size = 2
+    input_tensor = torch.randn(batch_size, 2, 60, 60, 60)
+    
+    # Test encoding
+    encoded = model.encode(input_tensor)
+    print(f"✅ Encoding: {input_tensor.shape} → {encoded.shape}")
+    
+    # Test decoding
+    decoded = model.decode(encoded)
+    print(f"✅ Decoding: {encoded.shape} → {decoded.shape}")
+    
+    # Test full forward pass
+    output = model(input_tensor)
+    print(f"✅ Full pass: {input_tensor.shape} → {output.shape}")
+    
+    # Verify shapes
+    assert encoded.shape == (batch_size, 512), f"Encoded shape wrong: {encoded.shape}"
+    assert decoded.shape == (batch_size, 2, 60, 60, 60), f"Decoded shape wrong: {decoded.shape}"
+    assert output.shape == (batch_size, 2, 60, 60, 60), f"Output shape wrong: {output.shape}"
+    
+    print("🎉 All tests passed!")
+    return True
+
+
+if __name__ == "__main__":
+    test_cnn_autoencoder()
