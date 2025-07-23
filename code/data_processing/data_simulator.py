@@ -92,9 +92,9 @@ TUMOR_MUA_MULTIPLIER_RANGE = (1.5, 3.5)     # Tumor absorption enhancement facto
 TUMOR_MUSP_MULTIPLIER_RANGE = (1.5, 2.5)    # Tumor scattering enhancement factor
 TISSUE_REFRACTIVE_INDEX = 1.33               # Fixed refractive index for biological tissues
 
-# Measurement noise parameters (based on clinical NIR system performance)
-AMPLITUDE_NOISE_PERCENTAGE = 0.02            # 2% relative amplitude noise (typical SNR)
-PHASE_NOISE_STD_DEGREES = 2.0                # ±2° phase noise (typical precision)
+# Measurement noise parameters (conservative clean values for high SNR)
+AMPLITUDE_NOISE_PERCENTAGE = 0.001           # 0.1% relative amplitude noise (ultra-clean, SNR ~60dB) 
+PHASE_NOISE_STD_DEGREES = 0.1               # ±0.1° phase noise (precision research systems)
 
 # Initialize logger for the module using centralized logging system
 logger = get_data_logger(__name__)
@@ -1363,7 +1363,7 @@ def main():
 
     # STEP 2: Configure dataset generation parameters for machine learning training requirements
     # Generate multiple phantoms to ensure statistical diversity and prevent overfitting in ML models
-    n_phantoms = 200  # Production dataset size for robust ML training
+    n_phantoms = 100  # Production dataset size for robust ML training
     expected_measurements = n_phantoms * DEFAULT_N_PROBES * 3  # Total measurement count for memory planning
     
     logger.info(f"Generating {n_phantoms} phantom datasets for machine learning training")
