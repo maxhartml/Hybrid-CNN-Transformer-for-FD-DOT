@@ -28,7 +28,7 @@ from utils.logging_config import get_model_logger
 DEFAULT_INPUT_CHANNELS = 2              # Absorption and scattering coefficients
 DEFAULT_OUTPUT_SIZE = (60, 60, 60)      # Target volume dimensions
 DEFAULT_BASE_CHANNELS = 64              # Base number of CNN channels
-DEFAULT_FEATURE_DIM = 512               # Encoder output feature dimension
+DEFAULT_FEATURE_DIM = 512               # Encoder output feature dimension #maybe 128
 
 # Encoder Architecture
 ENCODER_KERNEL_SIZE_INITIAL = 7         # Initial convolution kernel size
@@ -122,10 +122,21 @@ class ResidualBlock(nn.Module):
         Returns:
             torch.Tensor: Output tensor of shape (batch_size, out_channels, D', H', W')
         """
+        logger.debug(f"🏃 ResidualBlock forward: input shape {x.shape}")
+        
         out = F.relu(self.bn1(self.conv1(x)))
+        logger.debug(f"📦 After conv1+bn1+relu: {out.shape}")
+        
         out = self.bn2(self.conv2(out))
-        out += self.shortcut(x)
+        logger.debug(f"📦 After conv2+bn2: {out.shape}")
+        
+        shortcut = self.shortcut(x)
+        logger.debug(f"📦 Shortcut path: {shortcut.shape}")
+        
+        out += shortcut
         out = F.relu(out)
+        logger.debug(f"📦 ResidualBlock output: {out.shape}")
+        
         return out
 
 
@@ -195,10 +206,12 @@ class CNNEncoder(nn.Module):
         Returns:
             nn.Sequential: Sequential container of residual blocks
         """
+        logger.debug(f"🔧 Creating layer: {in_channels}→{out_channels}, {num_blocks} blocks, stride={stride}")
         layers = []
         layers.append(ResidualBlock(in_channels, out_channels, stride))
-        for _ in range(1, num_blocks):
+        for i in range(1, num_blocks):
             layers.append(ResidualBlock(out_channels, out_channels))
+            logger.debug(f"🔧 Added residual block {i+1}/{num_blocks}")
         return nn.Sequential(*layers)
     
     def forward(self, x):
@@ -211,14 +224,32 @@ class CNNEncoder(nn.Module):
         Returns:
             torch.Tensor: Encoded features of shape (batch_size, feature_dim)
         """
+        logger.debug(f"🏃 CNNEncoder forward: input shape {x.shape}")
+        
         x = self.initial_conv(x)
+        logger.debug(f"📦 After initial_conv: {x.shape}")
+        
         x = self.layer1(x)
+        logger.debug(f"📦 After layer1: {x.shape}")
+        
         x = self.layer2(x)
+        logger.debug(f"📦 After layer2: {x.shape}")
+        
         x = self.layer3(x)
+        logger.debug(f"📦 After layer3: {x.shape}")
+        
         x = self.layer4(x)
+        logger.debug(f"📦 After layer4: {x.shape}")
+        
         x = self.global_avg_pool(x)
+        logger.debug(f"📦 After global_avg_pool: {x.shape}")
+        
         x = x.view(x.size(0), -1)  # Flatten to [batch_size, base_channels * 8]
+        logger.debug(f"📦 After flatten: {x.shape}")
+        
         x = self.feature_projection(x)  # Project to configurable feature dimension
+        logger.debug(f"📦 CNNEncoder output features: {x.shape}")
+        
         return x
 
 
@@ -318,26 +349,44 @@ class CNNDecoder(nn.Module):
         Returns:
             torch.Tensor: Reconstructed volume of shape (batch_size, 2, D, H, W)
         """
+        logger.debug(f"🏃 CNNDecoder forward: input features shape {x.shape}")
+        
         # Expand feature vector to 3D volume starting from 2x2x2 (matching encoder)
         x = self.fc(x)  # [batch, feature_dim] -> [batch, base_channels*8*8]
+        logger.debug(f"📦 After fc expansion: {x.shape}")
+        
         x = x.view(x.size(0), self.base_channels * 8, 
                    self.init_size, self.init_size, self.init_size)  # [batch, 512, 2, 2, 2]
+        logger.debug(f"📦 After reshape to 3D: {x.shape}")
         
         # Progressive upsampling through transposed convolutions
         x = self.deconv1(x)  # 2x2x2 -> 4x4x4, channels: 512->256
+        logger.debug(f"📦 After deconv1: {x.shape}")
+        
         x = self.deconv2(x)  # 4x4x4 -> 8x8x8, channels: 256->128
+        logger.debug(f"📦 After deconv2: {x.shape}")
+        
         x = self.deconv3(x)  # 8x8x8 -> 16x16x16, channels: 128->64
+        logger.debug(f"📦 After deconv3: {x.shape}")
+        
         x = self.deconv4(x)  # 16x16x16 -> 32x32x32, channels: 64->32
+        logger.debug(f"📦 After deconv4: {x.shape}")
+        
         x = self.deconv5(x)  # 32x32x32 -> 64x64x64, channels: 32->16
+        logger.debug(f"📦 After deconv5: {x.shape}")
         
         # Generate final dual-channel output (μₐ + μ′s)
         x = self.final_conv(x)  # 64x64x64 -> 64x64x64, channels: 16->2
+        logger.debug(f"📦 After final_conv: {x.shape}")
         
         # Ensure exact output dimensions match target (64x64x64 -> 60x60x60)
         if x.shape[2:] != self.output_size:
+            logger.debug(f"🔄 Resizing from {x.shape[2:]} to {self.output_size}")
             x = F.interpolate(x, size=self.output_size, mode='trilinear', 
                               align_corners=False)
+            logger.debug(f"📦 After resize: {x.shape}")
         
+        logger.debug(f"📦 CNNDecoder output: {x.shape}")
         return x
 
 
@@ -391,18 +440,33 @@ class CNNAutoEncoder(nn.Module):
         and standard initialization to batch normalization layers. This helps
         maintain stable gradients during training.
         """
-        for m in self.modules():
+        logger.debug("🔧 Initializing CNN Autoencoder weights...")
+        conv_count = 0
+        bn_count = 0
+        linear_count = 0
+        
+        for name, m in self.named_modules():
             if isinstance(m, (nn.Conv3d, nn.ConvTranspose3d)):
                 nn.init.xavier_uniform_(m.weight)
+                logger.debug(f"🔧 Xavier uniform init: {name}.weight {m.weight.shape}")
+                conv_count += 1
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
+                    logger.debug(f"🔧 Zero bias init: {name}.bias {m.bias.shape}")
             elif isinstance(m, nn.BatchNorm3d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
+                logger.debug(f"🔧 BatchNorm3d init: {name} (weight=1, bias=0)")
+                bn_count += 1
             elif isinstance(m, nn.Linear):
                 nn.init.xavier_uniform_(m.weight)
+                logger.debug(f"🔧 Xavier uniform init: {name}.weight {m.weight.shape}")
+                linear_count += 1
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
+                    logger.debug(f"🔧 Zero bias init: {name}.bias {m.bias.shape}")
+        
+        logger.debug(f"✅ Weight initialization completed: {conv_count} conv layers, {bn_count} BN layers, {linear_count} linear layers")
     
     def forward(self, x):
         """
@@ -414,8 +478,14 @@ class CNNAutoEncoder(nn.Module):
         Returns:
             torch.Tensor: Reconstructed volume of shape (batch_size, 2, D, H, W)
         """
+        logger.debug(f"🏃 CNN Autoencoder forward: input shape {x.shape}")
+        
         encoded = self.encoder(x)
+        logger.debug(f"📦 Encoded features: {encoded.shape}")
+        
         decoded = self.decoder(encoded)
+        logger.debug(f"📦 Decoded volume: {decoded.shape}")
+        
         return decoded
     
     def encode(self, x):
@@ -428,7 +498,10 @@ class CNNAutoEncoder(nn.Module):
         Returns:
             torch.Tensor: Encoded features of shape (batch_size, feature_dim)
         """
-        return self.encoder(x)
+        logger.debug(f"🔍 CNN encoding: input shape {x.shape}")
+        features = self.encoder(x)
+        logger.debug(f"🔍 CNN encoded features: {features.shape}")
+        return features
     
     def decode(self, features):
         """
@@ -440,56 +513,17 @@ class CNNAutoEncoder(nn.Module):
         Returns:
             torch.Tensor: Reconstructed volume of shape (batch_size, 2, D, H, W)
         """
-        return self.decoder(features)
+        logger.debug(f"🔍 CNN decoding: features shape {features.shape}")
+        volume = self.decoder(features)
+        logger.debug(f"🔍 CNN decoded volume: {volume.shape}")
+        return volume
     
     def get_encoder(self):
         """Get the encoder for use in stage 2 training"""
+        logger.debug("🔍 Returning CNN encoder component")
         return self.encoder
     
     def get_decoder(self):
         """Get the decoder for freezing in stage 2"""
+        logger.debug("🔍 Returning CNN decoder component")
         return self.decoder
-
-
-def test_cnn_autoencoder():
-    """Test function to verify the autoencoder works correctly"""
-    print("🧪 Testing CNN Autoencoder...")
-    
-    # Create model
-    model = CNNAutoEncoder(
-        input_channels=DEFAULT_INPUT_CHANNELS,
-        output_size=DEFAULT_OUTPUT_SIZE,
-        feature_dim=DEFAULT_FEATURE_DIM,
-        base_channels=DEFAULT_BASE_CHANNELS
-    )
-    
-    # Test with sample input
-    batch_size = 2
-    input_tensor = torch.randn(batch_size, DEFAULT_INPUT_CHANNELS, 
-                              DEFAULT_OUTPUT_SIZE[0], DEFAULT_OUTPUT_SIZE[1], DEFAULT_OUTPUT_SIZE[2])
-    
-    # Test encoding
-    encoded = model.encode(input_tensor)
-    print(f"✅ Encoding: {input_tensor.shape} → {encoded.shape}")
-    
-    # Test decoding
-    decoded = model.decode(encoded)
-    print(f"✅ Decoding: {encoded.shape} → {decoded.shape}")
-    
-    # Test full forward pass
-    output = model(input_tensor)
-    print(f"✅ Full pass: {input_tensor.shape} → {output.shape}")
-    
-    # Verify shapes
-    assert encoded.shape == (batch_size, DEFAULT_FEATURE_DIM), f"Encoded shape wrong: {encoded.shape}"
-    assert decoded.shape == (batch_size, DEFAULT_INPUT_CHANNELS, DEFAULT_OUTPUT_SIZE[0], 
-                           DEFAULT_OUTPUT_SIZE[1], DEFAULT_OUTPUT_SIZE[2]), f"Decoded shape wrong: {decoded.shape}"
-    assert output.shape == (batch_size, DEFAULT_INPUT_CHANNELS, DEFAULT_OUTPUT_SIZE[0], 
-                          DEFAULT_OUTPUT_SIZE[1], DEFAULT_OUTPUT_SIZE[2]), f"Output shape wrong: {output.shape}"
-    
-    print("🎉 All tests passed!")
-    return True
-
-
-if __name__ == "__main__":
-    test_cnn_autoencoder()

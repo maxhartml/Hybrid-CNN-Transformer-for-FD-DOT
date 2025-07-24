@@ -333,16 +333,22 @@ class Stage1Trainer:
         - Optimizer state dictionary (for training resumption)
         - Training metadata (epoch, validation loss)
         """
+        logger.debug(f"💾 Saving Stage 1 checkpoint: epoch={epoch}, val_loss={val_loss:.6f}")
+        
         import os
         # Only create directory if path has a directory component
         dir_path = os.path.dirname(path)
         if dir_path:  # Only create directory if it's not empty (i.e., not current directory)
             os.makedirs(dir_path, exist_ok=True)
+            logger.debug(f"📁 Created checkpoint directory: {dir_path}")
         
-        torch.save({
+        checkpoint_data = {
             'epoch': epoch,
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'val_loss': val_loss
-        }, path)
+        }
+        
+        torch.save(checkpoint_data, path)
         logger.debug(f"💾 Checkpoint saved: {path}")
+        logger.debug(f"📊 Checkpoint data keys: {list(checkpoint_data.keys())}")

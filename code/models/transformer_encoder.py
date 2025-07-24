@@ -128,6 +128,8 @@ class MultiHeadAttention(nn.Module):
         
         self.dropout = nn.Dropout(dropout)
         self.scale = ATTENTION_SCALE_FACTOR_BASE / math.sqrt(self.head_dim)  # Scaling factor for dot-product attention
+        
+        logger.debug(f"🔧 MultiHeadAttention initialized: embed_dim={embed_dim}, num_heads={num_heads}, head_dim={self.head_dim}")
     
     def forward(self, query, key, value, mask=None):
         """
@@ -143,26 +145,39 @@ class MultiHeadAttention(nn.Module):
             torch.Tensor: Attention output of shape (batch_size, seq_len, embed_dim)
         """
         batch_size, seq_len, _ = query.shape
+        logger.debug(f"🏃 MultiHeadAttention forward: query {query.shape}, key {key.shape}, value {value.shape}")
         
         # Project and reshape for multi-head attention
         q = self.q_proj(query).view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
         k = self.k_proj(key).view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
         v = self.v_proj(value).view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        logger.debug(f"📦 After projection and reshaping: q {q.shape}, k {k.shape}, v {v.shape}")
         
         # Compute scaled dot-product attention scores
         scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+        logger.debug(f"📦 Attention scores shape: {scores.shape}")
+        
+        # Apply mask if provided
+        if mask is not None:
+            scores = scores.masked_fill(mask == 0, -1e9)
+            logger.debug("🎭 Applied attention mask")
         
         # Compute attention probabilities and apply dropout
         attention_weights = F.softmax(scores, dim=-1)
         attention_weights = self.dropout(attention_weights)
+        logger.debug(f"📦 Attention weights shape: {attention_weights.shape}")
         
         # Apply attention to values
         attended = torch.matmul(attention_weights, v)
+        logger.debug(f"📦 Attended values shape: {attended.shape}")
         
         # Reshape and project to output dimensions
         attended = attended.transpose(1, 2).contiguous().view(
             batch_size, seq_len, self.embed_dim)
+        logger.debug(f"📦 Reshaped attended shape: {attended.shape}")
+        
         output = self.out_proj(attended)
+        logger.debug(f"📦 MultiHeadAttention output shape: {output.shape}")
         
         return output, attention_weights
 
@@ -201,6 +216,8 @@ class TransformerLayer(nn.Module):
             nn.Linear(mlp_dim, embed_dim),
             nn.Dropout(dropout)
         )
+        
+        logger.debug(f"🔧 TransformerLayer initialized: embed_dim={embed_dim}, num_heads={num_heads}, mlp_dim={mlp_dim}")
     
     def forward(self, x, mask=None):
         """
@@ -215,13 +232,21 @@ class TransformerLayer(nn.Module):
                 - Output tensor of shape (batch_size, seq_len, embed_dim)
                 - Attention weights of shape (batch_size, num_heads, seq_len, seq_len)
         """
+        logger.debug(f"🏃 TransformerLayer forward: input shape {x.shape}")
+        
         # Self-attention with residual connection and pre-norm
         attn_out, attn_weights = self.attention(x, x, x, mask)
+        logger.debug(f"📦 After attention: {attn_out.shape}")
+        
         x = self.norm1(x + attn_out)
+        logger.debug(f"📦 After norm1 + residual: {x.shape}")
         
         # Feed-forward network with residual connection and pre-norm
         mlp_out = self.mlp(x)
+        logger.debug(f"📦 After MLP: {mlp_out.shape}")
+        
         x = self.norm2(x + mlp_out)
+        logger.debug(f"📦 TransformerLayer output: {x.shape}")
         
         return x, attn_weights
 
@@ -316,16 +341,30 @@ class TransformerEncoder(nn.Module):
         Applies Xavier uniform initialization to linear layers and standard
         initialization to layer normalization and embedding layers.
         """
-        for m in self.modules():
+        logger.debug("🔧 Initializing Transformer Encoder weights...")
+        linear_count = 0
+        norm_count = 0
+        embed_count = 0
+        
+        for name, m in self.named_modules():
             if isinstance(m, nn.Linear):
                 nn.init.xavier_uniform_(m.weight)
+                logger.debug(f"🔧 Xavier uniform init: {name}.weight {m.weight.shape}")
+                linear_count += 1
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
+                    logger.debug(f"🔧 Zero bias init: {name}.bias {m.bias.shape}")
             elif isinstance(m, nn.LayerNorm):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
+                logger.debug(f"🔧 LayerNorm init: {name} (weight=1, bias=0)")
+                norm_count += 1
             elif isinstance(m, nn.Embedding):
-                nn.init.normal_(m.weight, mean=0, std=0.02)
+                nn.init.normal_(m.weight, 0, WEIGHT_INIT_STD)
+                logger.debug(f"🔧 Normal init: {name}.weight {m.weight.shape}, std={WEIGHT_INIT_STD}")
+                embed_count += 1
+        
+        logger.debug(f"✅ Weight initialization completed: {linear_count} linear layers, {norm_count} norm layers, {embed_count} embeddings")
     
     def forward(self, cnn_features: torch.Tensor, 
                 tissue_context: Optional[torch.Tensor] = None,
@@ -350,24 +389,32 @@ class TransformerEncoder(nn.Module):
         """
         batch_size = cnn_features.shape[0]
         device = cnn_features.device
+        logger.debug(f"🏃 Transformer Encoder forward: cnn_features {cnn_features.shape}, use_tissue_patches={use_tissue_patches}")
         
         # Project CNN features to transformer embedding space
         cnn_embedded = self.cnn_projection(cnn_features).unsqueeze(1)  # [B, 1, embed_dim]
+        logger.debug(f"📦 CNN embedded: {cnn_embedded.shape}")
         
         # Build input token sequence
         if use_tissue_patches and tissue_context is not None and self.tissue_projection is not None:
+            logger.debug(f"🧬 Including tissue context: {tissue_context.shape}")
+            
             # Project tissue context to embedding dimension
             tissue_embedded = self.tissue_projection(tissue_context).unsqueeze(1)  # [B, 1, embed_dim]
+            logger.debug(f"📦 Tissue embedded: {tissue_embedded.shape}")
             
             # Concatenate CNN and tissue features into sequence
             token_sequence = torch.cat([cnn_embedded, tissue_embedded], dim=1)  # [B, 2, embed_dim]
+            logger.debug(f"📦 Token sequence with tissue: {token_sequence.shape}")
             
             # Add token type embeddings to distinguish modalities
             token_types = torch.tensor([0, 1], device=device).unsqueeze(0).expand(batch_size, -1)
             token_type_emb = self.token_type_embedding(token_types)
             token_sequence = token_sequence + token_type_emb
+            logger.debug(f"📦 After token type embedding: {token_sequence.shape}")
             
         else:
+            logger.debug("🔧 CNN features only mode")
             # CNN features only mode
             token_sequence = cnn_embedded  # [B, 1, embed_dim]
             
@@ -375,32 +422,40 @@ class TransformerEncoder(nn.Module):
             token_types = torch.tensor([0], device=device).unsqueeze(0).expand(batch_size, -1)
             token_type_emb = self.token_type_embedding(token_types)
             token_sequence = token_sequence + token_type_emb
-            logger.debug(f"🔍 CNN token sequence with types requires_grad: {token_sequence.requires_grad}")
+            logger.debug(f"📦 CNN-only token sequence: {token_sequence.shape}")
         
         # Add positional encoding to token sequence
-        logger.debug(f"🔍 Token sequence before pos encoding requires_grad: {token_sequence.requires_grad}")
+        logger.debug("🎯 Adding positional encoding...")
         token_sequence = self.positional_encoding(token_sequence.transpose(0, 1)).transpose(0, 1)
-        logger.debug(f"🔍 Token sequence after pos encoding requires_grad: {token_sequence.requires_grad}")
+        logger.debug(f"📦 After positional encoding: {token_sequence.shape}")
         
         # Process through transformer layers
+        logger.debug(f"🔄 Processing through {len(self.layers)} transformer layers...")
         attention_weights_list = []
         x = token_sequence
         
         for i, layer in enumerate(self.layers):
+            logger.debug(f"🔄 Processing layer {i+1}/{len(self.layers)}...")
             x, attn_weights = layer(x)
             attention_weights_list.append(attn_weights)
+            logger.debug(f"📦 Layer {i+1} output: {x.shape}")
         
         # Apply final layer normalization
+        logger.debug("🧼 Applying final layer normalization...")
         x = self.layer_norm(x)
+        logger.debug(f"📦 After final layer norm: {x.shape}")
         
         # Extract enhanced CNN features (always the first token in sequence)
         enhanced_cnn_features = x[:, 0, :]  # [B, embed_dim]
+        logger.debug(f"📦 Enhanced CNN features: {enhanced_cnn_features.shape}")
         
         # Project enhanced features back to original CNN feature space
         enhanced_features = self.output_projection(enhanced_cnn_features)  # [B, cnn_feature_dim]
+        logger.debug(f"📦 Final transformer output: {enhanced_features.shape}")
         
         # Combine attention weights from all layers for analysis
         attention_weights = torch.stack(attention_weights_list, dim=1) if attention_weights_list else None
+        logger.debug(f"✅ Transformer Encoder forward pass completed")
         
         return enhanced_features, attention_weights
     
@@ -422,5 +477,7 @@ class TransformerEncoder(nn.Module):
         Returns:
             torch.Tensor: Attention weights from the last layer, or None if unavailable
         """
+        logger.debug("🔍 Extracting attention maps from transformer encoder...")
         _, attention_weights = self.forward(cnn_features, tissue_context, use_tissue_patches)
+        logger.debug(f"📦 Attention weights extracted: {attention_weights.shape if attention_weights is not None else 'None'}")
         return attention_weights

@@ -292,10 +292,18 @@ class Stage2Trainer:
         total_loss = 0
         num_batches = 0
         
+        logger.debug(f"📊 Processing {len(data_loader)} batches in Stage 2 training epoch")
+        
         for batch_idx, batch in enumerate(data_loader):
+            logger.debug(f"🔍 Processing Stage 2 batch {batch_idx + 1}/{len(data_loader)}")
+            
             # In Stage 2: Complete phantom NIR measurements are input, ground truth volumes are target
             nir_measurements = batch['nir_measurements'].to(self.device)  # Shape: (batch_size, 1500, 8)
             targets = batch['ground_truth'].to(self.device)               # Shape: (batch_size, 2, 60, 60, 60)
+            
+            logger.debug(f"📦 NIR measurements shape: {nir_measurements.shape}")
+            logger.debug(f"📦 Ground truth targets shape: {targets.shape}")
+            logger.debug(f"🖥️  Data moved to device: {nir_measurements.device}")
             
             # Get tissue patches if using them (not yet implemented for complete phantom format)
             tissue_patches = None
@@ -306,26 +314,36 @@ class Stage2Trainer:
                 logger.debug("🧬 No tissue patches used")
             
             # Forward pass through hybrid model
+            logger.debug("⚡ Starting Stage 2 forward pass (NIR → features → reconstruction)...")
             self.optimizer.zero_grad()
             
             # The hybrid model handles: NIR measurements (batch, 1500, 8) → 512D features → reconstruction
             outputs = self.model(nir_measurements, tissue_patches)
+            logger.debug(f"📤 Stage 2 model output shape: {outputs['reconstructed'].shape}")
             
             # Compute loss
+            logger.debug("📏 Computing Stage 2 RMSE loss...")
             loss = self.criterion(outputs['reconstructed'], targets)
+            logger.debug(f"💰 Stage 2 batch loss: {loss.item():.6f}")
             
             # Backward pass
+            logger.debug("🔙 Starting Stage 2 backward pass (only transformer gradients)...")
             try:
                 loss.backward()
                 self.optimizer.step()
+                logger.debug("✅ Stage 2 optimizer step completed")
             except RuntimeError as e:
                 logger.error(f"🚨 Gradient error: {e}")
                 raise e
             
             total_loss += loss.item()
             num_batches += 1
+            
+            if batch_idx % 5 == 0:  # Log every 5 batches during DE
+                logger.debug(f"📈 Stage 2 Batch {batch_idx}: Loss = {loss.item():.6f}, Running Avg = {total_loss/num_batches:.6f}")
         
         avg_loss = total_loss / num_batches
+        logger.debug(f"✅ Stage 2 training epoch completed. Average loss: {avg_loss:.6f}")
         return avg_loss
     
     def validate(self, data_loader):
@@ -348,22 +366,35 @@ class Stage2Trainer:
         total_loss = 0
         num_batches = 0
         
+        logger.debug(f"📊 Processing {len(data_loader)} Stage 2 validation batches")
+        
         with torch.no_grad():
             for batch_idx, batch in enumerate(data_loader):
+                logger.debug(f"🔍 Validating Stage 2 batch {batch_idx + 1}/{len(data_loader)}")
+                
                 nir_measurements = batch['nir_measurements'].to(self.device)  # Shape: (batch_size, 1500, 8)
                 targets = batch['ground_truth'].to(self.device)               # Shape: (batch_size, 2, 60, 60, 60)
+                
+                logger.debug(f"📦 Stage 2 validation NIR shape: {nir_measurements.shape}")
+                logger.debug(f"📦 Stage 2 validation target shape: {targets.shape}")
                 
                 tissue_patches = None
                 if self.use_tissue_patches and 'tissue_patches' in batch:
                     tissue_patches = batch['tissue_patches'].to(self.device)
+                    logger.debug(f"🧬 Validation tissue patches: {tissue_patches.shape}")
+                else:
+                    logger.debug("🧬 No tissue patches in validation")
                 
+                logger.debug("⚡ Stage 2 validation forward pass (no gradients)...")
                 outputs = self.model(nir_measurements, tissue_patches)
                 loss = self.criterion(outputs['reconstructed'], targets)
+                logger.debug(f"💰 Stage 2 validation batch loss: {loss.item():.6f}")
                 
                 total_loss += loss.item()
                 num_batches += 1
         
         avg_loss = total_loss / num_batches
+        logger.debug(f"✅ Stage 2 validation completed. Average loss: {avg_loss:.6f}")
         return avg_loss
     
     def train(self, data_loaders, epochs=DEFAULT_EPOCHS):
@@ -391,6 +422,8 @@ class Stage2Trainer:
         """
         mode = ENHANCED_MODE if self.use_tissue_patches else BASELINE_MODE
         logger.info(f"🏋️ Starting Stage 2 training ({mode}) for {epochs} epochs")
+        logger.debug(f"📊 Stage 2 configuration: device={self.device}, lr={self.learning_rate}, tissue_patches={self.use_tissue_patches}")
+        logger.debug(f"📈 Stage 2 data loaders: train_batches={len(data_loaders['train'])}, val_batches={len(data_loaders['val'])}")
         
         best_val_loss = float('inf')
         
@@ -398,10 +431,12 @@ class Stage2Trainer:
             logger.info(f"📅 Starting Stage 2 Epoch {epoch + 1}/{epochs}")
             
             # Train
+            logger.debug(f"🏋️  Beginning Stage 2 training phase for epoch {epoch}")
             train_loss = self.train_epoch(data_loaders['train'])
             logger.info(f"🏋️  Stage 2 Training completed - Loss: {train_loss:.6f}")
             
             # Validate
+            logger.debug(f"🔍 Beginning Stage 2 validation phase for epoch {epoch}")
             val_loss = self.validate(data_loaders['val'])
             logger.info(f"🔍 Stage 2 Validation completed - Loss: {val_loss:.6f}")
             

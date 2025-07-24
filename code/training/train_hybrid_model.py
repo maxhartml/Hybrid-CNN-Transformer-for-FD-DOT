@@ -42,8 +42,8 @@ from pathlib import Path
 # =============================================================================
 
 # Training Configuration
-DEFAULT_BATCH_SIZE_STAGE1 = 2           # Stage 1: CNN autoencoder (ground truth only, less memory)
-DEFAULT_BATCH_SIZE_STAGE2 = 1           # Stage 2: Transformer (full phantoms + attention, more memory)
+DEFAULT_BATCH_SIZE_STAGE1 = 4           # Stage 1: CNN autoencoder (ground truth only, less memory)
+DEFAULT_BATCH_SIZE_STAGE2 = 4           # Stage 2: Transformer (full phantoms + attention, more memory)
 DEFAULT_LEARNING_RATE = 1e-4            # Default learning rate
 DEFAULT_EPOCHS_STAGE1 = 50              # Default epochs for Stage 1
 DEFAULT_EPOCHS_STAGE2 = 100             # Default epochs for Stage 2

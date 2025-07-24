@@ -230,48 +230,61 @@ class HybridCNNTransformer(nn.Module):
         """
         batch_size = dot_measurements.shape[0]
         device = dot_measurements.device
+        logger.debug(f"🏃 Hybrid Model forward: input shape {dot_measurements.shape}, stage={self.training_stage}")
         
         outputs = {}
         
         if self.training_stage == STAGE1:
+            logger.debug("📍 Stage 1: CNN autoencoder only mode")
             # Stage 1: CNN autoencoder only
             reconstructed = self.cnn_autoencoder(dot_measurements)
+            logger.debug(f"📦 Stage 1 reconstruction: {reconstructed.shape}")
             outputs.update({
                 'reconstructed': reconstructed,
                 'stage': STAGE1
             })
             
         elif self.training_stage == STAGE2:
+            logger.debug("📍 Stage 2: Transformer enhancement mode")
             # Stage 2: Handle NIR measurements → Transformer → CNN decoder
             
             # Check input type: NIR measurements vs ground truth volumes
             # NEW FORMAT: NIR measurements are (batch_size, 1500, 8) for complete phantoms
             # OLD FORMAT: Individual measurements were (batch_size, 8)
             if len(dot_measurements.shape) == 3 and dot_measurements.shape[2] == self.nir_input_dim:
+                logger.debug(f"🔍 Processing NIR measurements: {dot_measurements.shape}")
                 # Complete phantom NIR measurements: (batch_size, 1500, nir_input_dim)
                 batch_size, n_measurements, n_features = dot_measurements.shape
+                logger.debug(f"📦 NIR measurements breakdown: batch_size={batch_size}, n_measurements={n_measurements}, n_features={n_features}")
                 
                 # Reshape to process all measurements in batch
                 nir_features = dot_measurements.view(-1, n_features)  # (batch_size * 1500, nir_input_dim)
+                logger.debug(f"📦 Reshaped NIR features: {nir_features.shape}")
                 
                 # Project all measurements to CNN feature space  
                 projected_features = self.nir_projection(nir_features)  # (batch_size * 1500, 512)
+                logger.debug(f"📦 Projected features: {projected_features.shape}")
                 
                 # Reshape back to batch format and aggregate measurements per phantom
                 projected_features = projected_features.view(batch_size, n_measurements, 512)  # (batch_size, 1500, 512)
+                logger.debug(f"📦 Reshaped projected features: {projected_features.shape}")
                 
                 # Aggregate measurements to single feature vector per phantom
                 # Using mean pooling across all measurements - could also use attention pooling
                 cnn_features = projected_features.mean(dim=1)  # (batch_size, 512)
+                logger.debug(f"📦 Aggregated CNN features: {cnn_features.shape}")
                 
             elif len(dot_measurements.shape) == 2 and dot_measurements.shape[1] == self.nir_input_dim:
+                logger.debug(f"🔍 Processing individual NIR measurements: {dot_measurements.shape}")
                 # Individual NIR measurements: (batch_size, nir_input_dim) - for compatibility
                 nir_features = dot_measurements  # Shape: (batch_size, nir_input_dim)
                 
                 # Project NIR measurements to CNN feature space  
                 cnn_features = self.nir_projection(nir_features)  # Shape: (batch_size, 512)
+                logger.debug(f"📦 Individual NIR features projected: {cnn_features.shape}")
                 
             else:
+                logger.debug(f"🔍 Processing ground truth volumes: {dot_measurements.shape}")
                 # Ground truth volumes input (for compatibility): extract CNN features
                 with torch.no_grad() if self.training else torch.enable_grad():
                     cnn_features = self.cnn_autoencoder.encode(dot_measurements)  # (batch, 512)

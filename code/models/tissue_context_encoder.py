@@ -145,17 +145,26 @@ class TissueContextEncoder(nn.Module):
         initialization for layer normalization, and truncated normal
         for positional embeddings.
         """
-        for m in self.modules():
+        logger.debug("🔧 Initializing Tissue Context Encoder weights...")
+        weight_count = 0
+        
+        for name, m in self.named_modules():
             if isinstance(m, nn.Linear):
                 nn.init.xavier_uniform_(m.weight)
+                logger.debug(f"🔧 Xavier uniform init: {name}.weight {m.weight.shape}")
+                weight_count += 1
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
+                    logger.debug(f"🔧 Zero bias init: {name}.bias {m.bias.shape}")
             elif isinstance(m, nn.LayerNorm):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
+                logger.debug(f"🔧 LayerNorm init: {name} (weight=1, bias=0)")
         
         # Initialize positional embeddings with small random values
         nn.init.trunc_normal_(self.position_embedding, std=POSITIONAL_EMBEDDING_INIT_STD)
+        logger.debug(f"🔧 Truncated normal init: position_embedding {self.position_embedding.shape}, std={POSITIONAL_EMBEDDING_INIT_STD}")
+        logger.debug(f"✅ Weight initialization completed: {weight_count} linear layers initialized")
     
     def forward(self, tissue_patches: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
         """
@@ -173,33 +182,51 @@ class TissueContextEncoder(nn.Module):
             torch.Tensor: Tissue context embedding of shape (batch_size, embed_dim),
                 or None if tissue_patches is None
         """
+        logger.debug("🏃 Starting Tissue Context Encoder forward pass...")
+        
         if tissue_patches is None:
+            logger.debug("❌ No tissue patches provided, returning None")
             return None
         
         batch_size = tissue_patches.shape[0]
+        logger.debug(f"📦 Input tissue patches shape: {tissue_patches.shape}")
         
         # Validate input tensor shape
         if len(tissue_patches.shape) != 3:
+            logger.error(f"🚨 Invalid tissue_patches shape: expected [B, N, D], got {tissue_patches.shape}")
             raise ValueError(f"Expected tissue_patches shape [B, N, D], got {tissue_patches.shape}")
         
         # Embed tissue patches to transformer embedding space
+        logger.debug("🔄 Embedding tissue patches to transformer space...")
         patch_embeddings = self.patch_embedding(tissue_patches)  # [B, N, embed_dim]
+        logger.debug(f"📦 Patch embeddings shape: {patch_embeddings.shape}")
         
         # Add learnable positional information
+        logger.debug("🎯 Adding positional embeddings...")
         patch_embeddings = patch_embeddings + self.position_embedding
+        logger.debug(f"📦 Position-encoded embeddings shape: {patch_embeddings.shape}")
         
         # Process through transformer encoder for inter-patch relationships
+        logger.debug("🔄 Processing through transformer encoder...")
         transformed = self.transformer(patch_embeddings)  # [B, N, embed_dim]
+        logger.debug(f"📦 Transformer output shape: {transformed.shape}")
         
         # Apply final layer normalization
+        logger.debug("🧼 Applying layer normalization...")
         transformed = self.layer_norm(transformed)
+        logger.debug(f"📦 Normalized output shape: {transformed.shape}")
         
         # Aggregate patch embeddings into global tissue context
+        logger.debug("🔄 Aggregating patch embeddings to global context...")
         global_context = transformed.view(batch_size, -1)  # [B, N * embed_dim]
+        logger.debug(f"📦 Global context shape: {global_context.shape}")
         
         # Project to final context embedding dimension
+        logger.debug("🎯 Projecting to final tissue context embedding...")
         tissue_context = self.context_projection(global_context)  # [B, embed_dim]
+        logger.debug(f"📦 Final tissue context shape: {tissue_context.shape}")
         
+        logger.debug("✅ Tissue Context Encoder forward pass completed")
         return tissue_context
     
     def get_attention_weights(self, tissue_patches: torch.Tensor) -> torch.Tensor:
@@ -218,25 +245,35 @@ class TissueContextEncoder(nn.Module):
             torch.Tensor: Attention weights from transformer layers, or None if
                 tissue_patches is None
         """
+        logger.debug("🔍 Extracting attention weights from tissue context encoder...")
+        
         if tissue_patches is None:
+            logger.debug("❌ No tissue patches provided for attention weight extraction")
             return None
         
         batch_size = tissue_patches.shape[0]
+        logger.debug(f"📦 Input for attention extraction: {tissue_patches.shape}")
         
         # Ensure proper tensor shape for processing
         if len(tissue_patches.shape) == 5:
+            logger.debug("🔄 Reshaping 5D tissue patches to 3D format...")
             tissue_patches = tissue_patches.view(batch_size, self.num_patches, -1)
+            logger.debug(f"📦 Reshaped tissue patches: {tissue_patches.shape}")
         
         # Embed patches and add positional information
+        logger.debug("🔄 Computing patch embeddings for attention extraction...")
         patch_embeddings = self.patch_embedding(tissue_patches)
         patch_embeddings = patch_embeddings + self.position_embedding
+        logger.debug(f"📦 Patch embeddings for attention: {patch_embeddings.shape}")
         
         # Note: Extracting attention weights from nn.TransformerEncoder requires
         # custom implementation. For now, return placeholder attention pattern.
         # In practice, you would need a custom transformer implementation
         # to access intermediate attention weights.
+        logger.debug("⚠️  Using placeholder attention weights (custom implementation needed)")
         attention_weights = torch.ones(batch_size, self.num_patches, self.num_patches,
                                      device=tissue_patches.device)
+        logger.debug(f"📦 Placeholder attention weights shape: {attention_weights.shape}")
         
         logger.debug("Attention weight extraction requested (placeholder returned)")
         return attention_weights
@@ -267,9 +304,13 @@ class TissueContextToggle:
         Returns:
             torch.Tensor: Processed tissue patches or None based on toggle
         """
+        logger.debug(f"🔧 Processing tissue patches toggle: use_tissue_patches={use_tissue_patches}")
+        
         if not use_tissue_patches:
             logger.debug("Tissue patches disabled by toggle")
             return None
+            
+        logger.debug(f"📦 Tissue patches enabled, input shape: {tissue_patches.shape if tissue_patches is not None else 'None'}")
         return tissue_patches
     
     @staticmethod
@@ -289,7 +330,10 @@ class TissueContextToggle:
         Returns:
             torch.Tensor: Zero tensor of shape (batch_size, embed_dim)
         """
-        return torch.zeros(batch_size, embed_dim, device=device)
+        logger.debug(f"🔧 Creating dummy tissue context: batch_size={batch_size}, embed_dim={embed_dim}, device={device}")
+        dummy_context = torch.zeros(batch_size, embed_dim, device=device)
+        logger.debug(f"📦 Dummy context shape: {dummy_context.shape}")
+        return dummy_context
     
     @staticmethod
     def merge_contexts(cnn_features: torch.Tensor, 
@@ -310,6 +354,11 @@ class TissueContextToggle:
         Returns:
             torch.Tensor: Merged feature representation
         """
+        logger.debug("🔄 Merging CNN features with tissue context...")
+        logger.debug(f"📦 CNN features shape: {cnn_features.shape}")
+        logger.debug(f"📦 Tissue context shape: {tissue_context.shape if tissue_context is not None else 'None'}")
+        logger.debug(f"🔧 Use tissue patches: {use_tissue_patches}")
+        
         if not use_tissue_patches or tissue_context is None:
             logger.debug("Using CNN features only (tissue context disabled or None)")
             return cnn_features
@@ -317,4 +366,5 @@ class TissueContextToggle:
         # Concatenate CNN features with tissue context for enhanced representation
         merged = torch.cat([cnn_features, tissue_context], dim=1)
         logger.debug(f"Merged CNN features {cnn_features.shape} with tissue context {tissue_context.shape}")
+        logger.debug(f"📦 Final merged features shape: {merged.shape}")
         return merged
