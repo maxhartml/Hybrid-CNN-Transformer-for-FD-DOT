@@ -26,7 +26,29 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import os
 from typing import Dict
+
+# =============================================================================
+# HYPERPARAMETERS AND CONSTANTS
+# =============================================================================
+
+# Training Configuration
+DEFAULT_LEARNING_RATE = 1e-4            # Default learning rate for Adam optimizer
+DEFAULT_EPOCHS = 50                     # Default number of training epochs
+DEFAULT_DEVICE = "cpu"                  # Default training device
+
+# Training Progress Logging
+PROGRESS_LOG_INTERVAL = 10              # Log progress every N epochs
+FINAL_EPOCH_OFFSET = 1                  # Offset for final epoch logging
+
+# Checkpoint Configuration
+STAGE1_CHECKPOINT_FILENAME = "stage1_best.pth"  # Default checkpoint filename
+CHECKPOINT_BASE_DIR = "checkpoints"     # Base checkpoint directory
+
+# Model Configuration
+USE_TISSUE_PATCHES_STAGE1 = False       # Stage 1 doesn't use tissue patches
+TRAINING_STAGE_1 = "stage1"             # Training stage identifier
 
 from ..models.hybrid_model import HybridCNNTransformer
 from ..utils.logging_config import get_training_logger
@@ -92,7 +114,7 @@ class Stage1Trainer:
         >>> print(f"Best validation loss: {results['best_val_loss']:.6f}")
     """
     
-    def __init__(self, learning_rate=1e-4, device="cpu"):
+    def __init__(self, learning_rate=DEFAULT_LEARNING_RATE, device=DEFAULT_DEVICE):
         """
         Initialize the Stage 1 trainer with model and optimization components.
         
@@ -105,8 +127,8 @@ class Stage1Trainer:
         
         # Initialize model (stage 1: CNN autoencoder only, no tissue patches)
         self.model = HybridCNNTransformer(
-            use_tissue_patches=False,
-            training_stage="stage1"  # Explicit stage 1 setting
+            use_tissue_patches=USE_TISSUE_PATCHES_STAGE1,
+            training_stage=TRAINING_STAGE_1  # Explicit stage 1 setting
         )
         self.model.to(self.device)
         
@@ -192,7 +214,7 @@ class Stage1Trainer:
         
         return total_loss / num_batches
     
-    def train(self, data_loaders, epochs=50):
+    def train(self, data_loaders, epochs=DEFAULT_EPOCHS):
         """
         Execute the complete Stage 1 training pipeline.
         
@@ -202,7 +224,7 @@ class Stage1Trainer:
         
         Args:
             data_loaders (dict): Dictionary containing 'train' and 'val' DataLoaders
-            epochs (int): Number of training epochs to execute. Default: 50
+            epochs (int): Number of training epochs to execute. Default from constants
         
         Returns:
             dict: Training results containing 'best_val_loss' for analysis
@@ -224,14 +246,15 @@ class Stage1Trainer:
             val_loss = self.validate(data_loaders['val'])
             
             # Print progress
-            if epoch % 10 == 0 or epoch == epochs - 1:
+            if epoch % PROGRESS_LOG_INTERVAL == 0 or epoch == epochs - FINAL_EPOCH_OFFSET:
                 logger.info(f"📈 Epoch {epoch:3d}/{epochs}: Train Loss: {train_loss:.6f}, "
                            f"Val Loss: {val_loss:.6f}")
             
             # Save best model
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                self.save_checkpoint(f"checkpoints/stage1_best.pth", epoch, val_loss)
+                checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{STAGE1_CHECKPOINT_FILENAME}"
+                self.save_checkpoint(checkpoint_path, epoch, val_loss)
                 logger.debug(f"💾 New best model saved at epoch {epoch}")
         
         logger.info(f"✅ Stage 1 training complete! Best val loss: {best_val_loss:.6f}")

@@ -21,6 +21,36 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utils.logging_config import get_model_logger
 
+# =============================================================================
+# HYPERPARAMETERS AND CONSTANTS
+# =============================================================================
+
+# Model Architecture Parameters
+DEFAULT_CNN_FEATURE_DIM = 512           # CNN feature dimension input
+DEFAULT_TISSUE_CONTEXT_DIM = 256        # Tissue context embedding dimension
+DEFAULT_EMBED_DIM = 768                 # Transformer embedding dimension
+DEFAULT_NUM_LAYERS = 6                  # Number of transformer layers
+DEFAULT_NUM_HEADS = 12                  # Number of attention heads
+DEFAULT_MLP_RATIO = 4                   # MLP expansion ratio
+DEFAULT_DROPOUT = 0.1                   # Dropout probability
+DEFAULT_MAX_SEQ_LEN = 1000              # Maximum sequence length
+
+# Positional Encoding Parameters
+POSITIONAL_ENCODING_MAX_LEN = 5000      # Maximum sequence length for positional encoding
+POSITIONAL_ENCODING_BASE = 10000.0      # Base for positional encoding calculation
+
+# Attention Mechanism Parameters
+ATTENTION_SCALE_FACTOR_BASE = 1.0       # Base for attention scaling (will be divided by sqrt(head_dim))
+
+# Weight Initialization Parameters
+WEIGHT_INIT_STD = 0.02                  # Standard deviation for weight initialization
+POSITIONAL_EMBEDDING_INIT_STD = 0.02    # Standard deviation for positional embedding initialization
+
+# Token Type Parameters
+NUM_TOKEN_TYPES = 2                     # Number of token types (CNN, tissue)
+CNN_TOKEN_TYPE = 0                      # Token type ID for CNN features
+TISSUE_TOKEN_TYPE = 1                   # Token type ID for tissue features
+
 # Initialize logger for this module
 logger = get_model_logger(__name__)
 
@@ -38,14 +68,14 @@ class PositionalEncoding(nn.Module):
         max_len (int, optional): Maximum sequence length. Defaults to 5000.
     """
     
-    def __init__(self, embed_dim: int, max_len: int = 5000):
+    def __init__(self, embed_dim: int, max_len: int = POSITIONAL_ENCODING_MAX_LEN):
         super().__init__()
         
         # Create positional encoding matrix
         pe = torch.zeros(max_len, embed_dim)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, embed_dim, 2).float() * 
-                           (-math.log(10000.0) / embed_dim))
+                           (-math.log(POSITIONAL_ENCODING_BASE) / embed_dim))
         
         # Apply sine to even indices and cosine to odd indices
         pe[:, 0::2] = torch.sin(position * div_term)
@@ -84,7 +114,7 @@ class MultiHeadAttention(nn.Module):
         dropout (float, optional): Dropout probability. Defaults to 0.1.
     """
     
-    def __init__(self, embed_dim: int, num_heads: int, dropout: float = 0.1):
+    def __init__(self, embed_dim: int, num_heads: int, dropout: float = DEFAULT_DROPOUT):
         super().__init__()
         assert embed_dim % num_heads == 0, f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})"
         
@@ -99,7 +129,7 @@ class MultiHeadAttention(nn.Module):
         self.out_proj = nn.Linear(embed_dim, embed_dim)
         
         self.dropout = nn.Dropout(dropout)
-        self.scale = 1.0 / math.sqrt(self.head_dim)  # Scaling factor for dot-product attention
+        self.scale = ATTENTION_SCALE_FACTOR_BASE / math.sqrt(self.head_dim)  # Scaling factor for dot-product attention
         
         logger.debug(f"MultiHeadAttention initialized: {num_heads} heads, "
                     f"embed_dim={embed_dim}, head_dim={self.head_dim}")
@@ -157,8 +187,8 @@ class TransformerLayer(nn.Module):
         dropout (float, optional): Dropout probability. Defaults to 0.1.
     """
     
-    def __init__(self, embed_dim: int, num_heads: int, mlp_ratio: int = 4, 
-                 dropout: float = 0.1):
+    def __init__(self, embed_dim: int, num_heads: int, mlp_ratio: int = DEFAULT_MLP_RATIO, 
+                 dropout: float = DEFAULT_DROPOUT):
         super().__init__()
         # Multi-head self-attention mechanism
         self.attention = MultiHeadAttention(embed_dim, num_heads, dropout)
@@ -227,14 +257,14 @@ class TransformerEncoder(nn.Module):
     """
     
     def __init__(self, 
-                 cnn_feature_dim: int = 512,
-                 tissue_context_dim: int = 256,
-                 embed_dim: int = 768,
-                 num_layers: int = 6,
-                 num_heads: int = 12,
-                 mlp_ratio: int = 4,
-                 dropout: float = 0.1,
-                 max_seq_len: int = 1000):
+                 cnn_feature_dim: int = DEFAULT_CNN_FEATURE_DIM,
+                 tissue_context_dim: int = DEFAULT_TISSUE_CONTEXT_DIM,
+                 embed_dim: int = DEFAULT_EMBED_DIM,
+                 num_layers: int = DEFAULT_NUM_LAYERS,
+                 num_heads: int = DEFAULT_NUM_HEADS,
+                 mlp_ratio: int = DEFAULT_MLP_RATIO,
+                 dropout: float = DEFAULT_DROPOUT,
+                 max_seq_len: int = DEFAULT_MAX_SEQ_LEN):
         super().__init__()
         
         logger.info(f"🏗️  Initializing Transformer Encoder: {num_layers} layers, "
@@ -250,7 +280,7 @@ class TransformerEncoder(nn.Module):
         self.tissue_projection = nn.Linear(tissue_context_dim, embed_dim)
         
         # Token type embeddings to distinguish different input modalities
-        self.token_type_embedding = nn.Embedding(2, embed_dim)  # 0: CNN, 1: tissue
+        self.token_type_embedding = nn.Embedding(NUM_TOKEN_TYPES, embed_dim)  # 0: CNN, 1: tissue
         
         # Positional encoding for sequence modeling
         self.positional_encoding = PositionalEncoding(embed_dim, max_seq_len)

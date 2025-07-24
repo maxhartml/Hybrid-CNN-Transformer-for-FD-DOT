@@ -27,7 +27,37 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import os
 from typing import Dict
+
+# =============================================================================
+# HYPERPARAMETERS AND CONSTANTS
+# =============================================================================
+
+# Training Configuration
+DEFAULT_LEARNING_RATE = 5e-5            # Lower learning rate for Stage 2 (transformer training)
+DEFAULT_EPOCHS = 100                    # Default number of training epochs for Stage 2
+DEFAULT_DEVICE = "cpu"                  # Default training device
+DEFAULT_USE_TISSUE_PATCHES = True       # Default tissue patch usage
+
+# Training Progress Logging
+PROGRESS_LOG_INTERVAL = 10              # Log progress every N epochs
+FINAL_EPOCH_OFFSET = 1                  # Offset for final epoch logging
+
+# Checkpoint Configuration
+STAGE2_BASELINE_CHECKPOINT = "stage2_baseline_best.pth"    # Baseline checkpoint filename
+STAGE2_ENHANCED_CHECKPOINT = "stage2_enhanced_best.pth"    # Enhanced checkpoint filename
+CHECKPOINT_BASE_DIR = "checkpoints"     # Base checkpoint directory
+
+# Model Configuration
+TRAINING_STAGE_2 = "stage2"             # Training stage identifier
+
+# Mode Configuration
+BASELINE_MODE = "Baseline"              # Baseline training mode name
+ENHANCED_MODE = "Enhanced"              # Enhanced training mode name
+
+# Parameter Freezing Configuration
+CNN_FREEZE_ALL_PARAMS = True            # Whether to freeze all CNN autoencoder parameters
 
 from ..models.hybrid_model import HybridCNNTransformer
 from ..utils.logging_config import get_training_logger
@@ -103,7 +133,8 @@ class Stage2Trainer:
         >>> trainer.train(data_loaders, epochs=100)
     """
     
-    def __init__(self, stage1_checkpoint_path, use_tissue_patches=True, learning_rate=5e-5, device="cpu"):
+    def __init__(self, stage1_checkpoint_path, use_tissue_patches=DEFAULT_USE_TISSUE_PATCHES, 
+                 learning_rate=DEFAULT_LEARNING_RATE, device=DEFAULT_DEVICE):
         """
         Initialize the Stage 2 trainer with pre-trained CNN components.
         
@@ -111,10 +142,10 @@ class Stage2Trainer:
             stage1_checkpoint_path (str): Path to Stage 1 checkpoint file containing
                                         pre-trained CNN autoencoder weights
             use_tissue_patches (bool): Whether to enable tissue patch integration
-                                     for enhanced spatial modeling. Default: True
+                                     for enhanced spatial modeling. Default from constants
             learning_rate (float): Learning rate for transformer optimization.
-                                 Typically lower than Stage 1. Default: 5e-5
-            device (str): Training device ('cpu' or 'cuda'). Default: 'cpu'
+                                 Typically lower than Stage 1. Default from constants
+            device (str): Training device ('cpu' or 'cuda'). Default from constants
         """
         self.device = torch.device(device)
         self.learning_rate = learning_rate
@@ -123,7 +154,7 @@ class Stage2Trainer:
         # Initialize model
         self.model = HybridCNNTransformer(
             use_tissue_patches=use_tissue_patches,
-            training_stage="stage2"  # IMPORTANT: Set to stage 2 for correct forward pass
+            training_stage=TRAINING_STAGE_2  # IMPORTANT: Set to stage 2 for correct forward pass
         )
         self.model.to(self.device)
         
@@ -140,7 +171,7 @@ class Stage2Trainer:
             lr=learning_rate
         )
         
-        mode = "Enhanced" if use_tissue_patches else "Baseline"
+        mode = ENHANCED_MODE if use_tissue_patches else BASELINE_MODE
         logger.info(f"🏋️  Stage 2 Trainer initialized on {self.device} ({mode})")
         logger.info(f"📈 Learning rate: {learning_rate}")
         logger.info(f"🧬 Use tissue patches: {use_tissue_patches}")
@@ -300,7 +331,7 @@ class Stage2Trainer:
         
         return total_loss / num_batches
     
-    def train(self, data_loaders, epochs=100):
+    def train(self, data_loaders, epochs=DEFAULT_EPOCHS):
         """
         Execute the complete Stage 2 training pipeline.
         
@@ -310,7 +341,7 @@ class Stage2Trainer:
         
         Args:
             data_loaders (dict): Dictionary containing 'train' and 'val' DataLoaders
-            epochs (int): Number of training epochs to execute. Default: 100
+            epochs (int): Number of training epochs to execute. Default from constants
         
         The training process:
         - Trains only unfrozen transformer parameters
@@ -323,7 +354,7 @@ class Stage2Trainer:
             >>> trainer = Stage2Trainer(checkpoint_path, use_tissue_patches=True)
             >>> trainer.train(data_loaders, epochs=150)
         """
-        mode = "Enhanced" if self.use_tissue_patches else "Baseline"
+        mode = ENHANCED_MODE if self.use_tissue_patches else BASELINE_MODE
         logger.info(f"🏋️ Starting Stage 2 training ({mode}) for {epochs} epochs")
         
         best_val_loss = float('inf')
@@ -336,14 +367,15 @@ class Stage2Trainer:
             val_loss = self.validate(data_loaders['val'])
             
             # Print progress
-            if epoch % 10 == 0:
+            if epoch % PROGRESS_LOG_INTERVAL == 0:
                 logger.info(f"📈 Epoch {epoch:3d}: Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}")
             
             # Save best model
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                mode_suffix = "enhanced" if self.use_tissue_patches else "baseline"
-                self.save_checkpoint(f"checkpoints/stage2_{mode_suffix}_best.pth", epoch, val_loss)
+                checkpoint_filename = STAGE2_ENHANCED_CHECKPOINT if self.use_tissue_patches else STAGE2_BASELINE_CHECKPOINT
+                checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{checkpoint_filename}"
+                self.save_checkpoint(checkpoint_path, epoch, val_loss)
                 logger.debug(f"💾 New best model saved at epoch {epoch}")
         
         logger.info(f"✅ Stage 2 training complete! Best val loss: {best_val_loss:.6f}")

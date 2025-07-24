@@ -18,6 +18,7 @@ import torch.nn.functional as F
 from typing import Optional, Tuple, Dict, Any
 import sys
 import os
+import math
 
 # Add parent directories to path for logging
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -36,6 +37,40 @@ except ImportError:
     from tissue_context_encoder import TissueContextEncoder, TissueContextToggle
     from transformer_encoder import TransformerEncoder
     from utils.logging_config import get_model_logger
+
+# =============================================================================
+# HYPERPARAMETERS AND CONSTANTS
+# =============================================================================
+
+# Model Architecture Parameters
+DEFAULT_INPUT_CHANNELS = 2              # Absorption and scattering coefficients
+DEFAULT_OUTPUT_SIZE = (60, 60, 60)      # Target volume dimensions
+DEFAULT_CNN_BASE_CHANNELS = 64          # Base CNN channels
+
+# NIR Measurement Configuration
+DEFAULT_NIR_INPUT_DIM = 8               # 8D NIR feature vectors (log_amp, phase, source_xyz, det_xyz)
+
+# Tissue Context Encoder Configuration
+DEFAULT_PATCH_SIZE = 7                  # Tissue patch size
+DEFAULT_NUM_PATCHES = 2                 # Source + detector regions
+DEFAULT_TISSUE_EMBED_DIM = 256          # Tissue embedding dimension
+DEFAULT_TISSUE_NUM_LAYERS = 3           # Number of tissue encoder layers
+DEFAULT_TISSUE_NUM_HEADS = 8            # Number of tissue attention heads
+
+# Transformer Encoder Configuration
+DEFAULT_TRANSFORMER_EMBED_DIM = 768     # Transformer embedding dimension
+DEFAULT_TRANSFORMER_NUM_LAYERS = 6      # Number of transformer layers
+DEFAULT_TRANSFORMER_NUM_HEADS = 12      # Number of transformer attention heads
+DEFAULT_MLP_RATIO = 4                   # MLP expansion ratio
+DEFAULT_DROPOUT = 0.1                   # Dropout probability
+
+# Model Behavior Configuration
+DEFAULT_USE_TISSUE_PATCHES = True       # Whether to use tissue context
+DEFAULT_TRAINING_STAGE = "stage1"       # Default training stage
+
+# Training Stages
+STAGE1 = "stage1"                       # CNN autoencoder pre-training
+STAGE2 = "stage2"                       # Transformer training stage
 
 # Initialize logger for this module
 logger = get_model_logger(__name__)
@@ -75,30 +110,30 @@ class HybridCNNTransformer(nn.Module):
     
     def __init__(self,
                  # CNN autoencoder configuration
-                 input_channels: int = 2,  # Both absorption and scattering coefficients
-                 output_size: Tuple[int, int, int] = (60, 60, 60),  # Match your data dimensions
-                 cnn_base_channels: int = 64,
+                 input_channels: int = DEFAULT_INPUT_CHANNELS,  # Both absorption and scattering coefficients
+                 output_size: Tuple[int, int, int] = DEFAULT_OUTPUT_SIZE,  # Match your data dimensions
+                 cnn_base_channels: int = DEFAULT_CNN_BASE_CHANNELS,
                  
                  # NIR measurement configuration
-                 nir_input_dim: int = 8,  # CORRECTED: 8D NIR feature vectors (log_amp, phase, source_xyz, det_xyz)
+                 nir_input_dim: int = DEFAULT_NIR_INPUT_DIM,  # 8D NIR feature vectors (log_amp, phase, source_xyz, det_xyz)
                  
                  # Tissue context encoder configuration
-                 patch_size: int = 7,  # Tissue patch size matching data format
-                 num_patches: int = 2,  # Source + detector regions
-                 tissue_embed_dim: int = 256,
-                 tissue_num_layers: int = 3,
-                 tissue_num_heads: int = 8,
+                 patch_size: int = DEFAULT_PATCH_SIZE,  # Tissue patch size matching data format
+                 num_patches: int = DEFAULT_NUM_PATCHES,  # Source + detector regions
+                 tissue_embed_dim: int = DEFAULT_TISSUE_EMBED_DIM,
+                 tissue_num_layers: int = DEFAULT_TISSUE_NUM_LAYERS,
+                 tissue_num_heads: int = DEFAULT_TISSUE_NUM_HEADS,
                  
                  # Transformer encoder configuration
-                 transformer_embed_dim: int = 768,
-                 transformer_num_layers: int = 6,
-                 transformer_num_heads: int = 12,
-                 mlp_ratio: int = 4,
-                 dropout: float = 0.1,
+                 transformer_embed_dim: int = DEFAULT_TRANSFORMER_EMBED_DIM,
+                 transformer_num_layers: int = DEFAULT_TRANSFORMER_NUM_LAYERS,
+                 transformer_num_heads: int = DEFAULT_TRANSFORMER_NUM_HEADS,
+                 mlp_ratio: int = DEFAULT_MLP_RATIO,
+                 dropout: float = DEFAULT_DROPOUT,
                  
                  # Model behavior configuration
-                 use_tissue_patches: bool = True,
-                 training_stage: str = "stage1"):  # "stage1" or "stage2"
+                 use_tissue_patches: bool = DEFAULT_USE_TISSUE_PATCHES,
+                 training_stage: str = DEFAULT_TRAINING_STAGE):
         
         super().__init__()
         
@@ -189,15 +224,15 @@ class HybridCNNTransformer(nn.Module):
         
         outputs = {}
         
-        if self.training_stage == "stage1":
+        if self.training_stage == STAGE1:
             # Stage 1: CNN autoencoder only
             reconstructed = self.cnn_autoencoder(dot_measurements)
             outputs.update({
                 'reconstructed': reconstructed,
-                'stage': 'stage1'
+                'stage': STAGE1
             })
             
-        elif self.training_stage == "stage2":
+        elif self.training_stage == STAGE2:
             # Stage 2: Handle NIR measurements → Transformer → CNN decoder
             
             # Check input type: NIR measurements vs ground truth volumes
@@ -305,20 +340,20 @@ class HybridCNNTransformer(nn.Module):
         Raises:
             ValueError: If stage is not "stage1" or "stage2"
         """
-        if stage not in ["stage1", "stage2"]:
-            raise ValueError(f"Invalid stage: {stage}. Must be 'stage1' or 'stage2'")
+        if stage not in [STAGE1, STAGE2]:
+            raise ValueError(f"Invalid stage: {stage}. Must be '{STAGE1}' or '{STAGE2}'")
         
         self.training_stage = stage
         logger.info(f"🎯 Setting training stage to: {stage}")
         
-        if stage == "stage1":
+        if stage == STAGE1:
             # Stage 1: Train CNN autoencoder end-to-end
             self.cnn_autoencoder.train()
             if self.tissue_encoder is not None:
                 self.tissue_encoder.eval()
             self.transformer_encoder.eval()
             
-        elif stage == "stage2":
+        elif stage == STAGE2:
             # Stage 2: Freeze CNN decoder, train transformer components
             self.cnn_autoencoder.encoder.eval()
             self.cnn_autoencoder.decoder.eval()
@@ -364,13 +399,13 @@ class HybridCNNTransformer(nn.Module):
         """
         trainable_params = {}
         
-        if self.training_stage == "stage1":
+        if self.training_stage == STAGE1:
             # Stage 1: Only CNN autoencoder parameters are trainable
             for name, param in self.cnn_autoencoder.named_parameters():
                 if param.requires_grad:
                     trainable_params[f"cnn_autoencoder.{name}"] = param
                     
-        elif self.training_stage == "stage2":
+        elif self.training_stage == STAGE2:
             # Stage 2: Transformer and tissue encoder parameters are trainable
             for name, param in self.transformer_encoder.named_parameters():
                 if param.requires_grad:

@@ -96,6 +96,18 @@ TISSUE_REFRACTIVE_INDEX = 1.33               # Fixed refractive index for biolog
 AMPLITUDE_NOISE_PERCENTAGE = 0.001           # 0.1% relative amplitude noise (ultra-clean, SNR ~60dB) 
 PHASE_NOISE_STD_DEGREES = 0.1               # ±0.1° phase noise (precision research systems)
 
+# Tumor placement algorithm parameters
+MAX_TUMOR_PLACEMENT_ATTEMPTS = 50            # Maximum iterations for tumor placement rejection sampling
+TUMOR_TISSUE_EMBEDDING_THRESHOLD = 0.80      # Required fraction of tumor volume inside tissue (80%)
+
+# Mesh validation parameters
+MIN_ELEMENT_VOLUME_MM3 = 0.1                 # Minimum acceptable tetrahedral element volume [mm³]
+MAX_ELEMENT_VOLUME_MM3 = 10.0                # Maximum acceptable tetrahedral element volume [mm³]
+
+# Surface processing and batch parameters  
+SURFACE_BATCH_SIZE = 1000                    # Batch size for safe center identification
+DEFAULT_RANDOM_SEED = 42                     # Default random seed for reproducibility
+
 # Initialize logger for the module using centralized logging system
 logger = get_data_logger(__name__)
 
@@ -245,7 +257,7 @@ def build_phantom_with_tissue_and_tumours(phantom_shape=DEFAULT_PHANTOM_SHAPE,
     tumors_placed = 0  # Track successful tumor embeddings for quality control
     for tumour_idx in range(n_tumours):
         attempts = 0
-        max_attempts = 50  # Increased iteration limit for enhanced tumor placement success
+        max_attempts = MAX_TUMOR_PLACEMENT_ATTEMPTS  # Use centralized constant for consistent behavior
         
         # Implement robust rejection sampling with failure detection to prevent infinite loops
         # This ensures algorithm termination even for challenging geometric configurations
@@ -301,7 +313,7 @@ def build_phantom_with_tissue_and_tumours(phantom_shape=DEFAULT_PHANTOM_SHAPE,
             if tumor_voxels > 0:  # Ensure non-empty tumor volume for valid embedding ratio calculation
                 embedding_ratio = contained_voxels / tumor_voxels  # Fraction of tumor within tissue [0,1]
                 
-                if embedding_ratio >= 0.80:  # Clinical realism threshold: require 80% tissue containment
+                if embedding_ratio >= TUMOR_TISSUE_EMBEDDING_THRESHOLD:  # Use centralized threshold for clinical realism
                     # Apply tumour label ONLY to tumor voxels that are properly embedded within tissue
                     # This clipping approach ensures no "floating tumor" voxels exist in air space
                     # Results in physiologically realistic tumor-tissue interfaces
@@ -467,7 +479,7 @@ def create_stndmesh(mesh_elements, mesh_nodes):
     logger.info(f"Element volume statistics: {mean_element_volume:.3f} ± {std_element_volume:.3f} mm³")
     
     # Validate mesh quality metrics are within acceptable bounds
-    if mean_element_volume < 0.1 or mean_element_volume > 10.0:
+    if mean_element_volume < MIN_ELEMENT_VOLUME_MM3 or mean_element_volume > MAX_ELEMENT_VOLUME_MM3:
         logger.warning(f"Element volumes ({mean_element_volume:.3f} mm³) may be outside optimal range for FEM convergence")
     else:
         logger.debug("Mesh quality metrics are within acceptable bounds")
@@ -680,7 +692,7 @@ def find_safe_patch_centers(surface_coordinates, patch_radius=DEFAULT_PATCH_RADI
     total_candidates = len(surface_coordinates)
     
     # Process in batches to manage memory for large surface sets
-    batch_size = min(1000, total_candidates)
+    batch_size = min(SURFACE_BATCH_SIZE, total_candidates)
     
     for batch_start in range(0, total_candidates, batch_size):
         batch_end = min(batch_start + batch_size, total_candidates)

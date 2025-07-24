@@ -21,6 +21,30 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utils.logging_config import get_model_logger
 
+# =============================================================================
+# HYPERPARAMETERS AND CONSTANTS
+# =============================================================================
+
+# Model Architecture Parameters
+DEFAULT_PATCH_SIZE = 7                  # Size of each tissue patch (can be int or tuple)
+DEFAULT_NUM_PATCHES = 2                 # Number of tissue patches (source + detector)
+DEFAULT_EMBED_DIM = 256                 # Embedding dimension
+DEFAULT_NUM_LAYERS = 3                  # Number of transformer encoder layers
+DEFAULT_NUM_HEADS = 8                   # Number of attention heads
+DEFAULT_MLP_RATIO = 4                   # MLP expansion ratio
+DEFAULT_DROPOUT = 0.1                   # Dropout probability
+
+# Tissue Property Parameters
+NUM_TISSUE_PROPERTY_CHANNELS = 2        # Number of tissue property channels (mu_a, mu_s)
+TISSUE_PATCH_VOLUME_BASE = 7 ** 3       # Base patch volume for default patch size
+
+# Context Projection Network Parameters
+CONTEXT_PROJECTION_HIDDEN_MULTIPLIER = 2  # Hidden layer size multiplier
+
+# Weight Initialization Parameters
+WEIGHT_INIT_STD = 0.02                  # Standard deviation for weight initialization
+POSITIONAL_EMBEDDING_INIT_STD = 0.02    # Standard deviation for positional embedding initialization
+
 # Initialize logger for this module
 logger = get_model_logger(__name__)
 
@@ -49,13 +73,13 @@ class TissueContextEncoder(nn.Module):
     """
     
     def __init__(self, 
-                 patch_size = 7,  # Size matches actual tissue patch data - can be int or tuple
-                 num_patches: int = 2,  # Source + detector patches
-                 embed_dim: int = 256,
-                 num_layers: int = 3,
-                 num_heads: int = 8,
-                 mlp_ratio: int = 4,
-                 dropout: float = 0.1,
+                 patch_size = DEFAULT_PATCH_SIZE,  # Size matches actual tissue patch data - can be int or tuple
+                 num_patches: int = DEFAULT_NUM_PATCHES,  # Source + detector patches
+                 embed_dim: int = DEFAULT_EMBED_DIM,
+                 num_layers: int = DEFAULT_NUM_LAYERS,
+                 num_heads: int = DEFAULT_NUM_HEADS,
+                 mlp_ratio: int = DEFAULT_MLP_RATIO,
+                 dropout: float = DEFAULT_DROPOUT,
                  num_tissue_types: int = None):  # Optional backward compatibility
         super().__init__()
         
@@ -63,9 +87,9 @@ class TissueContextEncoder(nn.Module):
         if isinstance(patch_size, (list, tuple)):
             if len(patch_size) == 3:
                 patch_volume_base = patch_size[0] * patch_size[1] * patch_size[2]
-                self.patch_size = patch_size
             else:
-                raise ValueError(f"patch_size tuple must have 3 dimensions, got {len(patch_size)}")
+                patch_volume_base = patch_size[0] ** 3
+            self.patch_size = patch_size
         else:
             patch_volume_base = patch_size ** 3
             self.patch_size = patch_size
@@ -78,10 +102,8 @@ class TissueContextEncoder(nn.Module):
         
         # Patch embedding layer - converts flattened tissue patches to embeddings
         # Each patch contains tissue properties (mu_a, mu_s) across patch volume
-        patch_volume = patch_volume_base * 2  # 2 tissue property channels
-        self.patch_embedding = nn.Linear(patch_volume, embed_dim)
-        
-        # Learnable positional embeddings for spatial patch relationships
+        patch_volume = patch_volume_base * NUM_TISSUE_PROPERTY_CHANNELS  # 2 tissue property channels
+        self.patch_embedding = nn.Linear(patch_volume, embed_dim)        # Learnable positional embeddings for spatial patch relationships
         self.position_embedding = nn.Parameter(torch.randn(1, num_patches, embed_dim))
         
         # Transformer encoder for inter-patch attention and context modeling
@@ -99,10 +121,10 @@ class TissueContextEncoder(nn.Module):
         
         # Context aggregation and projection network
         self.context_projection = nn.Sequential(
-            nn.Linear(embed_dim * num_patches, embed_dim * 2),
+            nn.Linear(embed_dim * num_patches, embed_dim * CONTEXT_PROJECTION_HIDDEN_MULTIPLIER),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(embed_dim * 2, embed_dim),
+            nn.Linear(embed_dim * CONTEXT_PROJECTION_HIDDEN_MULTIPLIER, embed_dim),
             nn.ReLU()
         )
         
@@ -133,7 +155,7 @@ class TissueContextEncoder(nn.Module):
                 nn.init.constant_(m.bias, 0)
         
         # Initialize positional embeddings with small random values
-        nn.init.trunc_normal_(self.position_embedding, std=0.02)
+        nn.init.trunc_normal_(self.position_embedding, std=POSITIONAL_EMBEDDING_INIT_STD)
     
     def forward(self, tissue_patches: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
         """

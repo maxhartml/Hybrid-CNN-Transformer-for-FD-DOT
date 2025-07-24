@@ -8,6 +8,56 @@ improved gradient flow and progressive downsampling/upsampling for spatial featu
 The autoencoder is designed for stage 1 pre-training in a two-stage hybrid approach,
 focusing on learning low-level spatial features from DOT measurements.
 """
+import os
+import sys
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import math
+from typing import Tuple
+
+# Add parent directories to path for logging
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from utils.logging_config import get_model_logger
+
+# =============================================================================
+# HYPERPARAMETERS AND CONSTANTS
+# =============================================================================
+
+# Model Architecture Parameters
+DEFAULT_INPUT_CHANNELS = 2              # Absorption and scattering coefficients
+DEFAULT_OUTPUT_SIZE = (60, 60, 60)      # Target volume dimensions
+DEFAULT_BASE_CHANNELS = 64              # Base number of CNN channels
+DEFAULT_FEATURE_DIM = 512               # Encoder output feature dimension
+
+# Encoder Architecture
+ENCODER_KERNEL_SIZE_INITIAL = 7         # Initial convolution kernel size
+ENCODER_STRIDE_INITIAL = 2              # Initial convolution stride
+ENCODER_PADDING_INITIAL = 3             # Initial convolution padding
+ENCODER_MAXPOOL_KERNEL = 3              # Max pooling kernel size
+ENCODER_MAXPOOL_STRIDE = 2              # Max pooling stride
+ENCODER_MAXPOOL_PADDING = 1             # Max pooling padding
+
+# Residual Block Configuration
+RESIDUAL_CONV_KERNEL = 3                # Residual block convolution kernel size
+RESIDUAL_CONV_PADDING = 1               # Residual block convolution padding
+RESIDUAL_SHORTCUT_KERNEL = 1            # Shortcut connection kernel size
+NUM_RESIDUAL_BLOCKS_PER_LAYER = 2       # Number of residual blocks per layer
+
+# Decoder Architecture
+DECODER_INIT_SIZE = 2                   # Initial spatial size for decoder
+DECODER_TRANSCONV_KERNEL = 4            # Transposed convolution kernel size
+DECODER_TRANSCONV_STRIDE = 2            # Transposed convolution stride
+DECODER_TRANSCONV_PADDING = 1           # Transposed convolution padding
+DECODER_FINAL_CONV_KERNEL = 3           # Final convolution kernel size
+DECODER_FINAL_CONV_PADDING = 1          # Final convolution padding
+
+# Channel Progression (multipliers of base_channels)
+ENCODER_CHANNEL_MULTIPLIERS = [1, 1, 2, 4, 8]    # Progressive channel increase
+DECODER_CHANNEL_DIVISORS = [8, 4, 2, 1, 2, 4]    # Progressive channel decrease
+
+# Training Parameters
+WEIGHT_INIT_STD = 0.02                  # Standard deviation for weight initialization
 
 import torch
 import torch.nn as nn
@@ -42,20 +92,20 @@ class ResidualBlock(nn.Module):
         super().__init__()
         
         # First convolution with potential downsampling
-        self.conv1 = nn.Conv3d(in_channels, out_channels, kernel_size=3, 
-                               stride=stride, padding=1, bias=False)
+        self.conv1 = nn.Conv3d(in_channels, out_channels, kernel_size=RESIDUAL_CONV_KERNEL, 
+                               stride=stride, padding=RESIDUAL_CONV_PADDING, bias=False)
         self.bn1 = nn.BatchNorm3d(out_channels)
         
         # Second convolution maintains spatial dimensions
-        self.conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=3,
-                               stride=1, padding=1, bias=False)
+        self.conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=RESIDUAL_CONV_KERNEL,
+                               stride=1, padding=RESIDUAL_CONV_PADDING, bias=False)
         self.bn2 = nn.BatchNorm3d(out_channels)
         
         # Skip connection projection when dimensions change
         self.shortcut = nn.Sequential()
         if stride != 1 or in_channels != out_channels:
             self.shortcut = nn.Sequential(
-                nn.Conv3d(in_channels, out_channels, kernel_size=1, 
+                nn.Conv3d(in_channels, out_channels, kernel_size=RESIDUAL_SHORTCUT_KERNEL, 
                           stride=stride, bias=False),
                 nn.BatchNorm3d(out_channels)
             )
@@ -93,23 +143,33 @@ class CNNEncoder(nn.Module):
         base_channels (int, optional): Base number of channels. Defaults to 64.
     """
     
-    def __init__(self, input_channels: int = 1, base_channels: int = 64, feature_dim: int = 512):
+    def __init__(self, input_channels: int = DEFAULT_INPUT_CHANNELS, 
+                 base_channels: int = DEFAULT_BASE_CHANNELS, 
+                 feature_dim: int = DEFAULT_FEATURE_DIM):
         super().__init__()
         
         # Initial feature extraction with aggressive downsampling
         self.initial_conv = nn.Sequential(
-            nn.Conv3d(input_channels, base_channels, kernel_size=7, 
-                      stride=2, padding=3, bias=False),
+            nn.Conv3d(input_channels, base_channels, kernel_size=ENCODER_KERNEL_SIZE_INITIAL, 
+                      stride=ENCODER_STRIDE_INITIAL, padding=ENCODER_PADDING_INITIAL, bias=False),
             nn.BatchNorm3d(base_channels),
             nn.ReLU(inplace=True),
-            nn.MaxPool3d(kernel_size=3, stride=2, padding=1)
+            nn.MaxPool3d(kernel_size=ENCODER_MAXPOOL_KERNEL, stride=ENCODER_MAXPOOL_STRIDE, 
+                        padding=ENCODER_MAXPOOL_PADDING)
         )
         
         # Progressive feature extraction with residual blocks
-        self.layer1 = self._make_layer(base_channels, base_channels, 2, stride=1)
-        self.layer2 = self._make_layer(base_channels, base_channels * 2, 2, stride=2)
-        self.layer3 = self._make_layer(base_channels * 2, base_channels * 4, 2, stride=2)
-        self.layer4 = self._make_layer(base_channels * 4, base_channels * 8, 2, stride=2)
+        self.layer1 = self._make_layer(base_channels, base_channels * ENCODER_CHANNEL_MULTIPLIERS[1], 
+                                     NUM_RESIDUAL_BLOCKS_PER_LAYER, stride=1)
+        self.layer2 = self._make_layer(base_channels * ENCODER_CHANNEL_MULTIPLIERS[1], 
+                                     base_channels * ENCODER_CHANNEL_MULTIPLIERS[2], 
+                                     NUM_RESIDUAL_BLOCKS_PER_LAYER, stride=2)
+        self.layer3 = self._make_layer(base_channels * ENCODER_CHANNEL_MULTIPLIERS[2], 
+                                     base_channels * ENCODER_CHANNEL_MULTIPLIERS[3], 
+                                     NUM_RESIDUAL_BLOCKS_PER_LAYER, stride=2)
+        self.layer4 = self._make_layer(base_channels * ENCODER_CHANNEL_MULTIPLIERS[3], 
+                                     base_channels * ENCODER_CHANNEL_MULTIPLIERS[4], 
+                                     NUM_RESIDUAL_BLOCKS_PER_LAYER, stride=2)
         
         # Spatial dimension reduction to fixed-size feature vector
         self.global_avg_pool = nn.AdaptiveAvgPool3d((1, 1, 1))
@@ -177,8 +237,9 @@ class CNNDecoder(nn.Module):
         base_channels (int, optional): Base number of channels. Defaults to 64.
     """
     
-    def __init__(self, feature_dim: int = 512, output_size: Tuple[int, int, int] = (60, 60, 60),
-                 base_channels: int = 64):
+    def __init__(self, feature_dim: int = DEFAULT_FEATURE_DIM, 
+                 output_size: Tuple[int, int, int] = DEFAULT_OUTPUT_SIZE,
+                 base_channels: int = DEFAULT_BASE_CHANNELS):
         super().__init__()
         self.feature_dim = feature_dim
         self.output_size = output_size
@@ -187,51 +248,62 @@ class CNNDecoder(nn.Module):
         # Calculate proper initial spatial dimensions to match encoder
         # Encoder path: 60 -> 30 (stride=2) -> 15 (maxpool stride=2) -> 15 -> 8 -> 4 -> 2
         # So decoder should start from 2x2x2 to be symmetric
-        self.init_size = 2
+        self.init_size = DECODER_INIT_SIZE
         
         # Linear projection to expand feature vector to initial 3D volume
-        self.fc = nn.Linear(feature_dim, base_channels * 8 * (self.init_size ** 3))
+        self.fc = nn.Linear(feature_dim, base_channels * ENCODER_CHANNEL_MULTIPLIERS[4] * (self.init_size ** 3))
         
         # Progressive upsampling layers with transposed convolutions
         # Symmetric to encoder: 2->4->8->16->32->60 (with final adjustment)
         self.deconv1 = nn.Sequential(
-            nn.ConvTranspose3d(base_channels * 8, base_channels * 4, 
-                               kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm3d(base_channels * 4),
+            nn.ConvTranspose3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[4], 
+                               base_channels * ENCODER_CHANNEL_MULTIPLIERS[3], 
+                               kernel_size=DECODER_TRANSCONV_KERNEL, stride=DECODER_TRANSCONV_STRIDE, 
+                               padding=DECODER_TRANSCONV_PADDING),
+            nn.BatchNorm3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[3]),
             nn.ReLU(inplace=True)
         )
         
         self.deconv2 = nn.Sequential(
-            nn.ConvTranspose3d(base_channels * 4, base_channels * 2, 
-                               kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm3d(base_channels * 2),
+            nn.ConvTranspose3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[3], 
+                               base_channels * ENCODER_CHANNEL_MULTIPLIERS[2], 
+                               kernel_size=DECODER_TRANSCONV_KERNEL, stride=DECODER_TRANSCONV_STRIDE, 
+                               padding=DECODER_TRANSCONV_PADDING),
+            nn.BatchNorm3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[2]),
             nn.ReLU(inplace=True)
         )
         
         self.deconv3 = nn.Sequential(
-            nn.ConvTranspose3d(base_channels * 2, base_channels, 
-                               kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm3d(base_channels),
+            nn.ConvTranspose3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[2], 
+                               base_channels * ENCODER_CHANNEL_MULTIPLIERS[1], 
+                               kernel_size=DECODER_TRANSCONV_KERNEL, stride=DECODER_TRANSCONV_STRIDE, 
+                               padding=DECODER_TRANSCONV_PADDING),
+            nn.BatchNorm3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[1]),
             nn.ReLU(inplace=True)
         )
         
         self.deconv4 = nn.Sequential(
-            nn.ConvTranspose3d(base_channels, base_channels // 2, 
-                               kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm3d(base_channels // 2),
+            nn.ConvTranspose3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[1], 
+                               base_channels // DECODER_CHANNEL_DIVISORS[4], 
+                               kernel_size=DECODER_TRANSCONV_KERNEL, stride=DECODER_TRANSCONV_STRIDE, 
+                               padding=DECODER_TRANSCONV_PADDING),
+            nn.BatchNorm3d(base_channels // DECODER_CHANNEL_DIVISORS[4]),
             nn.ReLU(inplace=True)
         )
         
         # Additional layer to get closer to target size (32->64)
         self.deconv5 = nn.Sequential(
-            nn.ConvTranspose3d(base_channels // 2, base_channels // 4, 
-                               kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm3d(base_channels // 4),
+            nn.ConvTranspose3d(base_channels // DECODER_CHANNEL_DIVISORS[4], 
+                               base_channels // DECODER_CHANNEL_DIVISORS[5], 
+                               kernel_size=DECODER_TRANSCONV_KERNEL, stride=DECODER_TRANSCONV_STRIDE, 
+                               padding=DECODER_TRANSCONV_PADDING),
+            nn.BatchNorm3d(base_channels // DECODER_CHANNEL_DIVISORS[5]),
             nn.ReLU(inplace=True)
         )
         
         # Final output layer to dual channel volume (absorption + scattering)
-        self.final_conv = nn.Conv3d(base_channels // 4, 2, kernel_size=3, padding=1)
+        self.final_conv = nn.Conv3d(base_channels // DECODER_CHANNEL_DIVISORS[5], DEFAULT_INPUT_CHANNELS, 
+                                   kernel_size=DECODER_FINAL_CONV_KERNEL, padding=DECODER_FINAL_CONV_PADDING)
         
         logger.debug(f"CNNDecoder initialized: feature_dim={feature_dim}, "
                     f"output_size={output_size}, base_channels={base_channels}")
@@ -290,10 +362,10 @@ class CNNAutoEncoder(nn.Module):
             Defaults to 64.
     """
     
-    def __init__(self, input_channels: int = 2, 
-                 output_size: Tuple[int, int, int] = (60, 60, 60),
-                 feature_dim: int = 512,
-                 base_channels: int = 64):
+    def __init__(self, input_channels: int = DEFAULT_INPUT_CHANNELS, 
+                 output_size: Tuple[int, int, int] = DEFAULT_OUTPUT_SIZE,
+                 feature_dim: int = DEFAULT_FEATURE_DIM,
+                 base_channels: int = DEFAULT_BASE_CHANNELS):
         super().__init__()
         
         logger.info(f"🏗️  Initializing CNN Autoencoder: input_channels={input_channels}, "
@@ -385,15 +457,16 @@ def test_cnn_autoencoder():
     
     # Create model
     model = CNNAutoEncoder(
-        input_channels=2,
-        output_size=(60, 60, 60),
-        feature_dim=512,
-        base_channels=64
+        input_channels=DEFAULT_INPUT_CHANNELS,
+        output_size=DEFAULT_OUTPUT_SIZE,
+        feature_dim=DEFAULT_FEATURE_DIM,
+        base_channels=DEFAULT_BASE_CHANNELS
     )
     
     # Test with sample input
     batch_size = 2
-    input_tensor = torch.randn(batch_size, 2, 60, 60, 60)
+    input_tensor = torch.randn(batch_size, DEFAULT_INPUT_CHANNELS, 
+                              DEFAULT_OUTPUT_SIZE[0], DEFAULT_OUTPUT_SIZE[1], DEFAULT_OUTPUT_SIZE[2])
     
     # Test encoding
     encoded = model.encode(input_tensor)
@@ -408,9 +481,11 @@ def test_cnn_autoencoder():
     print(f"✅ Full pass: {input_tensor.shape} → {output.shape}")
     
     # Verify shapes
-    assert encoded.shape == (batch_size, 512), f"Encoded shape wrong: {encoded.shape}"
-    assert decoded.shape == (batch_size, 2, 60, 60, 60), f"Decoded shape wrong: {decoded.shape}"
-    assert output.shape == (batch_size, 2, 60, 60, 60), f"Output shape wrong: {output.shape}"
+    assert encoded.shape == (batch_size, DEFAULT_FEATURE_DIM), f"Encoded shape wrong: {encoded.shape}"
+    assert decoded.shape == (batch_size, DEFAULT_INPUT_CHANNELS, DEFAULT_OUTPUT_SIZE[0], 
+                           DEFAULT_OUTPUT_SIZE[1], DEFAULT_OUTPUT_SIZE[2]), f"Decoded shape wrong: {decoded.shape}"
+    assert output.shape == (batch_size, DEFAULT_INPUT_CHANNELS, DEFAULT_OUTPUT_SIZE[0], 
+                          DEFAULT_OUTPUT_SIZE[1], DEFAULT_OUTPUT_SIZE[2]), f"Output shape wrong: {output.shape}"
     
     print("🎉 All tests passed!")
     return True

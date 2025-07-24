@@ -2,8 +2,21 @@
 """
 Complete Training Pipeline for Hybrid CNN-Transformer NIR-DOT Reconstruction.
 
-This script orchestrates the complete two-stage training pipeline for near-infrared
-diffuse optical tomography (NIR-DOT) image reconstruction using a hybrid approach
+This script orchestrates the complete two-stage training pipeline for near-in    elif args.stage == STAGE2_IDENTIFIER:
+        if not args.stage1_checkpoint:
+            raise ValueError("Stage 2 requires --stage1_checkpoint path")
+            
+        mode = "Enhanced" if args.use_tissue_patches else "Baseline"
+        logger.info(f"🏋️  Starting Stage 2: Transformer Training ({mode})")
+        logger.info(f"📂 Loading Stage 1 checkpoint: {args.stage1_checkpoint}")
+        
+        trainer = Stage2Trainer(
+            stage1_checkpoint_path=args.stage1_checkpoint,
+            use_tissue_patches=args.use_tissue_patches,
+            learning_rate=DEFAULT_LEARNING_RATE,
+            device=DEVICE
+        )
+        results = trainer.train(data_loaders, epochs=args.epochs)optical tomography (NIR-DOT) image reconstruction using a hybrid approach
 that combines CNN autoencoders with transformer-based spatial modeling.
 
 Training Pipeline:
@@ -37,21 +50,66 @@ Usage:
 
 import torch
 import argparse
+import sys
+import os
 from pathlib import Path
 
-# Import our components
-from code.data_processing.data_loader import create_nir_dataloaders, create_phantom_dataloaders
-from code.training.stage1_trainer import Stage1Trainer
-from code.training.stage2_trainer import Stage2Trainer
-from code.utils.logging_config import get_training_logger, NIRDOTLogger
+# =============================================================================
+# HYPERPARAMETERS AND CONSTANTS
+# =============================================================================
+
+# Training Configuration
+DEFAULT_BATCH_SIZE = 8                  # Default batch size for training
+DEFAULT_BATCH_SIZE_STAGE2 = 4           # Smaller batch size for Stage 2 (complete phantoms)
+DEFAULT_LEARNING_RATE = 1e-4            # Default learning rate
+DEFAULT_EPOCHS_STAGE1 = 50              # Default epochs for Stage 1
+DEFAULT_EPOCHS_STAGE2 = 100             # Default epochs for Stage 2
+
+# Device Configuration
+CUDA_DEVICE_NAME = "cuda"               # CUDA device identifier
+CPU_DEVICE_NAME = "cpu"                 # CPU device identifier
+
+# Data Configuration
+DATA_DIRECTORY = "data"                 # Default data directory path
+CHECKPOINT_DIRECTORY = "checkpoints"    # Default checkpoint directory
+
+# Stage Identifiers
+STAGE1_IDENTIFIER = "stage1"            # Stage 1 training identifier
+STAGE2_IDENTIFIER = "stage2"            # Stage 2 training identifier
+
+# Experiment Naming
+EXPERIMENT_BASE_NAME = "NIR_DOT_Hybrid_Stage_"  # Base experiment name
+STAGE2_ENHANCED_SUFFIX = "_Enhanced"    # Suffix for enhanced Stage 2
+STAGE2_BASELINE_SUFFIX = "_Baseline"    # Suffix for baseline Stage 2
+
+# Checkpoint Filenames
+STAGE1_BEST_CHECKPOINT = "stage1_best.pth"  # Default Stage 1 checkpoint filename
+
+# Logging Configuration
+DEFAULT_LOG_LEVEL = "INFO"              # Default logging level
+
+# Add project root to Python path for imports
+project_root = Path(__file__).parent.parent.parent  # Go up 3 levels: train_hybrid_model.py -> training -> code -> mah422
+sys.path.insert(0, str(project_root))
+
+# Now we can import our components
+try:
+    from code.data_processing.data_loader import create_nir_dataloaders, create_phantom_dataloaders
+    from code.training.stage1_trainer import Stage1Trainer
+    from code.training.stage2_trainer import Stage2Trainer
+    from code.utils.logging_config import get_training_logger, NIRDOTLogger
+except ImportError as e:
+    print(f"Import error: {e}")
+    print(f"Current working directory: {os.getcwd()}")
+    print(f"Project root: {project_root}")
+    print(f"Python path: {sys.path[:3]}")
+    sys.exit(1)
 
 # Initialize logger for this module
 logger = get_training_logger(__name__)
 
-# Training parameters
-BATCH_SIZE = 8
-LEARNING_RATE = 1e-4
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+# Device detection using constants
+DEVICE = CUDA_DEVICE_NAME if torch.cuda.is_available() else CPU_DEVICE_NAME
 
 def main():
     """
@@ -68,12 +126,12 @@ def main():
     comprehensive error handling and progress reporting.
     """
     # Setup logging first
-    NIRDOTLogger.setup_logging(log_level="INFO")
+    NIRDOTLogger.setup_logging(log_level=DEFAULT_LOG_LEVEL)
     
     parser = argparse.ArgumentParser()
-    parser.add_argument('--stage', choices=['stage1', 'stage2'], required=True,
+    parser.add_argument('--stage', choices=[STAGE1_IDENTIFIER, STAGE2_IDENTIFIER], required=True,
                        help='Training stage to run')
-    parser.add_argument('--epochs', type=int, default=50,
+    parser.add_argument('--epochs', type=int, default=DEFAULT_EPOCHS_STAGE1,
                        help='Number of epochs to train')
     parser.add_argument('--use_tissue_patches', action='store_true',
                        help='Use tissue patches (only for stage2)')
@@ -81,19 +139,23 @@ def main():
                        help='Path to stage1 checkpoint (required for stage2)')
     args = parser.parse_args()
 
+    # Adjust default epochs based on stage
+    if args.epochs == DEFAULT_EPOCHS_STAGE1 and args.stage == STAGE2_IDENTIFIER:
+        args.epochs = DEFAULT_EPOCHS_STAGE2
+
     # Log experiment configuration
     config = {
         'stage': args.stage,
         'epochs': args.epochs,
-        'use_tissue_patches': args.use_tissue_patches if args.stage == 'stage2' else False,
-        'batch_size': BATCH_SIZE,
-        'learning_rate': LEARNING_RATE,
+        'use_tissue_patches': args.use_tissue_patches if args.stage == STAGE2_IDENTIFIER else False,
+        'batch_size': DEFAULT_BATCH_SIZE if args.stage == STAGE1_IDENTIFIER else DEFAULT_BATCH_SIZE_STAGE2,
+        'learning_rate': DEFAULT_LEARNING_RATE,
         'device': DEVICE
     }
     
-    experiment_name = f"NIR_DOT_Hybrid_Stage_{args.stage}"
-    if args.stage == 'stage2':
-        experiment_name += "_Enhanced" if args.use_tissue_patches else "_Baseline"
+    experiment_name = EXPERIMENT_BASE_NAME + args.stage
+    if args.stage == STAGE2_IDENTIFIER:
+        experiment_name += STAGE2_ENHANCED_SUFFIX if args.use_tissue_patches else STAGE2_BASELINE_SUFFIX
     
     NIRDOTLogger.log_experiment_start(experiment_name, config)
 
@@ -102,37 +164,37 @@ def main():
     logger.info(f"🖥️  Device: {DEVICE}")
     logger.info(f"📈 Epochs: {args.epochs}")
     
-    if args.stage == 'stage2':
+    if args.stage == STAGE2_IDENTIFIER:
         logger.info(f"🧬 Use tissue patches: {args.use_tissue_patches}")
 
     # Load data - both stages use phantom-level batching but access different data keys
     logger.info("📊 Loading NIR-DOT phantom datasets...")
     
-    if args.stage == 'stage1':
+    if args.stage == STAGE1_IDENTIFIER:
         # Stage 1: Use phantom DataLoader for ground truth batching (CNN autoencoder training)
         data_loaders = create_phantom_dataloaders(
-            data_dir="data",
-            batch_size=BATCH_SIZE,  # Can use larger batch since only ground truth volumes
+            data_dir=DATA_DIRECTORY,
+            batch_size=DEFAULT_BATCH_SIZE,  # Can use larger batch since only ground truth volumes
             use_tissue_patches=False  # Stage 1 doesn't use tissue patches
         )
     else:  # stage2
         # Stage 2: Use phantom DataLoader for NIR measurement + ground truth batching
         data_loaders = create_phantom_dataloaders(
-            data_dir="data",
-            batch_size=4,  # Smaller batch size for complete phantoms (1500 measurements each)
+            data_dir=DATA_DIRECTORY,
+            batch_size=DEFAULT_BATCH_SIZE_STAGE2,  # Smaller batch size for complete phantoms (1500 measurements each)
             use_tissue_patches=args.use_tissue_patches
         )
 
     # Train based on stage
-    if args.stage == 'stage1':
+    if args.stage == STAGE1_IDENTIFIER:
         logger.info("🏋️  Starting Stage 1: CNN Autoencoder Pre-training")
         trainer = Stage1Trainer(
-            learning_rate=LEARNING_RATE,
+            learning_rate=DEFAULT_LEARNING_RATE,
             device=DEVICE
         )
         results = trainer.train(data_loaders, epochs=args.epochs)
         
-    elif args.stage == 'stage2':
+    elif args.stage == STAGE2_IDENTIFIER:
         if not args.stage1_checkpoint:
             raise ValueError("Stage 2 requires --stage1_checkpoint path")
             
@@ -143,7 +205,7 @@ def main():
         trainer = Stage2Trainer(
             stage1_checkpoint_path=args.stage1_checkpoint,
             use_tissue_patches=args.use_tissue_patches,
-            learning_rate=LEARNING_RATE,
+            learning_rate=DEFAULT_LEARNING_RATE,
             device=DEVICE
         )
         results = trainer.train(data_loaders, epochs=args.epochs)

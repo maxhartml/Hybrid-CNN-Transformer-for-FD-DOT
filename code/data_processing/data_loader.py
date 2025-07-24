@@ -9,7 +9,11 @@ Streamlined PyTorch DataLoader for NIR phantom datasets featuring:
 • Lazy loading from distributed HDF5 phantom files (efficient memory usage)
 • Automatic tissue patch extraction around source/detector positions
 • Cross-phantom shuffling for robust training
-• 8/1/1 train/validation/test splits at phantom level
+• 8/1/1 train/validation/test splits at phant            Returns:
+                Dict[str, torch.Tensor]: Complete phantom data containing:
+                    - 'nir_measurements': All NIR measurements (1500, DEFAULT_NIR_FEATURE_DIMENSION) - features per measurement
+                    - 'ground_truth': Target volume (DEFAULT_OPTICAL_CHANNELS, 60, 60, 60) - same for all measurements
+                    - 'phantom_id': Phantom identifier for trackingevel
 • Toggle functionality for two-stage training approach
 
 🎯 TWO-STAGE TRAINING SUPPORT:
@@ -49,14 +53,35 @@ except ImportError:
 # CONFIGURATION CONSTANTS
 # ===============================================================================
 
+# Phantom data structure parameters
+DEFAULT_PHANTOM_SHAPE = (60, 60, 60)             # Standard phantom dimensions (Nx, Ny, Nz)
+DEFAULT_N_SOURCES = 500                           # Number of NIR sources per phantom
+DEFAULT_N_DETECTORS_PER_SOURCE = 3               # Detectors per source (creates 1500 measurements)
+DEFAULT_NIR_FEATURE_DIMENSION = 8                # Features per NIR measurement (log_amp + phase + 6 coords)
+DEFAULT_OPTICAL_CHANNELS = 2                     # Optical property channels (absorption + scattering)
+
 # Patch extraction parameters
-DEFAULT_PATCH_SIZE = (7, 7, 7)                    # Local tissue patch dimensions
+DEFAULT_PATCH_SIZE = (7, 7, 7)                   # Local tissue patch dimensions
 AIR_VALUE = 0.0                                   # Air padding value for out-of-bounds regions
 
 # Dataset split ratios (must sum to 1.0)
-TRAIN_RATIO = 0.80                                # 80% for training
-VAL_RATIO = 0.10                                  # 10% for validation  
-TEST_RATIO = 0.10                                 # 10% for testing
+TRAIN_RATIO = 0.90                                # 90% for training
+VAL_RATIO = 0.05                                  # 5% for validation  
+TEST_RATIO = 0.05                                 # 5% for testing
+
+# Dataset size requirements
+MINIMUM_PHANTOMS_REQUIRED = 100                  # Minimum phantoms needed for reliable 90/5/5 split
+
+# DataLoader configuration parameters
+DEFAULT_BATCH_SIZE = 32                           # Default batch size for individual measurements
+DEFAULT_PHANTOM_BATCH_SIZE = 4                   # Default batch size for complete phantoms  
+DEFAULT_NUM_WORKERS = 4                          # Default number of DataLoader worker processes
+DEFAULT_RANDOM_SEED = 42                         # Default random seed for reproducible splits
+
+# Memory and performance optimization
+ENABLE_PIN_MEMORY = True                          # Enable GPU memory pinning when CUDA available
+DROP_INCOMPLETE_BATCHES = True                    # Drop incomplete batches during training
+ENABLE_PERSISTENT_WORKERS = True                 # Keep workers alive between epochs
 
 # HDF5 dataset keys (must match data_simulator.py output)
 H5_KEYS = {
@@ -163,7 +188,7 @@ class NIRPhantomDataset(Dataset):
                  split: str = "train",
                  patch_size: Tuple[int, int, int] = DEFAULT_PATCH_SIZE,
                  use_tissue_patches: bool = True,
-                 random_seed: int = 42):
+                 random_seed: int = DEFAULT_RANDOM_SEED):
         """
         Initialize NIR phantom dataset with automatic file discovery and indexing.
         Enhanced with toggle functionality for tissue patches.
@@ -234,6 +259,7 @@ class NIRPhantomDataset(Dataset):
     def _split_phantoms_by_id(self, phantom_files: List[Path], split: str, random_seed: int) -> List[Path]:
         """
         Split phantoms into train/val/test sets at the phantom level to prevent data leakage.
+        Uses a clean 90/5/5 split and requires a minimum of 100 phantoms for reliable statistics.
         
         Args:
             phantom_files (List[Path]): All discovered phantom files
@@ -242,9 +268,22 @@ class NIRPhantomDataset(Dataset):
             
         Returns:
             List[Path]: Phantom files belonging to specified split
+            
+        Raises:
+            ValueError: If insufficient phantoms for reliable 90/5/5 split
         """
         if not phantom_files:
             return []
+        
+        n_phantoms = len(phantom_files)
+        
+        # Enforce minimum phantom requirement for reliable training
+        if n_phantoms < MINIMUM_PHANTOMS_REQUIRED:
+            raise ValueError(
+                f"Insufficient phantoms for reliable training! "
+                f"Found {n_phantoms} phantoms, but need at least {MINIMUM_PHANTOMS_REQUIRED} "
+                f"for a proper 90/5/5 split. Please generate more phantom data."
+            )
         
         # Set random seed for reproducible splits
         np.random.seed(random_seed)
@@ -253,54 +292,21 @@ class NIRPhantomDataset(Dataset):
         phantom_files = phantom_files.copy()
         np.random.shuffle(phantom_files)
         
-        n_phantoms = len(phantom_files)
+        # Calculate split indices for 90/5/5 distribution
+        train_end = int(n_phantoms * TRAIN_RATIO)
+        val_end = train_end + int(n_phantoms * VAL_RATIO)
         
-        # Handle small datasets by ensuring minimum 1 phantom per split if possible
-        if n_phantoms < 3:
-            # Very small dataset - put everything in train
-            if split == "train":
-                selected_files = phantom_files
-            else:
-                selected_files = []
-        elif n_phantoms < 10:
-            # Small dataset - ensure at least 1 phantom in val/test if possible
-            if split == "train":
-                selected_files = phantom_files[:-2] if n_phantoms >= 3 else phantom_files
-            elif split == "val":
-                selected_files = phantom_files[-2:-1] if n_phantoms >= 3 else []
-            elif split == "test":
-                selected_files = phantom_files[-1:] if n_phantoms >= 2 else []
-            else:
-                raise ValueError(f"Invalid split: {split}. Must be 'train', 'val', or 'test'")
-        elif n_phantoms == 10:
-            # Special case for exactly 10 phantoms: 8/1/1 split
-            if split == "train":
-                selected_files = phantom_files[:8]
-            elif split == "val":
-                selected_files = phantom_files[8:9]
-            elif split == "test":
-                selected_files = phantom_files[9:10]
-            else:
-                raise ValueError(f"Invalid split: {split}. Must be 'train', 'val', or 'test'")
+        # Assign phantoms to splits with clean logic
+        if split == "train":
+            selected_files = phantom_files[:train_end]
+        elif split == "val":
+            selected_files = phantom_files[train_end:val_end]
+        elif split == "test":
+            selected_files = phantom_files[val_end:]
         else:
-            # Normal dataset - use percentage splits
-            train_end = int(n_phantoms * TRAIN_RATIO)
-            val_end = train_end + int(n_phantoms * VAL_RATIO)
-            
-            # Ensure at least 1 phantom in each split if possible
-            if val_end == train_end and n_phantoms > train_end:
-                val_end = train_end + 1
-            
-            # Assign phantoms to splits
-            if split == "train":
-                selected_files = phantom_files[:train_end]
-            elif split == "val":
-                selected_files = phantom_files[train_end:val_end]
-            elif split == "test":
-                selected_files = phantom_files[val_end:]
-            else:
-                raise ValueError(f"Invalid split: {split}. Must be 'train', 'val', or 'test'")
+            raise ValueError(f"Invalid split: {split}. Must be 'train', 'val', or 'test'")
         
+        # Log split statistics
         logger.info(f"Split '{split}': {len(selected_files)}/{n_phantoms} phantoms "
                    f"({len(selected_files)/n_phantoms*100:.1f}%)")
         
@@ -330,7 +336,7 @@ class NIRPhantomDataset(Dataset):
                     
                     # Each probe has 3 detectors, creating individual samples
                     for probe_idx in range(n_probes):
-                        for det_idx in range(3):  # 3 detectors per probe
+                        for det_idx in range(DEFAULT_N_DETECTORS_PER_SOURCE):  # Use constant for detector count
                             sample_index.append((phantom_file, probe_idx, det_idx))
                             
             except Exception as e:
@@ -384,7 +390,7 @@ class NIRPhantomDataset(Dataset):
                     detector_pos[0],       # detector x coordinate
                     detector_pos[1],       # detector y coordinate
                     detector_pos[2]        # detector z coordinate
-                ])  # Total: 8 features per measurement (CORRECTED from 12)
+                ])  # Total: DEFAULT_NIR_FEATURE_DIMENSION features per measurement
                 
                 # Load ground truth volume (this is what we're trying to reconstruct)
                 ground_truth = f[H5_KEYS['ground_truth']][:]  # Shape: (60, 60, 60, 2)
@@ -421,10 +427,10 @@ class NIRPhantomDataset(Dataset):
         sample = {
             # For Stage 1: Use ground truth as both input and target (CNN autoencoder training)
             # For Stage 2: Use NIR measurements as input, ground truth as target
-            'measurements': torch.tensor(nir_measurements, dtype=torch.float32),        # (8,) NIR measurement vector - CORRECTED
-            'nir_measurements': torch.tensor(nir_measurements, dtype=torch.float32),    # (8,) Raw NIR data - CORRECTED
-            'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),            # (2, 60, 60, 60) Target volume  
-            'volumes': torch.tensor(ground_truth, dtype=torch.float32),                 # (2, 60, 60, 60) For Stage 1 input
+            'measurements': torch.tensor(nir_measurements, dtype=torch.float32),        # (DEFAULT_NIR_FEATURE_DIMENSION,) NIR measurement vector
+            'nir_measurements': torch.tensor(nir_measurements, dtype=torch.float32),    # (DEFAULT_NIR_FEATURE_DIMENSION,) Raw NIR data
+            'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),            # (DEFAULT_OPTICAL_CHANNELS, 60, 60, 60) Target volume  
+            'volumes': torch.tensor(ground_truth, dtype=torch.float32),                 # (DEFAULT_OPTICAL_CHANNELS, 60, 60, 60) For Stage 1 input
             'metadata': torch.tensor([phantom_id, probe_idx, det_idx], dtype=torch.long)
         }
         
@@ -438,7 +444,7 @@ class NIRPhantomDataset(Dataset):
         """
         Load complete phantom data with all 1500 measurements for batch training.
         
-        This method loads the entire phantom dataset (500 sources × 3 detectors = 1500 measurements)
+        This method loads the entire phantom dataset (DEFAULT_N_SOURCES sources × DEFAULT_N_DETECTORS_PER_SOURCE detectors = 1500 measurements)
         which is the correct format for our hybrid CNN-Transformer architecture.
         
         Args:
@@ -458,22 +464,22 @@ class NIRPhantomDataset(Dataset):
         try:
             with h5py.File(phantom_file, 'r') as f:
                 # Load all NIR measurement data
-                log_amplitude = f[H5_KEYS['log_amplitude']][:]  # Shape: (500, 3) for 500 sources, 3 detectors
-                phase = f[H5_KEYS['phase']][:]                   # Shape: (500, 3)
+                log_amplitude = f[H5_KEYS['log_amplitude']][:]  # Shape: (DEFAULT_N_SOURCES, DEFAULT_N_DETECTORS_PER_SOURCE) 
+                phase = f[H5_KEYS['phase']][:]                   # Shape: (DEFAULT_N_SOURCES, DEFAULT_N_DETECTORS_PER_SOURCE)
                 
                 # Load geometry data
-                source_pos = f[H5_KEYS['source_pos']][:]         # Shape: (500, 3) for [x, y, z]
-                detector_pos = f[H5_KEYS['det_pos']][:]          # Shape: (500, 3, 3) for source/detector/coord
+                source_pos = f[H5_KEYS['source_pos']][:]         # Shape: (DEFAULT_N_SOURCES, 3) for [x, y, z]
+                detector_pos = f[H5_KEYS['det_pos']][:]          # Shape: (DEFAULT_N_SOURCES, DEFAULT_N_DETECTORS_PER_SOURCE, 3)
                 
                 # Load ground truth volume (same for all measurements in phantom)
                 ground_truth = f[H5_KEYS['ground_truth']][:]     # Shape: (60, 60, 60, 2)
-                ground_truth = np.transpose(ground_truth, (3, 0, 1, 2))  # Convert to (2, 60, 60, 60)
+                ground_truth = np.transpose(ground_truth, (3, 0, 1, 2))  # Convert to (DEFAULT_OPTICAL_CHANNELS, 60, 60, 60)
                 
-                # Build complete measurement array (1500, 8)
+                # Build complete measurement array (DEFAULT_N_SOURCES * DEFAULT_N_DETECTORS_PER_SOURCE, DEFAULT_NIR_FEATURE_DIMENSION)
                 n_sources, n_detectors = log_amplitude.shape
                 total_measurements = n_sources * n_detectors  # Should be 1500
                 
-                nir_measurements = np.zeros((total_measurements, 8), dtype=np.float32)
+                nir_measurements = np.zeros((total_measurements, DEFAULT_NIR_FEATURE_DIMENSION), dtype=np.float32)
                 
                 measurement_idx = 0
                 for source_idx in range(n_sources):
@@ -497,14 +503,14 @@ class NIRPhantomDataset(Dataset):
             logger.error(f"Error loading complete phantom {phantom_idx} from {phantom_file}: {e}")
             # Return zero-filled phantom
             return {
-                'nir_measurements': torch.zeros(1500, 8, dtype=torch.float32),
-                'ground_truth': torch.zeros(2, 60, 60, 60, dtype=torch.float32),
+                'nir_measurements': torch.zeros(DEFAULT_N_SOURCES * DEFAULT_N_DETECTORS_PER_SOURCE, DEFAULT_NIR_FEATURE_DIMENSION, dtype=torch.float32),
+                'ground_truth': torch.zeros(DEFAULT_OPTICAL_CHANNELS, *DEFAULT_PHANTOM_SHAPE, dtype=torch.float32),
                 'phantom_id': torch.tensor(0, dtype=torch.long)
             }
         
         return {
-            'nir_measurements': torch.tensor(nir_measurements, dtype=torch.float32),  # (1500, 8)
-            'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),          # (2, 60, 60, 60)
+            'nir_measurements': torch.tensor(nir_measurements, dtype=torch.float32),  # (1500, DEFAULT_NIR_FEATURE_DIMENSION)
+            'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),          # (DEFAULT_OPTICAL_CHANNELS, 60, 60, 60)
             'phantom_id': torch.tensor(phantom_id, dtype=torch.long)
         }
 
@@ -512,20 +518,44 @@ class NIRPhantomDataset(Dataset):
         """Return zero-filled sample for error handling."""
         # Create empty sample with correct dimensions based on actual data
         sample = {
-            'measurements': torch.zeros(8, dtype=torch.float32),                # (8,) NIR measurement vector - CORRECTED
-            'nir_measurements': torch.zeros(8, dtype=torch.float32),            # (8,) Raw NIR data - CORRECTED
-            'ground_truth': torch.zeros(2, 60, 60, 60, dtype=torch.float32),     # (channels, H, W, D)
-            'volumes': torch.zeros(2, 60, 60, 60, dtype=torch.float32),          # (channels, H, W, D)
+            'measurements': torch.zeros(DEFAULT_NIR_FEATURE_DIMENSION, dtype=torch.float32),                # (DEFAULT_NIR_FEATURE_DIMENSION,) NIR measurement vector
+            'nir_measurements': torch.zeros(DEFAULT_NIR_FEATURE_DIMENSION, dtype=torch.float32),            # (DEFAULT_NIR_FEATURE_DIMENSION,) Raw NIR data
+            'ground_truth': torch.zeros(DEFAULT_OPTICAL_CHANNELS, *DEFAULT_PHANTOM_SHAPE, dtype=torch.float32),     # (channels, H, W, D)
+            'volumes': torch.zeros(DEFAULT_OPTICAL_CHANNELS, *DEFAULT_PHANTOM_SHAPE, dtype=torch.float32),          # (channels, H, W, D)
             'metadata': torch.zeros(3, dtype=torch.long)
         }
         
         # Add empty tissue patches if using them
         if self.use_tissue_patches:
             px, py, pz = self.patch_size
-            patch_size_flat = px * py * pz * 2  # 2 channels (mu_a, mu_s)
+            patch_size_flat = px * py * pz * DEFAULT_OPTICAL_CHANNELS  # DEFAULT_OPTICAL_CHANNELS channels (mu_a, mu_s)
             sample['tissue_patches'] = torch.zeros(2, patch_size_flat, dtype=torch.float32)
         
         return sample
+
+
+# ===============================================================================
+# PHANTOM BATCH DATASET CLASS (for multiprocessing compatibility)
+# ===============================================================================
+
+class PhantomBatchDataset(Dataset):
+    """Custom dataset for phantom-level batching."""
+    
+    def __init__(self, data_dir: str, split: str, use_tissue_patches: bool, random_seed: int):
+        self.base_dataset = NIRPhantomDataset(
+            data_dir=data_dir,
+            split=split,
+            use_tissue_patches=use_tissue_patches,
+            random_seed=random_seed
+        )
+        # We work at phantom level, not measurement level
+        self.n_phantoms = len(self.base_dataset.phantom_files)
+        
+    def __len__(self):
+        return self.n_phantoms
+        
+    def __getitem__(self, idx):
+        return self.base_dataset.get_complete_phantom(idx)
 
 
 # ===============================================================================
@@ -533,11 +563,11 @@ class NIRPhantomDataset(Dataset):
 # ===============================================================================
 
 def create_nir_dataloaders(data_dir: str = "../data",
-                          batch_size: int = 32,
-                          num_workers: int = 4,
+                          batch_size: int = DEFAULT_BATCH_SIZE,
+                          num_workers: int = DEFAULT_NUM_WORKERS,
                           patch_size: Tuple[int, int, int] = DEFAULT_PATCH_SIZE,
                           use_tissue_patches: bool = True,
-                          random_seed: int = 42) -> Dict[str, DataLoader]:
+                          random_seed: int = DEFAULT_RANDOM_SEED) -> Dict[str, DataLoader]:
     """
     Create train/validation/test DataLoaders for NIR phantom dataset.
     Enhanced with toggle functionality for Robin Dale's two-stage approach.
@@ -577,9 +607,9 @@ def create_nir_dataloaders(data_dir: str = "../data",
             batch_size=batch_size,
             shuffle=shuffle,
             num_workers=num_workers,
-            pin_memory=torch.cuda.is_available(),  # GPU optimization
-            drop_last=(split == 'train'),          # Drop incomplete batches in training
-            persistent_workers=(num_workers > 0)   # Keep workers alive between epochs
+            pin_memory=torch.cuda.is_available() and ENABLE_PIN_MEMORY,  # GPU optimization
+            drop_last=(split == 'train') and DROP_INCOMPLETE_BATCHES,          # Drop incomplete batches in training
+            persistent_workers=(num_workers > 0) and ENABLE_PERSISTENT_WORKERS   # Keep workers alive between epochs
         )
         
         dataloaders[split] = dataloader
@@ -592,10 +622,10 @@ def create_nir_dataloaders(data_dir: str = "../data",
 
 
 def create_phantom_dataloaders(data_dir: str = "../data",
-                              batch_size: int = 4,
-                              num_workers: int = 4,
+                              batch_size: int = DEFAULT_PHANTOM_BATCH_SIZE,
+                              num_workers: int = 0,  # Set to 0 to avoid multiprocessing issues
                               use_tissue_patches: bool = True,
-                              random_seed: int = 42) -> Dict[str, DataLoader]:
+                              random_seed: int = DEFAULT_RANDOM_SEED) -> Dict[str, DataLoader]:
     """
     Create DataLoaders for complete phantom batching (batches of complete phantoms).
     
@@ -606,32 +636,13 @@ def create_phantom_dataloaders(data_dir: str = "../data",
     Args:
         data_dir (str): Path to phantom data directory
         batch_size (int): Number of phantoms per batch
-        num_workers (int): Number of worker processes
+        num_workers (int): Number of worker processes (set to 0 for main process only)
         use_tissue_patches (bool): Whether to include tissue patches
         random_seed (int): Random seed for splits
         
     Returns:
         Dict[str, DataLoader]: Dictionary with 'train', 'val', 'test' DataLoaders
     """
-    
-    class PhantomBatchDataset(Dataset):
-        """Custom dataset for phantom-level batching."""
-        
-        def __init__(self, data_dir: str, split: str, use_tissue_patches: bool, random_seed: int):
-            self.base_dataset = NIRPhantomDataset(
-                data_dir=data_dir,
-                split=split,
-                use_tissue_patches=use_tissue_patches,
-                random_seed=random_seed
-            )
-            # We work at phantom level, not measurement level
-            self.n_phantoms = len(self.base_dataset.phantom_files)
-            
-        def __len__(self):
-            return self.n_phantoms
-            
-        def __getitem__(self, idx):
-            return self.base_dataset.get_complete_phantom(idx)
     
     dataloaders = {}
     
@@ -645,9 +656,9 @@ def create_phantom_dataloaders(data_dir: str = "../data",
             batch_size=batch_size,
             shuffle=shuffle,
             num_workers=num_workers,
-            pin_memory=torch.cuda.is_available(),
-            drop_last=(split == 'train'),
-            persistent_workers=(num_workers > 0)
+            pin_memory=torch.cuda.is_available() and ENABLE_PIN_MEMORY,
+            drop_last=(split == 'train') and DROP_INCOMPLETE_BATCHES,
+            persistent_workers=False  # Disable persistent workers when num_workers=0
         )
         
         dataloaders[split] = dataloader
@@ -656,10 +667,3 @@ def create_phantom_dataloaders(data_dir: str = "../data",
                    f"~{len(dataloader)} batches per epoch")
     
     return dataloaders
-
-
-# ===============================================================================
-# MAIN EXECUTION AND TESTING
-# ===============================================================================
-
-# DataLoader is ready for production use with Robin Dale's two-stage training!
