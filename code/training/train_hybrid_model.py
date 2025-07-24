@@ -2,23 +2,6 @@
 """
 Complete Training Pipeline for Hybrid CNN-Transformer NIR-DOT Reconstruction.
 
-This script orchestrates the complete two-stage training pipeline for near-in    elif args.stage == STAGE2_IDENTIFIER:
-        if not args.stage1_checkpoint:
-            raise ValueError("Stage 2 requires --stage1_checkpoint path")
-            
-        mode = "Enhanced" if args.use_tissue_patches else "Baseline"
-        logger.info(f"🏋️  Starting Stage 2: Transformer Training ({mode})")
-        logger.info(f"📂 Loading Stage 1 checkpoint: {args.stage1_checkpoint}")
-        
-        trainer = Stage2Trainer(
-            stage1_checkpoint_path=args.stage1_checkpoint,
-            use_tissue_patches=args.use_tissue_patches,
-            learning_rate=DEFAULT_LEARNING_RATE,
-            device=DEVICE
-        )
-        results = trainer.train(data_loaders, epochs=args.epochs)optical tomography (NIR-DOT) image reconstruction using a hybrid approach
-that combines CNN autoencoders with transformer-based spatial modeling.
-
 Training Pipeline:
 1. Stage 1: CNN autoencoder pre-training for robust feature extraction
 2. Stage 2: Transformer enhancement with frozen CNN decoder
@@ -59,8 +42,8 @@ from pathlib import Path
 # =============================================================================
 
 # Training Configuration
-DEFAULT_BATCH_SIZE = 8                  # Default batch size for training
-DEFAULT_BATCH_SIZE_STAGE2 = 4           # Smaller batch size for Stage 2 (complete phantoms)
+DEFAULT_BATCH_SIZE_STAGE1 = 2           # Stage 1: CNN autoencoder (ground truth only, less memory)
+DEFAULT_BATCH_SIZE_STAGE2 = 1           # Stage 2: Transformer (full phantoms + attention, more memory)
 DEFAULT_LEARNING_RATE = 1e-4            # Default learning rate
 DEFAULT_EPOCHS_STAGE1 = 50              # Default epochs for Stage 1
 DEFAULT_EPOCHS_STAGE2 = 100             # Default epochs for Stage 2
@@ -99,17 +82,35 @@ try:
     from code.training.stage2_trainer import Stage2Trainer
     from code.utils.logging_config import get_training_logger, NIRDOTLogger
 except ImportError as e:
-    print(f"Import error: {e}")
-    print(f"Current working directory: {os.getcwd()}")
-    print(f"Project root: {project_root}")
-    print(f"Python path: {sys.path[:3]}")
-    sys.exit(1)
+    # Try relative imports from the current directory structure
+    sys.path.insert(0, str(project_root / "code"))
+    try:
+        from data_processing.data_loader import create_nir_dataloaders, create_phantom_dataloaders
+        from training.stage1_trainer import Stage1Trainer
+        from training.stage2_trainer import Stage2Trainer
+        from utils.logging_config import get_training_logger, NIRDOTLogger
+    except ImportError as e:
+        print(f"Import error: {e}")
+        print(f"Current working directory: {os.getcwd()}")
+        print(f"Project root: {project_root}")
+        print(f"Python path: {sys.path[:3]}")
+        sys.exit(1)
 
 # Initialize logger for this module
 logger = get_training_logger(__name__)
 
-# Device detection using constants
-DEVICE = CUDA_DEVICE_NAME if torch.cuda.is_available() else CPU_DEVICE_NAME
+# Device detection using constants - prioritize CUDA > CPU
+def get_best_device():
+    """
+    Detect the best available device for training.
+    Priority: CUDA (NVIDIA GPU) > CPU
+    """
+    if torch.cuda.is_available():
+        return CUDA_DEVICE_NAME
+    else:
+        return CPU_DEVICE_NAME
+
+DEVICE = get_best_device()
 
 def main():
     """
@@ -148,7 +149,7 @@ def main():
         'stage': args.stage,
         'epochs': args.epochs,
         'use_tissue_patches': args.use_tissue_patches if args.stage == STAGE2_IDENTIFIER else False,
-        'batch_size': DEFAULT_BATCH_SIZE if args.stage == STAGE1_IDENTIFIER else DEFAULT_BATCH_SIZE_STAGE2,
+        'batch_size': DEFAULT_BATCH_SIZE_STAGE1 if args.stage == STAGE1_IDENTIFIER else DEFAULT_BATCH_SIZE_STAGE2,
         'learning_rate': DEFAULT_LEARNING_RATE,
         'device': DEVICE
     }
@@ -162,37 +163,55 @@ def main():
     logger.info(f"🔬 NIR-DOT Hybrid Training Pipeline")
     logger.info(f"📊 Stage: {args.stage}")
     logger.info(f"🖥️  Device: {DEVICE}")
+    if DEVICE == CUDA_DEVICE_NAME:
+        logger.info(f"🚀 Using CUDA GPU acceleration!")
+    else:
+        logger.info(f"⚠️  Using CPU - training will be slower")
     logger.info(f"📈 Epochs: {args.epochs}")
+    logger.info(f"📦 Batch size: {DEFAULT_BATCH_SIZE_STAGE1 if args.stage == STAGE1_IDENTIFIER else DEFAULT_BATCH_SIZE_STAGE2}")
     
     if args.stage == STAGE2_IDENTIFIER:
         logger.info(f"🧬 Use tissue patches: {args.use_tissue_patches}")
 
     # Load data - both stages use phantom-level batching but access different data keys
     logger.info("📊 Loading NIR-DOT phantom datasets...")
+    logger.debug(f"🗂️  Data directory: {DATA_DIRECTORY}")
+    logger.debug(f"📁 Current working directory: {os.getcwd()}")
     
     if args.stage == STAGE1_IDENTIFIER:
+        logger.debug("🏗️  Creating Stage 1 data loaders (ground truth only)...")
         # Stage 1: Use phantom DataLoader for ground truth batching (CNN autoencoder training)
         data_loaders = create_phantom_dataloaders(
             data_dir=DATA_DIRECTORY,
-            batch_size=DEFAULT_BATCH_SIZE,  # Can use larger batch since only ground truth volumes
+            batch_size=DEFAULT_BATCH_SIZE_STAGE1,  # Stage 1: ground truth volumes only
             use_tissue_patches=False  # Stage 1 doesn't use tissue patches
         )
+        logger.info(f"✅ Stage 1 data loaders created successfully")
+        logger.debug(f"📊 Train batches: {len(data_loaders['train'])}, Val batches: {len(data_loaders['val'])}")
     else:  # stage2
+        logger.debug("🏗️  Creating Stage 2 data loaders (NIR measurements + ground truth)...")
         # Stage 2: Use phantom DataLoader for NIR measurement + ground truth batching
         data_loaders = create_phantom_dataloaders(
             data_dir=DATA_DIRECTORY,
             batch_size=DEFAULT_BATCH_SIZE_STAGE2,  # Smaller batch size for complete phantoms (1500 measurements each)
             use_tissue_patches=args.use_tissue_patches
         )
+        logger.info(f"✅ Stage 2 data loaders created successfully")
+        logger.debug(f"📊 Train batches: {len(data_loaders['train'])}, Val batches: {len(data_loaders['val'])}")
+        logger.debug(f"🧬 Tissue patches enabled: {args.use_tissue_patches}")
 
     # Train based on stage
     if args.stage == STAGE1_IDENTIFIER:
         logger.info("🏋️  Starting Stage 1: CNN Autoencoder Pre-training")
+        logger.debug("🏗️  Initializing Stage 1 trainer...")
         trainer = Stage1Trainer(
             learning_rate=DEFAULT_LEARNING_RATE,
             device=DEVICE
         )
+        logger.debug("✅ Stage 1 trainer initialized successfully")
+        logger.info("🚀 Beginning Stage 1 training execution...")
         results = trainer.train(data_loaders, epochs=args.epochs)
+        logger.info("🎯 Stage 1 training execution completed!")
         
     elif args.stage == STAGE2_IDENTIFIER:
         if not args.stage1_checkpoint:
@@ -201,25 +220,34 @@ def main():
         mode = "Enhanced" if args.use_tissue_patches else "Baseline"
         logger.info(f"🏋️  Starting Stage 2: Transformer Training ({mode})")
         logger.info(f"📂 Loading Stage 1 checkpoint: {args.stage1_checkpoint}")
+        logger.debug(f"📁 Checkpoint file exists: {os.path.exists(args.stage1_checkpoint)}")
         
+        logger.debug("🏗️  Initializing Stage 2 trainer...")
         trainer = Stage2Trainer(
             stage1_checkpoint_path=args.stage1_checkpoint,
             use_tissue_patches=args.use_tissue_patches,
             learning_rate=DEFAULT_LEARNING_RATE,
             device=DEVICE
         )
+        logger.debug("✅ Stage 2 trainer initialized successfully")
+        logger.info("🚀 Beginning Stage 2 training execution...")
         results = trainer.train(data_loaders, epochs=args.epochs)
+        logger.info("🎯 Stage 2 training execution completed!")
 
     # Log experiment completion
+    logger.info("📝 Preparing experiment completion summary...")
+    logger.debug(f"🔍 Results object: {results}")
     final_results = {
         'stage': args.stage,
-        'final_val_loss': getattr(results, 'best_val_loss', 'N/A'),
+        'final_val_loss': getattr(results, 'best_val_loss', results.get('best_val_loss', 'N/A')),
         'total_epochs': args.epochs,
         'device_used': DEVICE
     }
+    logger.debug(f"📊 Final results summary: {final_results}")
     
     NIRDOTLogger.log_experiment_end(experiment_name, final_results)
     logger.info("✅ Training pipeline completed successfully!")
+    logger.debug(f"🏁 Pipeline execution finished for {experiment_name}")
 
 if __name__ == "__main__":
     main()

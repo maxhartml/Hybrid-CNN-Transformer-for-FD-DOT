@@ -59,8 +59,21 @@ ENHANCED_MODE = "Enhanced"              # Enhanced training mode name
 # Parameter Freezing Configuration
 CNN_FREEZE_ALL_PARAMS = True            # Whether to freeze all CNN autoencoder parameters
 
-from ..models.hybrid_model import HybridCNNTransformer
-from ..utils.logging_config import get_training_logger
+import sys
+from pathlib import Path
+
+# Add project root to Python path for imports
+project_root = Path(__file__).parent.parent.parent  # Go up 3 levels: stage2_trainer.py -> training -> code -> mah422
+sys.path.insert(0, str(project_root))
+
+try:
+    from code.models.hybrid_model import HybridCNNTransformer
+    from code.utils.logging_config import get_training_logger
+except ImportError:
+    # Try relative imports from the current directory structure
+    sys.path.insert(0, str(project_root / "code"))
+    from models.hybrid_model import HybridCNNTransformer
+    from utils.logging_config import get_training_logger
 
 # Initialize logger for this module
 logger = get_training_logger(__name__)
@@ -236,15 +249,28 @@ class Stage2Trainer:
         - Reduces the parameter space for efficient transformer optimization
         - Preserves stable feature extraction capabilities
         """
-        # Freeze the entire CNN autoencoder
-        for param in self.model.cnn_autoencoder.parameters():
-            param.requires_grad = False
+        logger.debug("🔒 Starting CNN parameter freezing process...")
         
+        # Freeze the entire CNN autoencoder
+        frozen_params = 0
+        for name, param in self.model.cnn_autoencoder.named_parameters():
+            param.requires_grad = False
+            frozen_params += param.numel()
+            logger.debug(f"🔒 Frozen: {name} ({param.numel():,} params)")
+        
+        # Count trainable parameters after freezing
         trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         total_params = sum(p.numel() for p in self.model.parameters())
         
-        logger.info(f"🔒 CNN decoder frozen. Trainable params: {trainable_params:,}/{total_params:,} "
+        logger.info(f"🔒 CNN decoder frozen. Frozen: {frozen_params:,}, Trainable: {trainable_params:,}/{total_params:,} "
                    f"({100 * trainable_params / total_params:.1f}%)")
+        
+        # Verify we have trainable parameters
+        if trainable_params == 0:
+            logger.error("🚨 ERROR: No trainable parameters found! All parameters are frozen!")
+            raise RuntimeError("No trainable parameters - all model parameters are frozen")
+        
+        logger.info(f"✅ Parameter freezing completed successfully")
     
     def train_epoch(self, data_loader):
         """
@@ -261,13 +287,13 @@ class Stage2Trainer:
         Returns:
             float: Average training loss across all batches in the epoch
         """
+        logger.debug("🔄 Starting Stage 2 training epoch...")
         self.model.train()
         total_loss = 0
         num_batches = 0
         
-        for batch in data_loader:
+        for batch_idx, batch in enumerate(data_loader):
             # In Stage 2: Complete phantom NIR measurements are input, ground truth volumes are target
-            # NEW FORMAT: Complete phantom data from create_phantom_dataloaders()
             nir_measurements = batch['nir_measurements'].to(self.device)  # Shape: (batch_size, 1500, 8)
             targets = batch['ground_truth'].to(self.device)               # Shape: (batch_size, 2, 60, 60, 60)
             
@@ -275,6 +301,9 @@ class Stage2Trainer:
             tissue_patches = None
             if self.use_tissue_patches and 'tissue_patches' in batch:
                 tissue_patches = batch['tissue_patches'].to(self.device)
+                logger.debug(f"🧬 Using tissue patches: {tissue_patches.shape}")
+            else:
+                logger.debug("🧬 No tissue patches used")
             
             # Forward pass through hybrid model
             self.optimizer.zero_grad()
@@ -286,13 +315,18 @@ class Stage2Trainer:
             loss = self.criterion(outputs['reconstructed'], targets)
             
             # Backward pass
-            loss.backward()
-            self.optimizer.step()
+            try:
+                loss.backward()
+                self.optimizer.step()
+            except RuntimeError as e:
+                logger.error(f"🚨 Gradient error: {e}")
+                raise e
             
             total_loss += loss.item()
             num_batches += 1
         
-        return total_loss / num_batches
+        avg_loss = total_loss / num_batches
+        return avg_loss
     
     def validate(self, data_loader):
         """
@@ -309,13 +343,13 @@ class Stage2Trainer:
         Returns:
             float: Average validation loss across all validation batches
         """
+        logger.debug("🔍 Starting Stage 2 validation epoch...")
         self.model.eval()
         total_loss = 0
         num_batches = 0
         
         with torch.no_grad():
-            for batch in data_loader:
-                # NEW FORMAT: Complete phantom data from create_phantom_dataloaders()
+            for batch_idx, batch in enumerate(data_loader):
                 nir_measurements = batch['nir_measurements'].to(self.device)  # Shape: (batch_size, 1500, 8)
                 targets = batch['ground_truth'].to(self.device)               # Shape: (batch_size, 2, 60, 60, 60)
                 
@@ -329,7 +363,8 @@ class Stage2Trainer:
                 total_loss += loss.item()
                 num_batches += 1
         
-        return total_loss / num_batches
+        avg_loss = total_loss / num_batches
+        return avg_loss
     
     def train(self, data_loaders, epochs=DEFAULT_EPOCHS):
         """
@@ -360,25 +395,35 @@ class Stage2Trainer:
         best_val_loss = float('inf')
         
         for epoch in range(epochs):
+            logger.info(f"📅 Starting Stage 2 Epoch {epoch + 1}/{epochs}")
+            
             # Train
             train_loss = self.train_epoch(data_loaders['train'])
+            logger.info(f"🏋️  Stage 2 Training completed - Loss: {train_loss:.6f}")
             
             # Validate
             val_loss = self.validate(data_loaders['val'])
+            logger.info(f"🔍 Stage 2 Validation completed - Loss: {val_loss:.6f}")
             
             # Print progress
             if epoch % PROGRESS_LOG_INTERVAL == 0:
-                logger.info(f"📈 Epoch {epoch:3d}: Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}")
+                logger.info(f"📈 Stage 2 Epoch {epoch:3d}: Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}")
             
             # Save best model
             if val_loss < best_val_loss:
+                improvement = best_val_loss - val_loss
                 best_val_loss = val_loss
                 checkpoint_filename = STAGE2_ENHANCED_CHECKPOINT if self.use_tissue_patches else STAGE2_BASELINE_CHECKPOINT
                 checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{checkpoint_filename}"
+                logger.info(f"🎉 New best Stage 2 model! Improvement: {improvement:.6f} -> Saving checkpoint")
+                logger.debug(f"💾 Stage 2 checkpoint path: {checkpoint_path}")
                 self.save_checkpoint(checkpoint_path, epoch, val_loss)
-                logger.debug(f"💾 New best model saved at epoch {epoch}")
+                logger.debug(f"💾 New best Stage 2 model saved at epoch {epoch}")
+            else:
+                logger.debug(f"📊 Stage 2 no improvement. Current: {val_loss:.6f}, Best: {best_val_loss:.6f}")
         
         logger.info(f"✅ Stage 2 training complete! Best val loss: {best_val_loss:.6f}")
+        logger.debug(f"🏁 Stage 2 training summary: Total epochs: {epochs}, Final best loss: {best_val_loss:.6f}")
         return {'best_val_loss': best_val_loss}
     
     def save_checkpoint(self, path, epoch, val_loss):

@@ -50,8 +50,21 @@ CHECKPOINT_BASE_DIR = "checkpoints"     # Base checkpoint directory
 USE_TISSUE_PATCHES_STAGE1 = False       # Stage 1 doesn't use tissue patches
 TRAINING_STAGE_1 = "stage1"             # Training stage identifier
 
-from ..models.hybrid_model import HybridCNNTransformer
-from ..utils.logging_config import get_training_logger
+import sys
+from pathlib import Path
+
+# Add project root to Python path for imports
+project_root = Path(__file__).parent.parent.parent  # Go up 3 levels: stage1_trainer.py -> training -> code -> mah422
+sys.path.insert(0, str(project_root))
+
+try:
+    from code.models.hybrid_model import HybridCNNTransformer
+    from code.utils.logging_config import get_training_logger
+except ImportError:
+    # Try relative imports from the current directory structure
+    sys.path.insert(0, str(project_root / "code"))
+    from models.hybrid_model import HybridCNNTransformer
+    from utils.logging_config import get_training_logger
 
 # Initialize logger for this module
 logger = get_training_logger(__name__)
@@ -158,29 +171,47 @@ class Stage1Trainer:
         Returns:
             float: Average training loss across all batches in the epoch
         """
+        logger.debug("🔄 Starting training epoch...")
         self.model.train()
         total_loss = 0
         num_batches = 0
         
-        for batch in data_loader:
+        logger.debug(f"📊 Processing {len(data_loader)} batches in training epoch")
+        
+        for batch_idx, batch in enumerate(data_loader):
+            logger.debug(f"🔍 Processing batch {batch_idx + 1}/{len(data_loader)}")
+            
             # Stage 1: Only use ground truth volumes (no NIR measurements)
             ground_truth = batch['ground_truth'].to(self.device)  # Shape: (batch_size, 2, 60, 60, 60)
+            logger.debug(f"📦 Ground truth batch shape: {ground_truth.shape}")
+            logger.debug(f"🖥️  Ground truth moved to device: {ground_truth.device}")
             
             # Forward pass - ground truth as both input and target for autoencoder training
+            logger.debug("⚡ Starting forward pass...")
             self.optimizer.zero_grad()
             outputs = self.model(ground_truth, tissue_patches=None)
+            logger.debug(f"📤 Model output shape: {outputs['reconstructed'].shape}")
             
             # Compute loss - reconstruction vs original
+            logger.debug("📏 Computing RMSE loss...")
             loss = self.criterion(outputs['reconstructed'], ground_truth)
+            logger.debug(f"💰 Batch loss: {loss.item():.6f}")
             
             # Backward pass
+            logger.debug("🔙 Starting backward pass...")
             loss.backward()
             self.optimizer.step()
+            logger.debug("✅ Optimizer step completed")
             
             total_loss += loss.item()
             num_batches += 1
+            
+            if batch_idx % 5 == 0:  # Log every 5 batches during DEBUG
+                logger.debug(f"📈 Batch {batch_idx}: Loss = {loss.item():.6f}, Running Avg = {total_loss/num_batches:.6f}")
         
-        return total_loss / num_batches
+        avg_loss = total_loss / num_batches
+        logger.debug(f"✅ Training epoch completed. Average loss: {avg_loss:.6f}")
+        return avg_loss
     
     def validate(self, data_loader):
         """
@@ -197,22 +228,32 @@ class Stage1Trainer:
         Returns:
             float: Average validation loss across all validation batches
         """
+        logger.debug("🔍 Starting validation epoch...")
         self.model.eval()
         total_loss = 0
         num_batches = 0
         
+        logger.debug(f"📊 Processing {len(data_loader)} validation batches")
+        
         with torch.no_grad():
-            for batch in data_loader:
+            for batch_idx, batch in enumerate(data_loader):
+                logger.debug(f"🔍 Validating batch {batch_idx + 1}/{len(data_loader)}")
+                
                 # Stage 1: Only use ground truth volumes (no NIR measurements)
                 ground_truth = batch['ground_truth'].to(self.device)  # Shape: (batch_size, 2, 60, 60, 60)
+                logger.debug(f"📦 Validation batch shape: {ground_truth.shape}")
                 
+                logger.debug("⚡ Forward pass (no gradients)...")
                 outputs = self.model(ground_truth, tissue_patches=None)
                 loss = self.criterion(outputs['reconstructed'], ground_truth)
+                logger.debug(f"💰 Validation batch loss: {loss.item():.6f}")
                 
                 total_loss += loss.item()
                 num_batches += 1
         
-        return total_loss / num_batches
+        avg_loss = total_loss / num_batches
+        logger.debug(f"✅ Validation completed. Average loss: {avg_loss:.6f}")
+        return avg_loss
     
     def train(self, data_loaders, epochs=DEFAULT_EPOCHS):
         """
@@ -235,15 +276,23 @@ class Stage1Trainer:
             >>> print(f"Training completed with best loss: {results['best_val_loss']}")
         """
         logger.info(f"🚀 Starting Stage 1 training for {epochs} epochs")
+        logger.debug(f"📊 Training configuration: device={self.device}, lr={self.learning_rate}, epochs={epochs}")
+        logger.debug(f"📈 Data loaders: train_batches={len(data_loaders['train'])}, val_batches={len(data_loaders['val'])}")
         
         best_val_loss = float('inf')
         
         for epoch in range(epochs):
+            logger.info(f"📅 Starting Epoch {epoch + 1}/{epochs}")
+            
             # Train
+            logger.debug(f"🏋️  Beginning training phase for epoch {epoch}")
             train_loss = self.train_epoch(data_loaders['train'])
+            logger.info(f"🏋️  Training completed - Loss: {train_loss:.6f}")
             
             # Validate  
+            logger.debug(f"🔍 Beginning validation phase for epoch {epoch}")
             val_loss = self.validate(data_loaders['val'])
+            logger.info(f"🔍 Validation completed - Loss: {val_loss:.6f}")
             
             # Print progress
             if epoch % PROGRESS_LOG_INTERVAL == 0 or epoch == epochs - FINAL_EPOCH_OFFSET:
@@ -252,12 +301,18 @@ class Stage1Trainer:
             
             # Save best model
             if val_loss < best_val_loss:
+                improvement = best_val_loss - val_loss
                 best_val_loss = val_loss
                 checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{STAGE1_CHECKPOINT_FILENAME}"
+                logger.info(f"🎉 New best model! Improvement: {improvement:.6f} -> Saving checkpoint")
+                logger.debug(f"💾 Checkpoint path: {checkpoint_path}")
                 self.save_checkpoint(checkpoint_path, epoch, val_loss)
                 logger.debug(f"💾 New best model saved at epoch {epoch}")
+            else:
+                logger.debug(f"📊 No improvement. Current: {val_loss:.6f}, Best: {best_val_loss:.6f}")
         
         logger.info(f"✅ Stage 1 training complete! Best val loss: {best_val_loss:.6f}")
+        logger.debug(f"🏁 Training summary: Total epochs: {epochs}, Final best loss: {best_val_loss:.6f}")
         return {'best_val_loss': best_val_loss}
     
     def save_checkpoint(self, path, epoch, val_loss):

@@ -84,8 +84,6 @@ class PositionalEncoding(nn.Module):
         
         # Register as buffer (not a parameter, but part of model state)
         self.register_buffer('pe', pe)
-        
-        logger.debug(f"PositionalEncoding initialized: embed_dim={embed_dim}, max_len={max_len}")
     
     def forward(self, x):
         """
@@ -130,9 +128,6 @@ class MultiHeadAttention(nn.Module):
         
         self.dropout = nn.Dropout(dropout)
         self.scale = ATTENTION_SCALE_FACTOR_BASE / math.sqrt(self.head_dim)  # Scaling factor for dot-product attention
-        
-        logger.debug(f"MultiHeadAttention initialized: {num_heads} heads, "
-                    f"embed_dim={embed_dim}, head_dim={self.head_dim}")
     
     def forward(self, query, key, value, mask=None):
         """
@@ -206,9 +201,6 @@ class TransformerLayer(nn.Module):
             nn.Linear(mlp_dim, embed_dim),
             nn.Dropout(dropout)
         )
-        
-        logger.debug(f"TransformerLayer initialized: embed_dim={embed_dim}, "
-                    f"num_heads={num_heads}, mlp_dim={mlp_dim}")
     
     def forward(self, x, mask=None):
         """
@@ -277,7 +269,12 @@ class TransformerEncoder(nn.Module):
         
         # Linear projections to map input features to embedding space
         self.cnn_projection = nn.Linear(cnn_feature_dim, embed_dim)
-        self.tissue_projection = nn.Linear(tissue_context_dim, embed_dim)
+        
+        # Conditional tissue projection - only create if tissue_context_dim > 0
+        if tissue_context_dim > 0:
+            self.tissue_projection = nn.Linear(tissue_context_dim, embed_dim)
+        else:
+            self.tissue_projection = None
         
         # Token type embeddings to distinguish different input modalities
         self.token_type_embedding = nn.Embedding(NUM_TOKEN_TYPES, embed_dim)  # 0: CNN, 1: tissue
@@ -358,7 +355,7 @@ class TransformerEncoder(nn.Module):
         cnn_embedded = self.cnn_projection(cnn_features).unsqueeze(1)  # [B, 1, embed_dim]
         
         # Build input token sequence
-        if use_tissue_patches and tissue_context is not None:
+        if use_tissue_patches and tissue_context is not None and self.tissue_projection is not None:
             # Project tissue context to embedding dimension
             tissue_embedded = self.tissue_projection(tissue_context).unsqueeze(1)  # [B, 1, embed_dim]
             
@@ -378,15 +375,18 @@ class TransformerEncoder(nn.Module):
             token_types = torch.tensor([0], device=device).unsqueeze(0).expand(batch_size, -1)
             token_type_emb = self.token_type_embedding(token_types)
             token_sequence = token_sequence + token_type_emb
+            logger.debug(f"🔍 CNN token sequence with types requires_grad: {token_sequence.requires_grad}")
         
         # Add positional encoding to token sequence
+        logger.debug(f"🔍 Token sequence before pos encoding requires_grad: {token_sequence.requires_grad}")
         token_sequence = self.positional_encoding(token_sequence.transpose(0, 1)).transpose(0, 1)
+        logger.debug(f"🔍 Token sequence after pos encoding requires_grad: {token_sequence.requires_grad}")
         
         # Process through transformer layers
         attention_weights_list = []
         x = token_sequence
         
-        for layer in self.layers:
+        for i, layer in enumerate(self.layers):
             x, attn_weights = layer(x)
             attention_weights_list.append(attn_weights)
         

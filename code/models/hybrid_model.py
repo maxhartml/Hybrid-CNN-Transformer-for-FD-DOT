@@ -174,6 +174,15 @@ class HybridCNNTransformer(nn.Module):
             dropout=dropout
         )
         
+        # NIR projection network for Stage 2 (NIR measurements → CNN feature space)
+        self.nir_projection = nn.Sequential(
+            nn.Linear(self.nir_input_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 256), 
+            nn.ReLU(),
+            nn.Linear(256, 512)    # Project to CNN feature dimension
+        )
+        
         # Utility for tissue context toggle functionality
         self.toggle_utils = TissueContextToggle()
         
@@ -245,16 +254,6 @@ class HybridCNNTransformer(nn.Module):
                 # Reshape to process all measurements in batch
                 nir_features = dot_measurements.view(-1, n_features)  # (batch_size * 1500, nir_input_dim)
                 
-                # Project NIR measurements to CNN feature dimension (512D)
-                if not hasattr(self, 'nir_projection'):
-                    self.nir_projection = nn.Sequential(
-                        nn.Linear(self.nir_input_dim, 64),  # Dynamic input dimension
-                        nn.ReLU(),
-                        nn.Linear(64, 256), 
-                        nn.ReLU(),
-                        nn.Linear(256, 512)    # Project to CNN feature dim
-                    ).to(dot_measurements.device)
-                
                 # Project all measurements to CNN feature space  
                 projected_features = self.nir_projection(nir_features)  # (batch_size * 1500, 512)
                 
@@ -268,16 +267,6 @@ class HybridCNNTransformer(nn.Module):
             elif len(dot_measurements.shape) == 2 and dot_measurements.shape[1] == self.nir_input_dim:
                 # Individual NIR measurements: (batch_size, nir_input_dim) - for compatibility
                 nir_features = dot_measurements  # Shape: (batch_size, nir_input_dim)
-                
-                # Project NIR measurements to CNN feature dimension (512D)
-                if not hasattr(self, 'nir_projection'):
-                    self.nir_projection = nn.Sequential(
-                        nn.Linear(self.nir_input_dim, 64),  # Dynamic input dimension
-                        nn.ReLU(),
-                        nn.Linear(64, 256), 
-                        nn.ReLU(),
-                        nn.Linear(256, 512)    # Project to CNN feature dim
-                    ).to(dot_measurements.device)
                 
                 # Project NIR measurements to CNN feature space  
                 cnn_features = self.nir_projection(nir_features)  # Shape: (batch_size, 512)
@@ -299,15 +288,18 @@ class HybridCNNTransformer(nn.Module):
                     tissue_context = self.tissue_encoder(processed_tissue_patches)
             
             # Transform features using transformer (expecting 512D CNN features)
+            # Ensure CNN features require gradients for backpropagation
+            if not cnn_features.requires_grad:
+                cnn_features = cnn_features.detach().requires_grad_(True)
+            
             enhanced_features, attention_weights = self.transformer_encoder(
                 cnn_features=cnn_features,
                 tissue_context=tissue_context,
                 use_tissue_patches=self.use_tissue_patches
             )
             
-            # Decode using frozen CNN decoder
-            with torch.no_grad():
-                reconstructed = self.cnn_autoencoder.decode(enhanced_features)
+            # Decode using frozen CNN decoder (gradients flow through, but params frozen)
+            reconstructed = self.cnn_autoencoder.decode(enhanced_features)
             
             outputs.update({
                 'reconstructed': reconstructed,
