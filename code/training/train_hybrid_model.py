@@ -193,7 +193,7 @@ def main():
         # Stage 2: Use phantom DataLoader for NIR measurement + ground truth batching
         data_loaders = create_phantom_dataloaders(
             data_dir=DATA_DIRECTORY,
-            batch_size=DEFAULT_BATCH_SIZE_STAGE2,  # Smaller batch size for complete phantoms (1500 measurements each)
+            batch_size=DEFAULT_BATCH_SIZE_STAGE2,  # Smaller batch size for complete phantoms (256 measurements each)
             use_tissue_patches=args.use_tissue_patches
         )
         logger.info(f"✅ Stage 2 data loaders created successfully")

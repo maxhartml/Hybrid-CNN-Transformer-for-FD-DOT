@@ -9,9 +9,9 @@ Streamlined PyTorch DataLoader for NIR phantom datasets featuring:
 • Lazy loading from distributed HDF5 phantom files (efficient memory usage)
 • Automatic tissue patch extraction around source/detector positions
 • Cross-phantom shuffling for robust training
-• 8/1/1 train/validation/test splits at phant            Returns:
+• 8/1/1 train/validation/test splits at phant                Returns:
                 Dict[str, torch.Tensor]: Complete phantom data containing:
-                    - 'nir_measurements': All NIR measurements (1500, DEFAULT_NIR_FEATURE_DIMENSION) - features per measurement
+                    - 'nir_measurements': All NIR measurements (256, DEFAULT_NIR_FEATURE_DIMENSION) - features per measurement
                     - 'ground_truth': Target volume (DEFAULT_OPTICAL_CHANNELS, 64, 64, 64) - same for all measurements
                     - 'phantom_id': Phantom identifier for trackingevel
 • Toggle functionality for two-stage training approach
@@ -55,10 +55,13 @@ except ImportError:
 
 # Phantom data structure parameters
 DEFAULT_PHANTOM_SHAPE = (64, 64, 64)             # Standard phantom dimensions (Nx, Ny, Nz)
-DEFAULT_N_SOURCES = 500                           # Number of NIR sources per phantom
-DEFAULT_N_DETECTORS_PER_SOURCE = 3               # Detectors per source (creates 1500 measurements)
+DEFAULT_N_MEASUREMENTS = 256                      # Number of independent source-detector pairs per phantom
 DEFAULT_NIR_FEATURE_DIMENSION = 8                # Features per NIR measurement (log_amp + phase + 6 coords)
 DEFAULT_OPTICAL_CHANNELS = 2                     # Optical property channels (absorption + scattering)
+
+# Voxel and coordinate parameters (must match data_simulator.py)
+VOXEL_SIZE_MM = 2.0                               # Physical size of each voxel in millimeters
+PHANTOM_SIZE_MM = 128                             # Total phantom size in millimeters (64 voxels × 2mm each)
 
 # Patch extraction parameters
 DEFAULT_PATCH_SIZE = (7, 7, 7)                   # Local tissue patch dimensions
@@ -85,10 +88,10 @@ ENABLE_PERSISTENT_WORKERS = True                 # Keep workers alive between ep
 
 # HDF5 dataset keys (must match data_simulator.py output)
 H5_KEYS = {
-    'log_amplitude': 'log_amplitude',             # (N_probes, 3) log-amplitude measurements
-    'phase': 'phase',                             # (N_probes, 3) phase measurements  
-    'source_pos': 'source_positions',             # (N_probes, 3) source coordinates
-    'det_pos': 'detector_positions',              # (N_probes, 3, 3) detector coordinates
+    'log_amplitude': 'log_amplitude',             # (N_measurements,) log-amplitude measurements
+    'phase': 'phase',                             # (N_measurements,) phase measurements  
+    'source_pos': 'source_positions',             # (N_measurements, 3) source coordinates
+    'det_pos': 'detector_positions',              # (N_measurements, 3) detector coordinates
     'ground_truth': 'ground_truth',               # (Nx, Ny, Nz, 2) optical property maps
     'tissue_labels': 'tissue_labels'              # (Nx, Ny, Nz) tissue type labels
 }
@@ -97,6 +100,30 @@ H5_KEYS = {
 # ===============================================================================
 # UTILITY FUNCTIONS
 # ===============================================================================
+
+def convert_physical_to_voxel_coordinates(physical_coords: np.ndarray) -> np.ndarray:
+    """
+    Convert physical coordinates (mm) to voxel indices.
+    
+    Physical coordinates are stored as mm from phantom center.
+    Voxel indices range from 0 to phantom_shape-1.
+    
+    Args:
+        physical_coords (np.ndarray): Physical coordinates in mm, shape (3,) or (N, 3)
+        
+    Returns:
+        np.ndarray: Voxel indices, same shape as input
+    """
+    # Convert from center-based physical coords to voxel indices
+    # Physical: [-64mm, +64mm] → Voxel: [0, 63]
+    voxel_coords = (physical_coords + PHANTOM_SIZE_MM/2) / VOXEL_SIZE_MM
+    
+    # Round to nearest integer and ensure within bounds
+    voxel_coords = np.round(voxel_coords).astype(int)
+    voxel_coords = np.clip(voxel_coords, 0, DEFAULT_PHANTOM_SHAPE[0] - 1)
+    
+    return voxel_coords
+
 
 def extract_tissue_patch(ground_truth: np.ndarray, 
                         position: np.ndarray, 
@@ -109,17 +136,20 @@ def extract_tissue_patch(ground_truth: np.ndarray,
     
     Args:
         ground_truth (np.ndarray): Full phantom optical properties, shape (2, Nx, Ny, Nz) - channels-first
-        position (np.ndarray): Center position coordinates [x, y, z] in voxel indices
+        position (np.ndarray): Center position coordinates [x, y, z] in physical coordinates (mm)
         patch_size (tuple): Patch dimensions (px, py, pz), default (7,7,7)
         
     Returns:
         np.ndarray: Flattened patch for tissue context encoder, shape (patch_size^3 * 2,)
     """
+    # Convert physical coordinates (mm) to voxel indices
+    voxel_position = convert_physical_to_voxel_coordinates(position)
+    
     n_channels, Nx, Ny, Nz = ground_truth.shape
     px, py, pz = patch_size
     
     # Convert position to integer indices
-    cx, cy, cz = int(position[0]), int(position[1]), int(position[2])
+    cx, cy, cz = int(voxel_position[0]), int(voxel_position[1]), int(voxel_position[2])
     
     # Calculate patch boundaries
     half_px, half_py, half_pz = px // 2, py // 2, pz // 2
@@ -328,16 +358,15 @@ class NIRPhantomDataset(Dataset):
         for phantom_file in self.phantom_files:
             try:
                 with h5py.File(phantom_file, 'r') as f:
-                    # Read probe count from HDF5 attributes or shape
-                    if 'n_probes' in f.attrs:
-                        n_probes = f.attrs['n_probes']
+                    # Read measurement count from HDF5 data (new 1:1 system)
+                    if 'n_measurements' in f.attrs:
+                        n_measurements = f.attrs['n_measurements']
                     else:
-                        n_probes = f[H5_KEYS['log_amplitude']].shape[0]
+                        n_measurements = f[H5_KEYS['log_amplitude']].shape[0]
                     
-                    # Each probe has 3 detectors, creating individual samples
-                    for probe_idx in range(n_probes):
-                        for det_idx in range(DEFAULT_N_DETECTORS_PER_SOURCE):  # Use constant for detector count
-                            sample_index.append((phantom_file, probe_idx, det_idx))
+                    # Each measurement is an independent source-detector pair
+                    for measurement_idx in range(n_measurements):
+                        sample_index.append((phantom_file, measurement_idx))
                             
             except Exception as e:
                 logger.warning(f"Error indexing {phantom_file}: {e}")
@@ -363,33 +392,32 @@ class NIRPhantomDataset(Dataset):
                 - 'dot_measurements': Ground truth volume (Nx, Ny, Nz) for reconstruction
                 - 'ground_truth': Same as dot_measurements (for consistency)
                 - 'tissue_patches': Combined tissue patches (num_patches, patch_size^3) if enabled
-                - 'metadata': [phantom_id, probe_id, detector_id] (3,)
+                - 'metadata': [phantom_id, measurement_id] (2,)
         """
-        phantom_file, probe_idx, det_idx = self.sample_index[idx]
+        phantom_file, measurement_idx = self.sample_index[idx]
         
         try:
             with h5py.File(phantom_file, 'r') as f:
-                # Load actual NIR measurement data (log amplitude and phase)
-                log_amplitude = f[H5_KEYS['log_amplitude']][probe_idx, det_idx]  # Shape: (3,) for 3 wavelengths
-                phase = f[H5_KEYS['phase']][probe_idx, det_idx]                   # Shape: (3,) for 3 wavelengths
+                # Load actual NIR measurement data (log amplitude and phase) - new 1:1 system
+                log_amplitude = f[H5_KEYS['log_amplitude']][measurement_idx]     # Shape: scalar for single measurement
+                phase = f[H5_KEYS['phase']][measurement_idx]                     # Shape: scalar for single measurement
                 
-                # Load geometry data for the measurement
-                source_pos = f[H5_KEYS['source_pos']][probe_idx]                  # Shape: (3,) for [x, y, z]
-                detector_pos = f[H5_KEYS['det_pos']][probe_idx, det_idx]          # Shape: (3,) for [x, y, z]
+                # Load geometry data for the measurement - new 1:1 system
+                source_pos = f[H5_KEYS['source_pos']][measurement_idx]           # Shape: (3,) for [x, y, z] in mm
+                detector_pos = f[H5_KEYS['det_pos']][measurement_idx]            # Shape: (3,) for [x, y, z] in mm
                 
                 # Combine measurements into a feature vector
                 # This is what the transformer should learn to map to the 512D CNN features
-                # Combine into NIR measurement feature vector
-                # CORRECTED: Single wavelength system (800nm), not multi-wavelength
+                # Single wavelength system (800nm), 1:1 source-detector pairing
                 nir_measurements = np.array([
                     float(log_amplitude),  # 1 scalar value (log amplitude)
                     float(phase),          # 1 scalar value (phase)
-                    source_pos[0],         # source x coordinate
-                    source_pos[1],         # source y coordinate  
-                    source_pos[2],         # source z coordinate
-                    detector_pos[0],       # detector x coordinate
-                    detector_pos[1],       # detector y coordinate
-                    detector_pos[2]        # detector z coordinate
+                    source_pos[0],         # source x coordinate (mm)
+                    source_pos[1],         # source y coordinate (mm)
+                    source_pos[2],         # source z coordinate (mm)  
+                    detector_pos[0],       # detector x coordinate (mm)
+                    detector_pos[1],       # detector y coordinate (mm)
+                    detector_pos[2]        # detector z coordinate (mm)
                 ])  # Total: DEFAULT_NIR_FEATURE_DIMENSION features per measurement
                 
                 # Load ground truth volume (this is what we're trying to reconstruct)
@@ -403,11 +431,8 @@ class NIRPhantomDataset(Dataset):
                 # Extract tissue patches if enabled (for stage 2 enhanced training)
                 tissue_patches = None
                 if self.use_tissue_patches:
-                    # Load geometry for patch extraction
-                    source_pos = f[H5_KEYS['source_pos']][probe_idx]
-                    detector_pos = f[H5_KEYS['det_pos']][probe_idx, det_idx]
-                    
-                    # Extract patches around source and detector
+                    # Extract patches around source and detector (now 1:1 mapping)
+                    # Note: positions are in physical coordinates (mm), conversion to voxel indices handled in extract_tissue_patch()
                     source_patch = extract_tissue_patch(ground_truth, source_pos, self.patch_size)
                     detector_patch = extract_tissue_patch(ground_truth, detector_pos, self.patch_size)
                     
@@ -431,7 +456,7 @@ class NIRPhantomDataset(Dataset):
             'nir_measurements': torch.tensor(nir_measurements, dtype=torch.float32),    # (DEFAULT_NIR_FEATURE_DIMENSION,) Raw NIR data
             'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),            # (DEFAULT_OPTICAL_CHANNELS, 64, 64, 64) Target volume  
             'volumes': torch.tensor(ground_truth, dtype=torch.float32),                 # (DEFAULT_OPTICAL_CHANNELS, 64, 64, 64) For Stage 1 input
-            'metadata': torch.tensor([phantom_id, probe_idx, det_idx], dtype=torch.long)
+            'metadata': torch.tensor([phantom_id, measurement_idx], dtype=torch.long)   # Updated for 1:1 measurement system
         }
         
         # Add tissue patches if enabled
@@ -442,9 +467,9 @@ class NIRPhantomDataset(Dataset):
     
     def get_complete_phantom(self, phantom_idx: int) -> Dict[str, torch.Tensor]:
         """
-        Load complete phantom data with all 1500 measurements for batch training.
+        Load complete phantom data with all 256 measurements for batch training.
         
-        This method loads the entire phantom dataset (DEFAULT_N_SOURCES sources × DEFAULT_N_DETECTORS_PER_SOURCE detectors = 1500 measurements)
+        This method loads the entire phantom dataset (DEFAULT_N_MEASUREMENTS independent source-detector pairs = 256 measurements)
         which is the correct format for our hybrid CNN-Transformer architecture.
         
         Args:
@@ -452,7 +477,7 @@ class NIRPhantomDataset(Dataset):
             
         Returns:
             Dict[str, torch.Tensor]: Complete phantom data containing:
-                - 'nir_measurements': All NIR measurements (1500, 8) - 8D features per measurement
+                - 'nir_measurements': All NIR measurements (256, 8) - 8D features per measurement
                 - 'ground_truth': Target volume (2, 64, 64, 64) - same for all measurements
                 - 'phantom_id': Phantom identifier for tracking
         """
@@ -463,38 +488,34 @@ class NIRPhantomDataset(Dataset):
         
         try:
             with h5py.File(phantom_file, 'r') as f:
-                # Load all NIR measurement data
-                log_amplitude = f[H5_KEYS['log_amplitude']][:]  # Shape: (DEFAULT_N_SOURCES, DEFAULT_N_DETECTORS_PER_SOURCE) 
-                phase = f[H5_KEYS['phase']][:]                   # Shape: (DEFAULT_N_SOURCES, DEFAULT_N_DETECTORS_PER_SOURCE)
+                # Load all NIR measurement data (new 1:1 system)
+                log_amplitude = f[H5_KEYS['log_amplitude']][:]  # Shape: (DEFAULT_N_MEASUREMENTS,) 
+                phase = f[H5_KEYS['phase']][:]                   # Shape: (DEFAULT_N_MEASUREMENTS,)
                 
-                # Load geometry data
-                source_pos = f[H5_KEYS['source_pos']][:]         # Shape: (DEFAULT_N_SOURCES, 3) for [x, y, z]
-                detector_pos = f[H5_KEYS['det_pos']][:]          # Shape: (DEFAULT_N_SOURCES, DEFAULT_N_DETECTORS_PER_SOURCE, 3)
+                # Load geometry data (new 1:1 system)
+                source_pos = f[H5_KEYS['source_pos']][:]         # Shape: (DEFAULT_N_MEASUREMENTS, 3) for [x, y, z] in mm
+                detector_pos = f[H5_KEYS['det_pos']][:]          # Shape: (DEFAULT_N_MEASUREMENTS, 3) for [x, y, z] in mm
                 
                 # Load ground truth volume (same for all measurements in phantom)
                 ground_truth = f[H5_KEYS['ground_truth']][:]     # Shape: (2, 64, 64, 64) - already channels-first
                 # No transpose needed since data is already in channels-first format!
                 
-                # Build complete measurement array (DEFAULT_N_SOURCES * DEFAULT_N_DETECTORS_PER_SOURCE, DEFAULT_NIR_FEATURE_DIMENSION)
-                n_sources, n_detectors = log_amplitude.shape
-                total_measurements = n_sources * n_detectors  # Should be 1500
+                # Build complete measurement array (DEFAULT_N_MEASUREMENTS, DEFAULT_NIR_FEATURE_DIMENSION)
+                n_measurements = log_amplitude.shape[0]
                 
-                nir_measurements = np.zeros((total_measurements, DEFAULT_NIR_FEATURE_DIMENSION), dtype=np.float32)
+                nir_measurements = np.zeros((n_measurements, DEFAULT_NIR_FEATURE_DIMENSION), dtype=np.float32)
                 
-                measurement_idx = 0
-                for source_idx in range(n_sources):
-                    for det_idx in range(n_detectors):
-                        nir_measurements[measurement_idx] = np.array([
-                            float(log_amplitude[source_idx, det_idx]),  # log amplitude
-                            float(phase[source_idx, det_idx]),          # phase
-                            source_pos[source_idx, 0],                  # source x
-                            source_pos[source_idx, 1],                  # source y
-                            source_pos[source_idx, 2],                  # source z
-                            detector_pos[source_idx, det_idx, 0],       # detector x
-                            detector_pos[source_idx, det_idx, 1],       # detector y
-                            detector_pos[source_idx, det_idx, 2]        # detector z
-                        ])
-                        measurement_idx += 1
+                for measurement_idx in range(n_measurements):
+                    nir_measurements[measurement_idx] = np.array([
+                        float(log_amplitude[measurement_idx]),      # log amplitude
+                        float(phase[measurement_idx]),              # phase
+                        source_pos[measurement_idx, 0],             # source x
+                        source_pos[measurement_idx, 1],             # source y
+                        source_pos[measurement_idx, 2],             # source z
+                        detector_pos[measurement_idx, 0],           # detector x
+                        detector_pos[measurement_idx, 1],           # detector y
+                        detector_pos[measurement_idx, 2]            # detector z
+                    ])
                 
                 # Extract phantom ID
                 phantom_id = int(phantom_file.stem.split('_')[1])
@@ -503,26 +524,26 @@ class NIRPhantomDataset(Dataset):
             logger.error(f"Error loading complete phantom {phantom_idx} from {phantom_file}: {e}")
             # Return zero-filled phantom
             return {
-                'nir_measurements': torch.zeros(DEFAULT_N_SOURCES * DEFAULT_N_DETECTORS_PER_SOURCE, DEFAULT_NIR_FEATURE_DIMENSION, dtype=torch.float32),
+                'nir_measurements': torch.zeros(DEFAULT_N_MEASUREMENTS, DEFAULT_NIR_FEATURE_DIMENSION, dtype=torch.float32),
                 'ground_truth': torch.zeros(DEFAULT_OPTICAL_CHANNELS, *DEFAULT_PHANTOM_SHAPE, dtype=torch.float32),
                 'phantom_id': torch.tensor(0, dtype=torch.long)
             }
         
         return {
-            'nir_measurements': torch.tensor(nir_measurements, dtype=torch.float32),  # (1500, DEFAULT_NIR_FEATURE_DIMENSION)
+            'nir_measurements': torch.tensor(nir_measurements, dtype=torch.float32),  # (256, DEFAULT_NIR_FEATURE_DIMENSION)
             'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),          # (DEFAULT_OPTICAL_CHANNELS, 64, 64, 64)
             'phantom_id': torch.tensor(phantom_id, dtype=torch.long)
         }
 
     def _get_empty_sample(self) -> Dict[str, torch.Tensor]:
         """Return zero-filled sample for error handling."""
-        # Create empty sample with correct dimensions based on actual data
+        # Create empty sample with correct dimensions based on actual data (updated for 1:1 system)
         sample = {
             'measurements': torch.zeros(DEFAULT_NIR_FEATURE_DIMENSION, dtype=torch.float32),                # (DEFAULT_NIR_FEATURE_DIMENSION,) NIR measurement vector
             'nir_measurements': torch.zeros(DEFAULT_NIR_FEATURE_DIMENSION, dtype=torch.float32),            # (DEFAULT_NIR_FEATURE_DIMENSION,) Raw NIR data
             'ground_truth': torch.zeros(DEFAULT_OPTICAL_CHANNELS, *DEFAULT_PHANTOM_SHAPE, dtype=torch.float32),     # (channels, H, W, D)
             'volumes': torch.zeros(DEFAULT_OPTICAL_CHANNELS, *DEFAULT_PHANTOM_SHAPE, dtype=torch.float32),          # (channels, H, W, D)
-            'metadata': torch.zeros(3, dtype=torch.long)
+            'metadata': torch.zeros(2, dtype=torch.long)  # Updated for [phantom_id, measurement_idx]
         }
         
         # Add empty tissue patches if using them
@@ -630,7 +651,7 @@ def create_phantom_dataloaders(data_dir: str = "../data",
     Create DataLoaders for complete phantom batching (batches of complete phantoms).
     
     This creates a custom DataLoader that returns batches of complete phantoms,
-    where each phantom contains all 1500 measurements. This is the correct format
+    where each phantom contains all 256 measurements. This is the correct format
     for our hybrid CNN-Transformer architecture.
     
     Args:

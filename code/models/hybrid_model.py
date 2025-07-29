@@ -49,6 +49,7 @@ DEFAULT_CNN_BASE_CHANNELS = 64          # Base CNN channels
 
 # NIR Measurement Configuration
 DEFAULT_NIR_INPUT_DIM = 8               # 8D NIR feature vectors (log_amp, phase, source_xyz, det_xyz)
+DEFAULT_N_MEASUREMENTS = 256            # Number of independent source-detector pairs per phantom (new 1:1 system)
 
 # Tissue Context Encoder Configuration
 DEFAULT_PATCH_SIZE = 7                  # Tissue patch size
@@ -249,24 +250,24 @@ class HybridCNNTransformer(nn.Module):
             # Stage 2: Handle NIR measurements → Transformer → CNN decoder
             
             # Check input type: NIR measurements vs ground truth volumes
-            # NEW FORMAT: NIR measurements are (batch_size, 1500, 8) for complete phantoms
+            # NEW FORMAT: NIR measurements are (batch_size, 256, 8) for complete phantoms
             # OLD FORMAT: Individual measurements were (batch_size, 8)
             if len(dot_measurements.shape) == 3 and dot_measurements.shape[2] == self.nir_input_dim:
                 logger.debug(f"🔍 Processing NIR measurements: {dot_measurements.shape}")
-                # Complete phantom NIR measurements: (batch_size, 1500, nir_input_dim)
+                # Complete phantom NIR measurements: (batch_size, 256, nir_input_dim)
                 batch_size, n_measurements, n_features = dot_measurements.shape
                 logger.debug(f"📦 NIR measurements breakdown: batch_size={batch_size}, n_measurements={n_measurements}, n_features={n_features}")
                 
                 # Reshape to process all measurements in batch
-                nir_features = dot_measurements.view(-1, n_features)  # (batch_size * 1500, nir_input_dim)
+                nir_features = dot_measurements.view(-1, n_features)  # (batch_size * 256, nir_input_dim)
                 logger.debug(f"📦 Reshaped NIR features: {nir_features.shape}")
                 
                 # Project all measurements to CNN feature space  
-                projected_features = self.nir_projection(nir_features)  # (batch_size * 1500, 512)
+                projected_features = self.nir_projection(nir_features)  # (batch_size * 256, 512)
                 logger.debug(f"📦 Projected features: {projected_features.shape}")
                 
                 # Reshape back to batch format and aggregate measurements per phantom
-                projected_features = projected_features.view(batch_size, n_measurements, 512)  # (batch_size, 1500, 512)
+                projected_features = projected_features.view(batch_size, n_measurements, 512)  # (batch_size, 256, 512)
                 logger.debug(f"📦 Reshaped projected features: {projected_features.shape}")
                 
                 # Aggregate measurements to single feature vector per phantom

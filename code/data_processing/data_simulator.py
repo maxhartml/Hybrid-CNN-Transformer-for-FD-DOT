@@ -72,7 +72,7 @@ DEFAULT_PHANTOM_SHAPE = (64, 64, 64)        # Default cubic phantom dimensions i
 DEFAULT_TISSUE_RADIUS_RANGE = (26, 30)      # Healthy tissue ellipsoid semi-axis range (52-60mm with 2mm voxels)
 DEFAULT_TUMOR_RADIUS_RANGE = (5, 10)        # Tumor ellipsoid semi-axis range (10-20mm with 2mm voxels)
 DEFAULT_MAX_TUMORS = 5                       # Maximum number of tumors per phantom
-DEFAULT_N_PROBES = 500                       # Optimal probe count for ML training
+DEFAULT_N_MEASUREMENTS = 256                # Number of independent source-detector pairs per phantom
 DEFAULT_MIN_PROBE_DISTANCE = 10              # Minimum source-detector separation [mm] (standard diffusive regime)
 DEFAULT_MAX_PROBE_DISTANCE = 50              # Maximum source-detector separation [mm] (optimal clinical coverage)
 DEFAULT_PATCH_RADIUS = 40                    # Patch radius [mm] for surface probe placement (scaled for larger phantom)
@@ -745,28 +745,28 @@ def find_safe_patch_centers(surface_coordinates, patch_radius=DEFAULT_PATCH_RADI
     return safe_centers
 
 
-def build_patch_based_probe_layout(surface_coordinates, n_probes=DEFAULT_N_PROBES,
+def build_patch_based_probe_layout(surface_coordinates, n_measurements=DEFAULT_N_MEASUREMENTS,
                                  patch_radius=DEFAULT_PATCH_RADIUS,
                                  min_source_detector_distance=DEFAULT_MIN_PROBE_DISTANCE,
                                  max_source_detector_distance=DEFAULT_MAX_PROBE_DISTANCE,
                                  min_patch_voxels=DEFAULT_MIN_PATCH_VOXELS,
                                  rng_seed=None):
     """
-    Generates realistic probe configurations using patch-based surface sampling for clinical fidelity.
+    Generates realistic probe configurations using independent source-detector pairs for optimal ML training.
     
-    This function implements the advanced patch-based probe placement strategy:
+    This function implements pure random source-detector pairing strategy:
     1. Identifies safe patch centers that can support full 40mm radius patches
     2. Randomly selects one patch center per phantom for spatial diversity
     3. Creates localized surface patch within specified radius
-    4. Places 500 sources randomly within the patch region
-    5. For each source, selects 3 detectors within clinical SDS range (10-40mm)
+    4. Places 256 independent source-detector pairs randomly within the patch region
+    5. Each measurement is a unique source-detector pair within clinical SDS range (10-50mm)
     
     Key Advantages:
-    - Eliminates "god's eye view" by constraining probes to realistic local regions
+    - Eliminates measurement bias from rigid probe grouping (no 1-source + 3-detector constraints)
+    - Maximizes spatial sampling diversity for better ML model generalization
+    - Reduces measurement count to 256 for faster training while maintaining coverage
     - Ensures all probe positions lie exactly on tissue surface via binary erosion
     - Enforces clinical SDS constraints for physiological measurement realism
-    - Provides one patch per phantom for diverse training data without spatial bias
-    - Supports efficient distance calculations within localized regions
     
     Clinical Realism Features:
     - Patch size (80mm diameter) matches typical clinical probe array footprints for larger phantoms
@@ -776,25 +776,25 @@ def build_patch_based_probe_layout(surface_coordinates, n_probes=DEFAULT_N_PROBE
     
     Args:
         surface_coordinates (numpy.ndarray): Surface voxel positions from binary erosion, shape (N_surface, 3)
-        n_probes (int): Number of source positions to place within the patch (500 for training diversity)
+        n_measurements (int): Number of independent source-detector pairs to place (256 for optimal training)
         patch_radius (float): Patch radius in mm defining local probe placement region (40mm clinical size)
         min_source_detector_distance (float): Minimum SDS in mm for diffusive regime validity (10mm)
         max_source_detector_distance (float): Maximum SDS in mm for clinical realism (50mm) 
-        min_patch_voxels (int): Minimum surface voxels required for valid patch (100 for adequate sampling)
+        min_patch_voxels (int): Minimum surface voxels required for valid patch (500 for adequate sampling)
         rng_seed (int): Random seed for reproducible patch selection and probe placement
         
     Returns:
         tuple: (probe_sources, probe_detectors, measurement_links, patch_info) where:
-            - probe_sources: Source positions within patch, shape (N_placed_probes, 3)
-            - probe_detectors: Detector positions (3 per source), shape (N_placed_probes*3, 3) 
-            - measurement_links: Source-detector connectivity, shape (N_measurements, 3)
+            - probe_sources: Source positions for measurements, shape (n_measurements, 3)
+            - probe_detectors: Detector positions for measurements, shape (n_measurements, 3) 
+            - measurement_links: Source-detector connectivity, shape (n_measurements, 3)
             - patch_info: Dictionary containing patch metadata for visualization and analysis
     """
     # Initialize controlled randomization for reproducible patch-based placement
     rng = np.random.default_rng(rng_seed)
     
     logger.info(f"Starting patch-based probe layout generation")
-    logger.info(f"Target: {n_probes} probes in {patch_radius}mm radius patch (SDS range: {min_source_detector_distance}-{max_source_detector_distance}mm)")
+    logger.info(f"Target: {n_measurements} independent source-detector pairs in {patch_radius}mm radius patch (SDS range: {min_source_detector_distance}-{max_source_detector_distance}mm)")
     logger.debug(f"Available surface positions: {len(surface_coordinates):,} voxels (seed={rng_seed})")
     
     # STEP 5.1: Identify safe patch centers that can support full radius patches
@@ -829,19 +829,19 @@ def build_patch_based_probe_layout(surface_coordinates, n_probes=DEFAULT_N_PROBE
     if patch_size < min_patch_voxels:
         logger.warning(f"Patch size ({patch_size}) below minimum requirement ({min_patch_voxels})")
     
-    # STEP 5.4: Place sources randomly within the patch region
-    logger.debug("Step 4/5: Placing sources within patch...")
+    # STEP 5.4: Place independent source-detector pairs randomly within the patch region
+    logger.debug("Step 4/5: Placing independent source-detector pairs within patch...")
     all_probe_sources, all_probe_detectors, measurement_links = [], [], []
     placement_attempts = 0
-    max_placement_attempts = n_probes * 10  # Prevent infinite loops
+    max_placement_attempts = n_measurements * 20  # Prevent infinite loops with generous limit
     
-    for probe_idx in range(n_probes):
-        if (probe_idx + 1) % 50 == 0:  # Progress logging for large probe counts
-            logger.debug(f"Source placement progress: {probe_idx+1}/{n_probes}")
+    for measurement_idx in range(n_measurements):
+        if (measurement_idx + 1) % 50 == 0:  # Progress logging
+            logger.debug(f"Measurement placement progress: {measurement_idx+1}/{n_measurements}")
             
         # Implement rejection sampling with failure detection
-        source_placed = False
-        while not source_placed and placement_attempts < max_placement_attempts:
+        pair_placed = False
+        while not pair_placed and placement_attempts < max_placement_attempts:
             placement_attempts += 1
             
             # STEP 5.4.1: Randomly sample source position from patch surface voxels
@@ -859,35 +859,31 @@ def build_patch_based_probe_layout(surface_coordinates, n_probes=DEFAULT_N_PROBE
             valid_detector_coordinates = patch_surface_coordinates[distance_mask]  # Voxel coordinates
             
             # STEP 5.4.3: Validate sufficient detector availability
-            if len(valid_detector_coordinates) < 3:
+            if len(valid_detector_coordinates) < 1:
                 continue  # Retry with different source position within patch
             
-            # STEP 5.4.4: Randomly select 3 detectors from valid candidates
-            detector_indices = rng.choice(len(valid_detector_coordinates), size=3, replace=False)
-            selected_detector_positions = valid_detector_coordinates[detector_indices]
+            # STEP 5.4.4: Randomly select 1 detector from valid candidates
+            detector_idx = rng.integers(0, len(valid_detector_coordinates))
+            selected_detector_position = valid_detector_coordinates[detector_idx]
             
-            # STEP 5.4.5: Store successful probe configuration
+            # STEP 5.4.5: Store successful source-detector pair
             all_probe_sources.append(current_source_position)
-            all_probe_detectors.extend(selected_detector_positions)
+            all_probe_detectors.append(selected_detector_position)
             
-            # STEP 5.4.6: Generate measurement connectivity links
-            detector_base_index = 3 * probe_idx
-            measurement_links.extend([[probe_idx, detector_base_index+0, 1],    # Source → Detector 1
-                                     [probe_idx, detector_base_index+1, 1],    # Source → Detector 2
-                                     [probe_idx, detector_base_index+2, 1]])   # Source → Detector 3
-            source_placed = True
+            # STEP 5.4.6: Generate measurement connectivity link
+            measurement_links.append([measurement_idx, measurement_idx, 1])  # One-to-one source-detector mapping
+            pair_placed = True
     
     # STEP 5.5: Validate and report placement results
     n_placed = len(all_probe_sources)
-    n_measurements = len(measurement_links)
     placement_efficiency = n_placed / placement_attempts * 100 if placement_attempts > 0 else 0
     
     logger.info(f"✓ Patch-based probe layout completed")
-    logger.info(f"Successfully placed: {n_placed}/{n_probes} probes ({n_measurements} measurements)")
+    logger.info(f"Successfully placed: {n_placed}/{n_measurements} independent source-detector pairs")
     logger.debug(f"Placement efficiency: {placement_efficiency:.1f}% ({placement_attempts} total attempts)")
     
-    if n_placed < n_probes:
-        logger.warning(f"Could not place all requested probes due to SDS constraints within patch")
+    if n_placed < n_measurements:
+        logger.warning(f"Could not place all requested measurements due to SDS constraints within patch")
         logger.info(f"Consider adjusting patch radius or SDS range for higher placement success rate")
     
     # STEP 5.6: Compile patch metadata for visualization and analysis
@@ -896,8 +892,6 @@ def build_patch_based_probe_layout(surface_coordinates, n_probes=DEFAULT_N_PROBE
         'radius': patch_radius,
         'surface_voxels_in_patch': patch_size,
         'safe_centers_available': len(safe_patch_centers),
-        'probes_placed': n_placed,
-        'placement_efficiency': placement_efficiency,
         'patch_surface_coordinates': patch_surface_coordinates,  # For visualization
         'sds_range': (min_source_detector_distance, max_source_detector_distance)
     }
@@ -1048,8 +1042,8 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
     # Log-amplitude transformation for neural network numerical stability
     # Converts exponential distance decay to linear relationship, preventing gradient explosion
     # Clips small values to prevent -∞ from log(0) and maintains numerical stability
-    log_amplitude_processed = np.log(np.clip(noisy_amplitude, 1e-8, None)).reshape(-1, 3)
-    phase_processed = noisy_phase.reshape(-1, 3)  # Reshape to (N_sources, 3_detectors) format
+    log_amplitude_processed = np.log(np.clip(noisy_amplitude, 1e-8, None))  # Keep as 1D vector (N_measurements,)
+    phase_processed = noisy_phase  # Keep as 1D vector (N_measurements,)
     
     # Validate processed measurement ranges for neural network compatibility
     log_amp_range = [log_amplitude_processed.min(), log_amplitude_processed.max()]
@@ -1078,7 +1072,7 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
         log_amp_dataset.attrs["description"] = "Natural logarithm of photon fluence amplitude measurements"
         log_amp_dataset.attrs["processing"] = "Log-transformed for neural network stability, clipped at 1e-8"
         log_amp_dataset.attrs["noise_model"] = f"{AMPLITUDE_NOISE_PERCENTAGE*100:.1f}% relative Gaussian noise"
-        log_amp_dataset.attrs["shape_interpretation"] = "(N_sources, 3_detectors_per_source)"
+        log_amp_dataset.attrs["shape_interpretation"] = "(N_measurements,) - one value per independent source-detector pair"
         
         phase_dataset = h5_file.create_dataset("phase", data=phase_processed,
                                               compression="gzip", compression_opts=6)
@@ -1086,7 +1080,7 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
         phase_dataset.attrs["description"] = "Phase delay measurements relative to source modulation"
         phase_dataset.attrs["noise_model"] = f"±{PHASE_NOISE_STD_DEGREES}° additive Gaussian noise"
         phase_dataset.attrs["phase_reference"] = "Relative to source modulation at specified frequency"
-        phase_dataset.attrs["shape_interpretation"] = "(N_sources, 3_detectors_per_source)"
+        phase_dataset.attrs["shape_interpretation"] = "(N_measurements,) - one value per independent source-detector pair"
 
         # SUBSTEP 5.2: Save complete geometric configuration for reconstruction and visualization
         source_dataset = h5_file.create_dataset("source_positions", data=probe_sources_mm)
@@ -1095,12 +1089,12 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
         source_dataset.attrs["coordinate_system"] = f"Physical coordinates in millimeters (voxel_size={VOXEL_SIZE_MM}mm)"
         source_dataset.attrs["placement_method"] = "Patch-based surface sampling with clinical constraints"
         
-        detector_dataset = h5_file.create_dataset("detector_positions", data=probe_detectors_mm.reshape(-1,3,3))
+        detector_dataset = h5_file.create_dataset("detector_positions", data=probe_detectors_mm)
         detector_dataset.attrs["units"] = "mm"
-        detector_dataset.attrs["description"] = "Detector positions grouped by source (3 detectors per source)"
+        detector_dataset.attrs["description"] = "Detector positions for independent measurements (one per measurement)"
         detector_dataset.attrs["coordinate_system"] = f"Physical coordinates in millimeters (voxel_size={VOXEL_SIZE_MM}mm)"
         detector_dataset.attrs["sds_range"] = f"[{DEFAULT_MIN_PROBE_DISTANCE}, {DEFAULT_MAX_PROBE_DISTANCE}]mm"
-        detector_dataset.attrs["grouping"] = "Shape: (N_sources, 3, 3) for [source_idx][detector_idx][x,y,z]"
+        detector_dataset.attrs["grouping"] = "Shape: (N_measurements, 3) for [measurement_idx][x,y,z]"
         
         # SUBSTEP 5.3: Save measurement connectivity matrix for source-detector pairing validation
         links_dataset = h5_file.create_dataset("measurement_links", data=measurement_links)
@@ -1407,10 +1401,10 @@ def main():
     # STEP 2: Configure dataset generation parameters for machine learning training requirements
     # Generate multiple phantoms to ensure statistical diversity and prevent overfitting in ML models
     n_phantoms = 10  # Production dataset size for robust ML training
-    expected_measurements = n_phantoms * DEFAULT_N_PROBES * 3  # Total measurement count for memory planning
+    expected_measurements = n_phantoms * DEFAULT_N_MEASUREMENTS  # Total measurement count for memory planning
     
     logger.info(f"Generating {n_phantoms} phantom datasets for machine learning training")
-    logger.info(f"Expected measurement count: {n_phantoms} phantoms × {DEFAULT_N_PROBES} probes × 3 detectors = {expected_measurements:,} measurements")
+    logger.info(f"Expected measurement count: {n_phantoms} phantoms × {DEFAULT_N_MEASUREMENTS} measurements = {expected_measurements:,} measurements")
     logger.info(f"Estimated dataset size: ~{expected_measurements * 8 / 1024**2:.1f} MB (float64 measurements)")
     
     # STEP 3: Execute iterative phantom generation with comprehensive quality control
@@ -1460,7 +1454,7 @@ def main():
         logger.info("Step 4/6: Extracting tissue surface and generating patch-based probe layout")
         surface_coordinates = extract_surface_voxels(phantom_volume)  # Morphological surface extraction
         probe_sources, probe_detectors, measurement_links, patch_info = build_patch_based_probe_layout(
-            surface_coordinates, n_probes=DEFAULT_N_PROBES, rng_seed=123+phantom_idx)  # Unique seed per phantom
+            surface_coordinates, n_measurements=DEFAULT_N_MEASUREMENTS, rng_seed=123+phantom_idx)  # Unique seed per phantom
 
         # SUBSTEP 3.6: Generate probe visualizations for quality assurance and validation
         # Visualization enables geometric validation and provides educational materials
@@ -1470,7 +1464,7 @@ def main():
         # Generate detailed visualization for the first probe of each phantom
         if len(probe_sources) > 0:  # Ensure probes were successfully placed
             first_source = probe_sources[0]  # Select first source for visualization
-            first_detectors = probe_detectors[0:3]  # First 3 detectors associated with first source
+            first_detectors = probe_detectors[0:1]  # First detector associated with first measurement
             
             # Generate 3D visualization with surface boundaries and probe positioning
             # Note: show_interactive=False to avoid popup windows
@@ -1533,7 +1527,7 @@ def main():
     logger.info(f"  • Phantom dimensions: {DEFAULT_PHANTOM_SHAPE[0]}×{DEFAULT_PHANTOM_SHAPE[1]}×{DEFAULT_PHANTOM_SHAPE[2]} voxels")
     logger.info(f"  • Tissue radius range: {DEFAULT_TISSUE_RADIUS_RANGE[0]}-{DEFAULT_TISSUE_RADIUS_RANGE[1]} mm")
     logger.info(f"  • Tumor radius range: {DEFAULT_TUMOR_RADIUS_RANGE[0]}-{DEFAULT_TUMOR_RADIUS_RANGE[1]} mm")
-    logger.info(f"  • Probes per phantom: {DEFAULT_N_PROBES} sources × 3 detectors = {DEFAULT_N_PROBES * 3:,} measurements")
+    logger.info(f"  • Measurements per phantom: {DEFAULT_N_MEASUREMENTS} independent source-detector pairs")
     logger.info(f"  • Source-detector separation: {DEFAULT_MIN_PROBE_DISTANCE}-{DEFAULT_MAX_PROBE_DISTANCE}mm (clinical range)")
     logger.info(f"  • Patch radius: {DEFAULT_PATCH_RADIUS}mm (realistic probe array constraints)")
     logger.info(f"  • Frequency-domain modulation: {DEFAULT_FD_FREQUENCY/1e6:.0f} MHz")

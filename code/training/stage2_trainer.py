@@ -298,7 +298,7 @@ class Stage2Trainer:
             logger.debug(f"🔍 Processing Stage 2 batch {batch_idx + 1}/{len(data_loader)}")
             
             # In Stage 2: Complete phantom NIR measurements are input, ground truth volumes are target
-            nir_measurements = batch['nir_measurements'].to(self.device)  # Shape: (batch_size, 1500, 8)
+            nir_measurements = batch['nir_measurements'].to(self.device)  # Shape: (batch_size, 256, 8)
             targets = batch['ground_truth'].to(self.device)               # Shape: (batch_size, 2, 64, 64, 64)
             
             logger.debug(f"📦 NIR measurements shape: {nir_measurements.shape}")
@@ -317,7 +317,7 @@ class Stage2Trainer:
             logger.debug("⚡ Starting Stage 2 forward pass (NIR → features → reconstruction)...")
             self.optimizer.zero_grad()
             
-            # The hybrid model handles: NIR measurements (batch, 1500, 8) → 512D features → reconstruction
+            # The hybrid model handles: NIR measurements (batch, 256, 8) → 512D features → reconstruction
             outputs = self.model(nir_measurements, tissue_patches)
             logger.debug(f"📤 Stage 2 model output shape: {outputs['reconstructed'].shape}")
             
@@ -372,7 +372,7 @@ class Stage2Trainer:
             for batch_idx, batch in enumerate(data_loader):
                 logger.debug(f"🔍 Validating Stage 2 batch {batch_idx + 1}/{len(data_loader)}")
                 
-                nir_measurements = batch['nir_measurements'].to(self.device)  # Shape: (batch_size, 1500, 8)
+                nir_measurements = batch['nir_measurements'].to(self.device)  # Shape: (batch_size, 256, 8)
                 targets = batch['ground_truth'].to(self.device)               # Shape: (batch_size, 2, 64, 64, 64)
                 
                 logger.debug(f"📦 Stage 2 validation NIR shape: {nir_measurements.shape}")

@@ -468,20 +468,19 @@ class NIRDatasetAnalyzer:
                 }
             }
             
-            # Detector analysis
-            if len(det_pos.shape) == 3:  # (n_sources, n_dets, 3)
-                results[phantom_name]['n_detectors_per_source'] = det_pos.shape[1]
-                results[phantom_name]['total_detectors'] = det_pos.shape[0] * det_pos.shape[1]
+            # Detector analysis (updated for new 1:1 measurement system)
+            if len(det_pos.shape) == 2:  # (n_measurements, 3) - new 1:1 system
+                results[phantom_name]['n_measurements'] = det_pos.shape[0]
+                results[phantom_name]['total_detectors'] = det_pos.shape[0]  # One detector per measurement
                 
-                # Calculate all source-detector distances
+                # Calculate all source-detector distances (1:1 pairing)
                 distances = []
                 for i in range(len(source_pos)):
                     src = source_pos[i]
-                    dets = det_pos[i]
-                    for det in dets:
-                        dist = np.linalg.norm(det - src)
-                        distances.append(dist)
-                        all_distances.append(dist)
+                    det = det_pos[i]  # Single detector for this measurement
+                    dist = np.linalg.norm(det - src)
+                    distances.append(dist)
+                    all_distances.append(dist)
                 
                 if distances:
                     distances = np.array(distances)
@@ -886,19 +885,18 @@ class NIRDatasetAnalyzer:
             print(f"   {name}-axis: [{coords.min():.1f}, {coords.max():.1f}] "
                   f"(mean: {coords.mean():.1f}, std: {coords.std():.1f})")
         
-        # Calculate source-detector distances
-        if len(det_pos.shape) == 3:  # (n_probes, n_detectors, 3)
+        # Calculate source-detector distances (updated for 1:1 system)
+        if len(det_pos.shape) == 2:  # (n_measurements, 3) - new 1:1 system
             print(f"\n📏 Source-Detector Distances:")
             distances = []
             for i in range(len(source_pos)):
                 src = source_pos[i]
-                dets = det_pos[i]
-                probe_distances = [np.linalg.norm(det - src) for det in dets]
-                distances.extend(probe_distances)
+                det = det_pos[i]  # Single detector for this measurement
+                distance = np.linalg.norm(det - src)
+                distances.append(distance)
                 
-                if i < 5:  # Show first 5 probes
-                    dist_str = ", ".join([f"{d:.1f}mm" for d in probe_distances])
-                    print(f"   Probe {i+1}: {dist_str}")
+                if i < 5:  # Show first 5 measurements
+                    print(f"   Measurement {i+1}: {distance:.1f}mm")
             
             distances = np.array(distances)
             print(f"\n📊 Distance Statistics:")
@@ -1269,21 +1267,19 @@ class NIRDatasetAnalyzer:
                                        c=COLORS['source'], s=50, alpha=0.9, 
                                        edgecolors='black', linewidth=1, label='Sources')
             
-            # Detectors with enhanced styling
-            if len(det_pos.shape) == 3:
-                det_flat = det_pos.reshape(-1, 3)
-                det_colors = plt.cm.viridis(np.linspace(0, 1, len(det_flat)))
-                det_scatter = ax5.scatter(det_flat[:, 0], det_flat[:, 1], det_flat[:, 2], 
+            # Detectors with enhanced styling (updated for 1:1 system)
+            if len(det_pos.shape) == 2:  # (n_measurements, 3) - new format
+                det_colors = plt.cm.viridis(np.linspace(0, 1, len(det_pos)))
+                det_scatter = ax5.scatter(det_pos[:, 0], det_pos[:, 1], det_pos[:, 2], 
                                         c=det_colors, s=20, alpha=0.7, 
                                         edgecolors='white', linewidth=0.5, label='Detectors')
                 
-                # Add connection lines for first few probes (cleaner visualization)
+                # Add connection lines for first few measurements (cleaner visualization)
                 for i in range(min(3, len(source_pos))):
                     src = source_pos[i]
-                    dets = det_pos[i]
-                    for det in dets:
-                        ax5.plot([src[0], det[0]], [src[1], det[1]], [src[2], det[2]], 
-                               color=COLORS['primary'], alpha=0.2, linewidth=1)
+                    det = det_pos[i]  # Single detector for this measurement
+                    ax5.plot([src[0], det[0]], [src[1], det[1]], [src[2], det[2]], 
+                           color=COLORS['primary'], alpha=0.2, linewidth=1)
             
             ax5.set_title('3D Probe Geometry', fontweight='bold', pad=15)
             ax5.set_xlabel('X (mm)', fontweight='bold')
@@ -1460,14 +1456,13 @@ class NIRDatasetAnalyzer:
                 print(f"\n📏 SOURCE-DETECTOR SEPARATION ANALYSIS")
                 print("-"*40)
                 
-                # Calculate all SDS distances
+                # Calculate all SDS distances (updated for 1:1 system)
                 all_distances = []
-                for i in range(n_probes):
+                for i in range(n_probes):  # n_probes is now n_measurements
                     source = source_pos[i]
-                    detectors = det_pos[i]  # 3 detectors for this source
-                    for detector in detectors:
-                        distance = np.linalg.norm(source - detector)
-                        all_distances.append(distance)
+                    detector = det_pos[i]  # Single detector for this measurement
+                    distance = np.linalg.norm(source - detector)
+                    all_distances.append(distance)
                 
                 all_distances = np.array(all_distances)
                 print(f"SDS Distance Statistics:")
