@@ -73,9 +73,9 @@ DEFAULT_TISSUE_RADIUS_RANGE = (26, 30)      # Healthy tissue ellipsoid semi-axis
 DEFAULT_TUMOR_RADIUS_RANGE = (5, 10)        # Tumor ellipsoid semi-axis range (10-20mm with 2mm voxels)
 DEFAULT_MAX_TUMORS = 5                       # Maximum number of tumors per phantom
 DEFAULT_N_MEASUREMENTS = 256                # Number of independent source-detector pairs per phantom
-DEFAULT_MIN_PROBE_DISTANCE = 10              # Minimum source-detector separation [mm] (standard diffusive regime)
-DEFAULT_MAX_PROBE_DISTANCE = 50              # Maximum source-detector separation [mm] (optimal clinical coverage)
-DEFAULT_PATCH_RADIUS = 40                    # Patch radius [mm] for surface probe placement (scaled for larger phantom)
+DEFAULT_MIN_PROBE_DISTANCE = 10              # Minimum source-detector separation [mm] for diffusive regime validity
+DEFAULT_MAX_PROBE_DISTANCE = 40              # Maximum source-detector separation [mm] for clinical realism
+DEFAULT_PATCH_RADIUS = 40                    # Patch radius [mm] for surface probe placement (clinical probe array size)
 DEFAULT_MIN_PATCH_VOXELS = 500               # Minimum surface voxels for valid patch placement
 DEFAULT_FD_FREQUENCY = 140e6                 # Frequency-domain modulation frequency [Hz]
 DEFAULT_MESH_CELL_SIZE = 1.65                # CGAL mesh characteristic cell size [mm] (maintained for high accuracy)
@@ -665,12 +665,14 @@ def convert_voxel_to_physical_coordinates(voxel_coordinates):
     using the global voxel size. Critical for accurate distance calculations in probe placement.
     
     Args:
-        voxel_coordinates (numpy.ndarray): Voxel indices, shape (N, 3)
+        voxel_coordinates (numpy.ndarray or list): Voxel indices, shape (N, 3)
         
     Returns:
         numpy.ndarray: Physical coordinates in mm, shape (N, 3)
     """
-    return voxel_coordinates.astype(float) * VOXEL_SIZE_MM
+    # Ensure input is a NumPy array for consistent processing
+    voxel_coords_array = np.array(voxel_coordinates)
+    return voxel_coords_array.astype(float) * VOXEL_SIZE_MM
 
 def find_safe_patch_centers(surface_coordinates, patch_radius=DEFAULT_PATCH_RADIUS, 
                            min_patch_voxels=DEFAULT_MIN_PATCH_VOXELS, rng_seed=None):
@@ -759,7 +761,7 @@ def build_patch_based_probe_layout(surface_coordinates, n_measurements=DEFAULT_N
     2. Randomly selects one patch center per phantom for spatial diversity
     3. Creates localized surface patch within specified radius
     4. Places 256 independent source-detector pairs randomly within the patch region
-    5. Each measurement is a unique source-detector pair within clinical SDS range (10-50mm)
+    5. Each measurement is a unique source-detector pair within clinical SDS range (10-40mm)
     
     Key Advantages:
     - Eliminates measurement bias from rigid probe grouping (no 1-source + 3-detector constraints)
@@ -770,7 +772,7 @@ def build_patch_based_probe_layout(surface_coordinates, n_measurements=DEFAULT_N
     
     Clinical Realism Features:
     - Patch size (80mm diameter) matches typical clinical probe array footprints for larger phantoms
-    - SDS range (10-50mm) reflects real NIR measurement capabilities for 2mm voxel phantoms
+    - SDS range (10-40mm) reflects real NIR measurement capabilities for 2mm voxel phantoms
     - Single patch placement simulates realistic partial tissue coverage scenarios
     - Surface-only placement prevents non-physical floating probe positions
     
@@ -779,7 +781,7 @@ def build_patch_based_probe_layout(surface_coordinates, n_measurements=DEFAULT_N
         n_measurements (int): Number of independent source-detector pairs to place (256 for optimal training)
         patch_radius (float): Patch radius in mm defining local probe placement region (40mm clinical size)
         min_source_detector_distance (float): Minimum SDS in mm for diffusive regime validity (10mm)
-        max_source_detector_distance (float): Maximum SDS in mm for clinical realism (50mm) 
+        max_source_detector_distance (float): Maximum SDS in mm for clinical realism (40mm) 
         min_patch_voxels (int): Minimum surface voxels required for valid patch (500 for adequate sampling)
         rng_seed (int): Random seed for reproducible patch selection and probe placement
         
@@ -857,12 +859,13 @@ def build_patch_based_probe_layout(surface_coordinates, n_measurements=DEFAULT_N
             distance_mask = (source_to_patch_distances >= min_source_detector_distance) & \
                            (source_to_patch_distances <= max_source_detector_distance)
             valid_detector_coordinates = patch_surface_coordinates[distance_mask]  # Voxel coordinates
+            valid_distances = source_to_patch_distances[distance_mask]
             
             # STEP 5.4.3: Validate sufficient detector availability
             if len(valid_detector_coordinates) < 1:
                 continue  # Retry with different source position within patch
             
-            # STEP 5.4.4: Randomly select 1 detector from valid candidates
+            # STEP 5.4.4: Randomly select 1 detector with uniform sampling
             detector_idx = rng.integers(0, len(valid_detector_coordinates))
             selected_detector_position = valid_detector_coordinates[detector_idx]
             
@@ -1134,7 +1137,7 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
         
     file_size_mb = os.path.getsize(output_h5_filename) / (1024**2)
     logger.info(f"✓ Dataset saved successfully - {output_h5_filename} ({file_size_mb:.1f} MB)")
-    logger.info(f"Final dataset: {log_amplitude_processed.shape[0]} probes × {log_amplitude_processed.shape[1]} detectors")
+    logger.info(f"Final dataset: {log_amplitude_processed.shape[0]} independent source-detector measurements")
     logger.debug(f"Ground truth shape: {ground_truth_maps.shape[0]}×{ground_truth_maps.shape[1]}×{ground_truth_maps.shape[2]}×{ground_truth_maps.shape[3]} voxels")
 
 # --------------------------------------------------------------
@@ -1143,196 +1146,153 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
 
 def visualize_probe_on_mesh(phantom_volume, phantom_mesh, source_position, detector_positions, probe_index, save_directory, patch_info=None, show_interactive=False):
     """
-    Generates a 3D visualization of the patch-based probe configuration on the phantom.
+    Create clean 3D visualization showing key tissue regions and single source-detector pair.
 
-    Shows tissue and tumor surfaces, mesh nodes, probe source and detectors, and the patch region.
-    Uses color coding for tissue, tumors, patch, and probes. Saves a high-resolution PNG and optionally displays interactively.
-
-    Args:
-        phantom_volume (np.ndarray): Labeled phantom volume (Nx, Ny, Nz).
-        phantom_mesh (nirfasterff.base.stndmesh): FEM mesh with node coordinates and region labels.
-        source_position (np.ndarray): Source position [x, y, z].
-        detector_positions (np.ndarray): Detector positions (3, 3).
-        probe_index (int): Probe index (0-based).
-        save_directory (str): Directory to save the PNG.
-        patch_info (dict, optional): Patch metadata for region visualization.
-        show_interactive (bool): If True, show interactive plot; else, save PNG.
-
-    Returns:
-        None
+    Simple, focused visualization highlighting:
+    • Healthy tissue boundary
+    • Tumor regions 
+    • Patch region (if provided)
+    • Single source-detector measurement pair
+    • Phantom boundary box
     """
+    from scipy.ndimage import binary_erosion  # Import for morphological operations
+    logger.debug(f"Creating clean visualization for probe {probe_index+1}")
 
-    logger.debug(f"Generating comprehensive 3D visualization for probe {probe_index+1} with enhanced surface rendering")
+    # Initialize clean figure
+    fig = plt.figure(figsize=(12, 10), facecolor='black')
+    ax = fig.add_subplot(111, projection='3d', facecolor='black')
+    ax.grid(False)
+    ax.xaxis.set_pane_color((0, 0, 0, 0))
+    ax.yaxis.set_pane_color((0, 0, 0, 0))
+    ax.zaxis.set_pane_color((0, 0, 0, 0))
 
-    # STEP 1: Initialize 3D plotting environment with professional scientific styling
-    # Configure figure dimensions and projection for optimal 3D visualization clarity
-    fig = plt.figure(figsize=(12, 10))  # Generous dimensions for detailed visualization without crowding
-    ax = fig.add_subplot(111, projection='3d')  # Enable 3D coordinate system with perspective projection
+    # STEP 1: Show phantom boundary box
+    phantom_size_mm = phantom_volume.shape[0] * VOXEL_SIZE_MM  # 128mm total size
     
-    # Apply professional dark theme optimized for scientific data visualization
-    # Black background provides optimal contrast for colored data points and improves perception
-    fig.patch.set_facecolor('black')  # Set figure background to black for professional appearance
-    ax.set_facecolor('black')  # Set 3D axes background to black for consistency
+    # Draw boundary box edges
+    box_coords = [
+        [0, 0, 0], [phantom_size_mm, 0, 0], [phantom_size_mm, phantom_size_mm, 0], [0, phantom_size_mm, 0], [0, 0, 0],  # bottom face
+        [0, 0, phantom_size_mm], [phantom_size_mm, 0, phantom_size_mm], [phantom_size_mm, phantom_size_mm, phantom_size_mm], [0, phantom_size_mm, phantom_size_mm], [0, 0, phantom_size_mm]  # top face
+    ]
+    box_coords = np.array(box_coords)
+    ax.plot(box_coords[:5, 0], box_coords[:5, 1], box_coords[:5, 2], 'white', linewidth=1, alpha=0.3)  # bottom edges
+    ax.plot(box_coords[5:, 0], box_coords[5:, 1], box_coords[5:, 2], 'white', linewidth=1, alpha=0.3)  # top edges
+    # Vertical edges
+    for i in range(4):
+        ax.plot([box_coords[i, 0], box_coords[i+5, 0]], 
+                [box_coords[i, 1], box_coords[i+5, 1]], 
+                [box_coords[i, 2], box_coords[i+5, 2]], 'white', linewidth=1, alpha=0.3)
 
-    # STEP 2: Extract and visualize tissue surface boundaries using morphological operations
-    # Surface boundaries provide critical geometric context for understanding tissue shape and probe placement
-    from scipy.ndimage import binary_erosion  # Import morphological operation for surface extraction
-    
-    # SUBSTEP 2.1: Extract and render healthy tissue surface boundaries
-    # Uses binary erosion to identify voxels at tissue-air interface for shape definition
-    healthy_tissue_mask = (phantom_volume == HEALTHY_TISSUE_LABEL)  # Create binary mask for healthy tissue regions
-    if np.any(healthy_tissue_mask):  # Proceed only if healthy tissue exists in phantom
-        # Compute morphological boundary: surface = tissue ∖ (tissue ⊖ structuring_element)
-        # This identifies tissue voxels that have at least one air neighbor (surface interface)
+    # STEP 2: Extract and show healthy tissue surface
+    healthy_tissue_mask = (phantom_volume == HEALTHY_TISSUE_LABEL)
+    if np.any(healthy_tissue_mask):
+        # Use morphological edge detection to find tissue boundary
         healthy_surface = healthy_tissue_mask & (~binary_erosion(healthy_tissue_mask, iterations=1))
-        healthy_surface_coords = np.argwhere(healthy_surface)  # Extract explicit (x,y,z) coordinates
+        healthy_surface_coords = np.argwhere(healthy_surface)
         
-        if len(healthy_surface_coords) > 0:  # Ensure surface voxels exist before visualization
-            # Apply adaptive downsampling to maintain visual clarity while optimizing rendering performance
-            # Balance between surface detail preservation and computational efficiency
-            downsample_factor = max(1, len(healthy_surface_coords) // 1000)  # Target ~1000 surface points
-            ax.scatter(healthy_surface_coords[::downsample_factor, 0], 
-                      healthy_surface_coords[::downsample_factor, 1], 
-                      healthy_surface_coords[::downsample_factor, 2],
-                      color='lime', s=5, alpha=0.55, label='Healthy tissue surface', marker='o')
-    
-    # SUBSTEP 2.2: Extract and visualize tumor surface boundaries with unified red coloring
-    # All tumors use the same red color for simplified visualization
-    for region_label in np.unique(phantom_mesh.region):  # Iterate through all mesh regions
-        if region_label >= TUMOR_START_LABEL:  # Process only tumor regions (labels ≥ TUMOR_START_LABEL)
-            tumor_mask = (phantom_volume == region_label)  # Create binary mask for current tumor
-            if np.any(tumor_mask):  # Proceed only if tumor exists in phantom volume
-                # Extract tumor surface using same morphological approach as healthy tissue
+        if len(healthy_surface_coords) > 0:
+            # Convert to physical coordinates
+            healthy_surface_coords_mm = convert_voxel_to_physical_coordinates(healthy_surface_coords)
+            # Downsample for performance - target ~1000 points
+            downsample_factor = max(1, len(healthy_surface_coords_mm) // 1000)
+            ax.scatter(healthy_surface_coords_mm[::downsample_factor, 0], 
+                      healthy_surface_coords_mm[::downsample_factor, 1], 
+                      healthy_surface_coords_mm[::downsample_factor, 2],
+                      color='lime', s=4, alpha=0.6, label='Healthy tissue', marker='o')
+
+    # STEP 3: Extract and show tumor regions
+    tumor_count = 0
+    for region_label in np.unique(phantom_volume):
+        if region_label >= TUMOR_START_LABEL:
+            tumor_mask = (phantom_volume == region_label)
+            if np.any(tumor_mask):
+                # Extract tumor surface
                 tumor_surface = tumor_mask & (~binary_erosion(tumor_mask, iterations=1))
-                tumor_surface_coords = np.argwhere(tumor_surface)  # Get surface coordinate list
+                tumor_surface_coords = np.argwhere(tumor_surface)
                 
-                if len(tumor_surface_coords) > 0:  # Ensure tumor has identifiable surface
-                    # Use red color for all tumors for simplified visualization
-                    color = 'red'  # Unified red color for all tumor regions
-                    
-                    # Use targeted downsampling for tumor surfaces (typically smaller than tissue)
-                    downsample_factor = max(1, len(tumor_surface_coords) // 500)  # Target ~500 tumor surface points
-                    tumor_number = region_label - TUMOR_START_LABEL + 1  # Convert to 1-based numbering for display
-                    
-                    ax.scatter(tumor_surface_coords[::downsample_factor, 0],
-                              tumor_surface_coords[::downsample_factor, 1], 
-                              tumor_surface_coords[::downsample_factor, 2],
-                              color=color, s=6, alpha=0.65, 
-                              label=f'Tumor {tumor_number} surface' if tumor_number == 1 else '', marker='o')  # Only label first tumor
+                if len(tumor_surface_coords) > 0:
+                    tumor_count += 1
+                    # Convert to physical coordinates
+                    tumor_surface_coords_mm = convert_voxel_to_physical_coordinates(tumor_surface_coords)
+                    # Downsample for performance
+                    downsample_factor = max(1, len(tumor_surface_coords_mm) // 300)
+                    ax.scatter(tumor_surface_coords_mm[::downsample_factor, 0],
+                              tumor_surface_coords_mm[::downsample_factor, 1], 
+                              tumor_surface_coords_mm[::downsample_factor, 2],
+                              color='red', s=6, alpha=0.8, 
+                              label=f'Tumor {tumor_count}' if tumor_count == 1 else '', marker='o')
 
-    # SUBSTEP 2.3: Visualize patch surface region for spatial constraint demonstration
-    # Patch visualization shows the surface-constrained region where probes can be placed
+    # STEP 4: Show patch region if provided
     if patch_info is not None and 'patch_surface_coordinates' in patch_info:
-        patch_surface_coords = patch_info['patch_surface_coordinates']  # Extract patch surface coordinates
-        if len(patch_surface_coords) > 0:  # Ensure patch contains surface voxels
-            logger.debug(f"Visualizing patch constraint region: {len(patch_surface_coords)} surface voxels")
-            
-            # Apply adaptive downsampling for patch region visualization
-            # Balance between showing patch extent and maintaining rendering performance
-            patch_downsample_factor = max(1, len(patch_surface_coords) // 800)  # Target ~800 patch points
-            ax.scatter(patch_surface_coords[::patch_downsample_factor, 0],
-                      patch_surface_coords[::patch_downsample_factor, 1], 
-                      patch_surface_coords[::patch_downsample_factor, 2],
-                      color='purple', s=8, alpha=0.7, 
-                      label=f'Patch region (r={patch_info["radius"]}mm)', marker='o')  # Circle markers same as tissue surface
+        patch_surface_coords = patch_info['patch_surface_coordinates']
+        if len(patch_surface_coords) > 0:
+            # Convert to physical coordinates
+            patch_surface_coords_mm = convert_voxel_to_physical_coordinates(patch_surface_coords)
+            # Downsample for performance
+            patch_downsample_factor = max(1, len(patch_surface_coords_mm) // 600)
+            ax.scatter(patch_surface_coords_mm[::patch_downsample_factor, 0],
+                      patch_surface_coords_mm[::patch_downsample_factor, 1], 
+                      patch_surface_coords_mm[::patch_downsample_factor, 2],
+                      color='purple', s=5, alpha=0.7, 
+                      label=f'Patch region (r={patch_info["radius"]}mm)', marker='o')
 
-    # STEP 3: Add comprehensive mesh node visualization for internal structure representation
-    # Provides uniform visualization of finite element nodes across all tissue types for geometric understanding
-    # Maintains consistent visual parameters for fair comparison between tissue regions
-    standard_node_size = 4      # Optimized size for visibility without overwhelming surface detail
-    standard_alpha = 0.5        # Balanced opacity allowing surface boundaries to remain prominent
-    node_downsample_factor = 8  # Consistent downsampling ratio across all tissue types for fairness
+    # STEP 5: Show source and ONE detector (first detector)
+    # Convert probe positions to physical coordinates
+    source_position_mm = convert_voxel_to_physical_coordinates([source_position])[0]
+    detector_positions_mm = convert_voxel_to_physical_coordinates(detector_positions)
     
-    # SUBSTEP 3.1: Visualize healthy tissue mesh nodes for internal structure understanding
-    # Shows the finite element discretization within healthy tissue regions
-    healthy_tissue_nodes = phantom_mesh.nodes[phantom_mesh.region == HEALTHY_TISSUE_LABEL]
-    if len(healthy_tissue_nodes) > 0:  # Ensure healthy tissue nodes exist in mesh
-        ax.scatter(healthy_tissue_nodes[::node_downsample_factor, 0], 
-                  healthy_tissue_nodes[::node_downsample_factor, 1], 
-                  healthy_tissue_nodes[::node_downsample_factor, 2],
-                  color='lightgreen', s=standard_node_size, alpha=standard_alpha, 
-                  label='Healthy nodes', marker='.')  # Small dots for subtle internal structure
-
-    # SUBSTEP 3.2: Visualize tumor mesh nodes with unified red coloring
-    # Maintains color consistency with surface visualization for coherent representation
-    for region_label in np.unique(phantom_mesh.region):  # Process all mesh regions
-        if region_label >= TUMOR_START_LABEL:  # Focus on tumor regions only
-            tumor_nodes = phantom_mesh.nodes[phantom_mesh.region == region_label]  # Extract tumor node coordinates
-            if len(tumor_nodes) > 0:  # Ensure tumor nodes exist in current region
-                # Apply unified red color scheme matching surface visualization
-                color = 'red'  # Unified red color for all tumor regions
-                tumor_number = region_label - TUMOR_START_LABEL + 1  # Convert to 1-based display numbering
-                
-                ax.scatter(tumor_nodes[::node_downsample_factor, 0],
-                          tumor_nodes[::node_downsample_factor, 1], 
-                          tumor_nodes[::node_downsample_factor, 2],
-                          color=color, s=standard_node_size, alpha=standard_alpha,
-                          label=f'Tumor {tumor_number} nodes' if tumor_number == 1 else '', marker='.')  # Only label first tumor
-
-    # STEP 4: Highlight current probe configuration with maximum visual contrast
-    # Critical for understanding measurement geometry and source-detector relationships 
-    
-    # SUBSTEP 4.1: Visualize NIR source position with distinctive high-contrast markers
-    # Large yellow marker with black outline ensures visibility against any background
-    ax.scatter(source_position[0], source_position[1], source_position[2], 
+    # Show source
+    ax.scatter(source_position_mm[0], source_position_mm[1], source_position_mm[2], 
                c='yellow', s=120, edgecolor='black', linewidth=2, 
-               label='NIR Source', marker='o')  # Circular marker for source identification
+               label='NIR Source', marker='o')
     
-    # SUBSTEP 4.2: Visualize detector array positions with clear source distinction
-    # Cyan markers provide excellent contrast while remaining distinguishable from source
-    ax.scatter(detector_positions[:,0], detector_positions[:,1], detector_positions[:,2], 
-               c='cyan', s=90, edgecolor='black', linewidth=1.5, 
-               label='NIR Detectors', marker='o')  # Consistent circular markers but smaller than source
+    # Show only the first detector
+    if len(detector_positions_mm) > 0:
+        first_detector = detector_positions_mm[0]
+        ax.scatter(first_detector[0], first_detector[1], first_detector[2], 
+                   c='cyan', s=90, edgecolor='black', linewidth=1.5, 
+                   label='NIR Detector', marker='o')
+        
+        # Draw measurement line between source and detector
+        ax.plot([source_position_mm[0], first_detector[0]],
+                [source_position_mm[1], first_detector[1]], 
+                [source_position_mm[2], first_detector[2]], 
+                'white', linewidth=2, alpha=0.8, linestyle='--', label='Measurement path')
 
-    # STEP 5: Configure professional plot aesthetics and comprehensive metadata display
-    # Ensures publication-quality appearance with clear labeling and scientific presentation standards
-    
-    # SUBSTEP 5.1: Set descriptive title with probe identification and visualization type
-    ax.set_title(f"Probe {probe_index+1:03d} - Enhanced Patch-Based Configuration", 
+    # STEP 6: Configure plot appearance
+    ax.set_title(f"Probe {probe_index+1:03d} - Tissue Structure Overview", 
                  color='white', fontsize=16, fontweight='bold', pad=20)
                  
-    # SUBSTEP 5.2: Configure axis labels with proper units and scientific formatting
     ax.set_xlabel('X-axis (mm)', color='white', fontsize=12, fontweight='bold')
     ax.set_ylabel('Y-axis (mm)', color='white', fontsize=12, fontweight='bold')
     ax.set_zlabel('Z-axis (mm)', color='white', fontsize=12, fontweight='bold')
 
-    # SUBSTEP 5.3: Apply consistent white color scheme for dark background compatibility
-    # Ensures all text elements remain readable against black background
-    ax.tick_params(colors='white', labelsize=10)  # White tick marks and labels
-    ax.legend(facecolor='black', edgecolor='white', fontsize=9, labelcolor='white',
+    ax.tick_params(colors='white', labelsize=10)
+    ax.legend(facecolor='black', edgecolor='white', fontsize=10, labelcolor='white',
               loc='upper left', bbox_to_anchor=(0.02, 0.98), framealpha=0.8)
 
-    # STEP 6: Maintain accurate spatial relationships through proper aspect ratio configuration
-    # Critical for preventing geometric distortion that could misrepresent spatial measurements
-    # Calculate actual mesh dimensions for proportional axis scaling
-    x_span = np.ptp(phantom_mesh.nodes[:,0])  # X-axis spatial extent [mm]
-    y_span = np.ptp(phantom_mesh.nodes[:,1])  # Y-axis spatial extent [mm]
-    z_span = np.ptp(phantom_mesh.nodes[:,2])  # Z-axis spatial extent [mm]
+    # Set axis limits and proper aspect ratio
+    ax.set_xlim(0, phantom_size_mm)
+    ax.set_ylim(0, phantom_size_mm)
+    ax.set_zlim(0, phantom_size_mm)
+    ax.set_box_aspect([1, 1, 1])  # Equal aspect ratio
     
-    ax.set_box_aspect([x_span, y_span, z_span])  # Proportional scaling preserves true geometry
-    
-    # SUBSTEP 6.2: Optimize 3D viewing angle for comprehensive geometric understanding
-    # Strategic camera positioning reveals both surface features and internal structure
-    ax.view_init(elev=20, azim=45)  # Elevation: 20° (slight top-down), Azimuth: 45° (diagonal view)
-    plt.tight_layout()  # Optimize layout spacing for professional presentation
+    # Set optimal viewing angle
+    ax.view_init(elev=20, azim=45)
+    plt.tight_layout()
 
-    # STEP 7: Generate and save high-resolution publication-quality static image
-    # Creates permanent documentation suitable for academic publications and presentations
+    # Save the visualization
     output_image_path = os.path.join(save_directory, f"probe_{probe_index+1:03d}.png")
-    plt.savefig(output_image_path, dpi=300,  # High resolution for publication quality
-                facecolor=fig.get_facecolor(),  # Preserve black background
-                bbox_inches='tight',  # Optimize margins for content
-                edgecolor='none')  # Clean edges without border artifacts
-    logger.debug(f"Saved comprehensive probe visualization: {output_image_path}")
+    plt.savefig(output_image_path, dpi=300, 
+                facecolor=fig.get_facecolor(), 
+                bbox_inches='tight', 
+                edgecolor='none')
+    logger.debug(f"Saved clean probe visualization: {output_image_path}")
 
-    # STEP 8: Conditional interactive display for real-time exploration
-    # Enables detailed examination and custom viewpoint selection when needed
     if show_interactive:
-        plt.show()  # Launch interactive matplotlib window with mouse controls (rotation, zoom, pan)
-        logger.debug("Interactive 3D visualization displayed - use mouse for exploration")
+        plt.show()
     else:
-        plt.close()  # Release memory resources immediately for efficient batch processing
-        logger.debug("Static visualization completed - memory resources released")
+        plt.close()
 
 
 # --------------------------------------------------------------
@@ -1400,7 +1360,7 @@ def main():
 
     # STEP 2: Configure dataset generation parameters for machine learning training requirements
     # Generate multiple phantoms to ensure statistical diversity and prevent overfitting in ML models
-    n_phantoms = 10  # Production dataset size for robust ML training
+    n_phantoms = 2  # Production dataset size for robust ML training 
     expected_measurements = n_phantoms * DEFAULT_N_MEASUREMENTS  # Total measurement count for memory planning
     
     logger.info(f"Generating {n_phantoms} phantom datasets for machine learning training")

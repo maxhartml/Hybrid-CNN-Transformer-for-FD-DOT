@@ -360,13 +360,29 @@ class NIRDatasetAnalyzer:
             all_log_amp = np.array(all_log_amp)
             all_phase = np.array(all_phase)
             
-            # Correlation analysis
-            correlation = np.corrcoef(all_log_amp, all_phase)[0, 1]
+            # Correlation analysis with robust error handling
+            try:
+                # Ensure we have valid data for correlation
+                if len(all_log_amp) > 10 and len(all_phase) > 10:
+                    # Remove any non-finite values
+                    valid_mask = np.isfinite(all_log_amp) & np.isfinite(all_phase)
+                    clean_log_amp = all_log_amp[valid_mask]
+                    clean_phase = all_phase[valid_mask]
+                    
+                    if len(clean_log_amp) > 10 and np.std(clean_log_amp) > 0 and np.std(clean_phase) > 0:
+                        correlation = np.corrcoef(clean_log_amp, clean_phase)[0, 1]
+                    else:
+                        correlation = 0.0  # Set to zero if insufficient variance
+                else:
+                    correlation = 0.0  # Set to zero if insufficient data
+            except Exception as e:
+                correlation = 0.0  # Default fallback
+                print(f"Warning: Correlation calculation failed: {e}")
             
             results['global'] = {
                 'total_measurements': len(all_log_amp),
-                'log_amp_range': [float(np.min(all_log_amp)), float(np.max(all_log_amp))],
-                'phase_range': [float(np.min(all_phase)), float(np.max(all_phase))],
+                'log_amp_range': [float(np.min(all_log_amp)), float(np.max(all_log_amp))] if len(all_log_amp) > 0 else [0.0, 0.0],
+                'phase_range': [float(np.min(all_phase)), float(np.max(all_phase))] if len(all_phase) > 0 else [0.0, 0.0],
                 'correlation': float(correlation)
             }
         
@@ -1006,8 +1022,25 @@ class NIRDatasetAnalyzer:
         print(f"   Log-amplitude normality (Shapiro-Wilk p-value): {log_amp_p:.2e}")
         print(f"   Phase normality (Shapiro-Wilk p-value): {phase_p:.2e}")
         
-        # Correlation analysis
-        correlation = np.corrcoef(log_amp_flat, phase_flat)[0, 1]
+        # Correlation analysis with robust error handling
+        try:
+            # Ensure we have valid data for correlation
+            if len(log_amp_flat) > 10 and len(phase_flat) > 10:
+                # Remove any non-finite values
+                valid_mask = np.isfinite(log_amp_flat) & np.isfinite(phase_flat)
+                clean_log_amp = log_amp_flat[valid_mask]
+                clean_phase = phase_flat[valid_mask]
+                
+                if len(clean_log_amp) > 10 and np.std(clean_log_amp) > 0 and np.std(clean_phase) > 0:
+                    correlation = np.corrcoef(clean_log_amp, clean_phase)[0, 1]
+                else:
+                    correlation = 0.0  # Set to zero if insufficient variance
+            else:
+                correlation = 0.0  # Set to zero if insufficient data
+        except Exception as e:
+            correlation = 0.0  # Default fallback
+            print(f"   Warning: Correlation calculation failed: {e}")
+        
         print(f"   Log-amplitude vs Phase correlation: {correlation:.3f}")
         
         # Outlier detection
@@ -1119,7 +1152,9 @@ class NIRDatasetAnalyzer:
             log_amp_flat = []
             phase_flat = []
             
+            # Handle both old format (3D) and new format (2D) detector arrays
             if len(det_pos.shape) == 3:
+                # Old format: (n_sources, n_detectors_per_source, 3)
                 for i in range(len(source_pos)):
                     src = source_pos[i]
                     dets = det_pos[i]
@@ -1128,6 +1163,15 @@ class NIRDatasetAnalyzer:
                         distances.append(dist)
                         log_amp_flat.append(log_amp[i, j])
                         phase_flat.append(phase[i, j])
+            elif len(det_pos.shape) == 2:
+                # New format: (n_measurements, 3) - one detector per measurement
+                for i in range(len(source_pos)):
+                    src = source_pos[i]
+                    det = det_pos[i]  # Single detector for this measurement
+                    dist = np.linalg.norm(det - src)
+                    distances.append(dist)
+                    log_amp_flat.append(log_amp[i])
+                    phase_flat.append(phase[i])
             
             distances = np.array(distances)
             log_amp_flat = np.array(log_amp_flat)
@@ -1224,6 +1268,15 @@ class NIRDatasetAnalyzer:
                 
                 cbar2 = plt.colorbar(scatter, label='Phase (°)')
                 cbar2.set_label('Phase (degrees)', fontweight='bold')
+            else:
+                # Show empty plot with message when no distances available
+                plt.text(0.5, 0.5, 'No SDS distances\navailable', 
+                        ha='center', va='center', fontsize=12, 
+                        transform=ax3.transAxes, color='white')
+                plt.title('Log-Amplitude vs SDS', fontweight='bold', pad=12)
+                plt.xlabel('SDS Distance (mm)', fontweight='bold')
+                plt.ylabel('Log-Amplitude', fontweight='bold')
+                plt.grid(True, alpha=0.2, color='#404040')
             
             # 4. Phase vs SDS Analysis
             ax4 = plt.subplot(2, 4, 4)
@@ -1248,6 +1301,15 @@ class NIRDatasetAnalyzer:
                 
                 cbar3 = plt.colorbar(scatter2, label='Log-Amp')
                 cbar3.set_label('Log-Amplitude', fontweight='bold')
+            else:
+                # Show empty plot with message when no distances available
+                plt.text(0.5, 0.5, 'No SDS distances\navailable', 
+                        ha='center', va='center', fontsize=12, 
+                        transform=ax4.transAxes, color='white')
+                plt.title('Phase vs SDS', fontweight='bold', pad=12)
+                plt.xlabel('SDS Distance (mm)', fontweight='bold')
+                plt.ylabel('Phase (degrees)', fontweight='bold')
+                plt.grid(True, alpha=0.2, color='#404040')
             
             # ═══════════════════════════════════════════════════════════════
             # ROW 2: 3D GEOMETRY AND GROUND TRUTH (4 graphs)
@@ -1339,6 +1401,15 @@ class NIRDatasetAnalyzer:
                 plt.xlabel('Distance (mm)', fontweight='bold')
                 plt.ylabel('Frequency', fontweight='bold')
                 plt.legend(fontsize=8)
+                plt.grid(True, alpha=0.3, color='#404040')
+            else:
+                # Show empty plot with message when no distances available
+                plt.text(0.5, 0.5, 'No SDS distances\navailable', 
+                        ha='center', va='center', fontsize=12, 
+                        transform=ax8.transAxes, color='white')
+                plt.title('SDS Distance Distribution', fontweight='bold', pad=12)
+                plt.xlabel('Distance (mm)', fontweight='bold')
+                plt.ylabel('Frequency', fontweight='bold')
                 plt.grid(True, alpha=0.3, color='#404040')
             
             # Improve spacing between subplots for clean 4x2 grid
@@ -1545,14 +1616,26 @@ class NIRDatasetAnalyzer:
                 phase_range = phase_flat.max() - phase_flat.min()
                 print(f"Phase range: {phase_range:.1f}° (wrapping if > 360°)")
                 
-                # Measurement correlation analysis
+                # Measurement correlation analysis with robust error handling
                 probe_correlations = []
-                for i in range(min(10, n_probes)):  # Sample first 10 probes
-                    probe_data = np.concatenate([log_amplitude[i], phase[i]])
-                    for j in range(i+1, min(10, n_probes)):
-                        other_probe_data = np.concatenate([log_amplitude[j], phase[j]])
-                        correlation = np.corrcoef(probe_data, other_probe_data)[0,1]
-                        probe_correlations.append(correlation)
+                try:
+                    for i in range(min(10, n_probes)):  # Sample first 10 probes
+                        probe_data = np.concatenate([log_amplitude[i], phase[i]])
+                        # Check for valid data
+                        if np.std(probe_data) > 0 and np.all(np.isfinite(probe_data)):
+                            for j in range(i+1, min(10, n_probes)):
+                                other_probe_data = np.concatenate([log_amplitude[j], phase[j]])
+                                # Check for valid comparison data
+                                if np.std(other_probe_data) > 0 and np.all(np.isfinite(other_probe_data)):
+                                    try:
+                                        correlation = np.corrcoef(probe_data, other_probe_data)[0,1]
+                                        if np.isfinite(correlation):
+                                            probe_correlations.append(correlation)
+                                    except Exception as e:
+                                        print(f"   Warning: Probe correlation calculation failed: {e}")
+                                        continue
+                except Exception as e:
+                    print(f"   Warning: Probe correlation analysis failed: {e}")
                 
                 if probe_correlations:
                     mean_correlation = np.mean(probe_correlations)
