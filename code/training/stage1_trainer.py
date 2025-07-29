@@ -182,7 +182,7 @@ class Stage1Trainer:
             logger.debug(f"🔍 Processing batch {batch_idx + 1}/{len(data_loader)}")
             
             # Stage 1: Only use ground truth volumes (no NIR measurements)
-            ground_truth = batch['ground_truth'].to(self.device)  # Shape: (batch_size, 2, 60, 60, 60)
+            ground_truth = batch['ground_truth'].to(self.device)  # Shape: (batch_size, 2, 64, 64, 64)
             logger.debug(f"📦 Ground truth batch shape: {ground_truth.shape}")
             logger.debug(f"🖥️  Ground truth moved to device: {ground_truth.device}")
             
@@ -240,7 +240,7 @@ class Stage1Trainer:
                 logger.debug(f"🔍 Validating batch {batch_idx + 1}/{len(data_loader)}")
                 
                 # Stage 1: Only use ground truth volumes (no NIR measurements)
-                ground_truth = batch['ground_truth'].to(self.device)  # Shape: (batch_size, 2, 60, 60, 60)
+                ground_truth = batch['ground_truth'].to(self.device)  # Shape: (batch_size, 2, 64, 64, 64)
                 logger.debug(f"📦 Validation batch shape: {ground_truth.shape}")
                 
                 logger.debug("⚡ Forward pass (no gradients)...")

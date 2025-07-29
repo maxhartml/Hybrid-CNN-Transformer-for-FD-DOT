@@ -26,9 +26,9 @@ from utils.logging_config import get_model_logger
 
 # Model Architecture Parameters
 DEFAULT_INPUT_CHANNELS = 2              # Absorption and scattering coefficients
-DEFAULT_OUTPUT_SIZE = (60, 60, 60)      # Target volume dimensions
+DEFAULT_OUTPUT_SIZE = (64, 64, 64)      # Target volume dimensions (power of 2)
 DEFAULT_BASE_CHANNELS = 64              # Base number of CNN channels
-DEFAULT_FEATURE_DIM = 512               # Encoder output feature dimension #maybe 128
+DEFAULT_FEATURE_DIM = 512               # Encoder output feature dimension
 
 # Encoder Architecture
 ENCODER_KERNEL_SIZE_INITIAL = 7         # Initial convolution kernel size
@@ -277,7 +277,7 @@ class CNNDecoder(nn.Module):
         self.base_channels = base_channels
         
         # Calculate proper initial spatial dimensions to match encoder
-        # Encoder path: 60 -> 30 (stride=2) -> 15 (maxpool stride=2) -> 15 -> 8 -> 4 -> 2
+        # Encoder path: 64 -> 32 (stride=2) -> 16 (maxpool stride=2) -> 16 -> 8 -> 4 -> 2
         # So decoder should start from 2x2x2 to be symmetric
         self.init_size = DECODER_INIT_SIZE
         
@@ -285,7 +285,7 @@ class CNNDecoder(nn.Module):
         self.fc = nn.Linear(feature_dim, base_channels * ENCODER_CHANNEL_MULTIPLIERS[4] * (self.init_size ** 3))
         
         # Progressive upsampling layers with transposed convolutions
-        # Symmetric to encoder: 2->4->8->16->32->60 (with final adjustment)
+        # Symmetric to encoder: 2->4->8->16->32->64 (clean power-of-2 progression)
         self.deconv1 = nn.Sequential(
             nn.ConvTranspose3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[4], 
                                base_channels * ENCODER_CHANNEL_MULTIPLIERS[3], 
@@ -379,12 +379,14 @@ class CNNDecoder(nn.Module):
         x = self.final_conv(x)  # 64x64x64 -> 64x64x64, channels: 16->2
         logger.debug(f"📦 After final_conv: {x.shape}")
         
-        # Ensure exact output dimensions match target (64x64x64 -> 60x60x60)
+        # Ensure exact output dimensions match target (should be exactly 64x64x64)
         if x.shape[2:] != self.output_size:
             logger.debug(f"🔄 Resizing from {x.shape[2:]} to {self.output_size}")
             x = F.interpolate(x, size=self.output_size, mode='trilinear', 
                               align_corners=False)
             logger.debug(f"📦 After resize: {x.shape}")
+        else:
+            logger.debug(f"✅ Perfect size match: {x.shape[2:]} == {self.output_size}")
         
         logger.debug(f"📦 CNNDecoder output: {x.shape}")
         return x

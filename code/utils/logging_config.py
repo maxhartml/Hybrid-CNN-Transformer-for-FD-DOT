@@ -64,6 +64,19 @@ class NIRDOTLogger:
         for handler in root_logger.handlers[:]:
             root_logger.removeHandler(handler)
         
+        # Suppress verbose third-party library logging
+        third_party_loggers = [
+            'matplotlib',
+            'matplotlib.font_manager',
+            'matplotlib.pyplot',
+            'PIL',
+            'urllib3',
+            'requests',
+            'h5py'
+        ]
+        for logger_name in third_party_loggers:
+            logging.getLogger(logger_name).setLevel(logging.WARNING)
+        
         # Create formatter
         formatter = logging.Formatter(
             '%(asctime)s | %(name)-20s | %(levelname)-8s | %(funcName)-15s | %(message)s',

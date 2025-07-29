@@ -299,7 +299,7 @@ class Stage2Trainer:
             
             # In Stage 2: Complete phantom NIR measurements are input, ground truth volumes are target
             nir_measurements = batch['nir_measurements'].to(self.device)  # Shape: (batch_size, 1500, 8)
-            targets = batch['ground_truth'].to(self.device)               # Shape: (batch_size, 2, 60, 60, 60)
+            targets = batch['ground_truth'].to(self.device)               # Shape: (batch_size, 2, 64, 64, 64)
             
             logger.debug(f"📦 NIR measurements shape: {nir_measurements.shape}")
             logger.debug(f"📦 Ground truth targets shape: {targets.shape}")
@@ -373,7 +373,7 @@ class Stage2Trainer:
                 logger.debug(f"🔍 Validating Stage 2 batch {batch_idx + 1}/{len(data_loader)}")
                 
                 nir_measurements = batch['nir_measurements'].to(self.device)  # Shape: (batch_size, 1500, 8)
-                targets = batch['ground_truth'].to(self.device)               # Shape: (batch_size, 2, 60, 60, 60)
+                targets = batch['ground_truth'].to(self.device)               # Shape: (batch_size, 2, 64, 64, 64)
                 
                 logger.debug(f"📦 Stage 2 validation NIR shape: {nir_measurements.shape}")
                 logger.debug(f"📦 Stage 2 validation target shape: {targets.shape}")

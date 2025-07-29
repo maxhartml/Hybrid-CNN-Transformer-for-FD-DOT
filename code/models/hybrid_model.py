@@ -44,7 +44,7 @@ except ImportError:
 
 # Model Architecture Parameters
 DEFAULT_INPUT_CHANNELS = 2              # Absorption and scattering coefficients
-DEFAULT_OUTPUT_SIZE = (60, 60, 60)      # Target volume dimensions
+DEFAULT_OUTPUT_SIZE = (64, 64, 64)      # Target volume dimensions (power of 2)
 DEFAULT_CNN_BASE_CHANNELS = 64          # Base CNN channels
 
 # NIR Measurement Configuration

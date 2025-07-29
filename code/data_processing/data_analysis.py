@@ -248,7 +248,7 @@ class NIRDatasetAnalyzer:
                     
                     # Add derived statistics
                     data['n_measurements'] = data['log_amplitude'].size
-                    data['volume_shape'] = data['ground_truth'].shape[:3]
+                    data['volume_shape'] = data['ground_truth'].shape[1:]  # Skip channel dimension for spatial shape (64,64,64)
                     data['n_sources'] = len(data['source_pos'])
                     
                     self.all_data[phantom_name] = data
@@ -382,12 +382,12 @@ class NIRDatasetAnalyzer:
         
         for phantom_name, data in self.all_data.items():
             gt = data['ground_truth']
-            mua_map = gt[..., 0]
-            musp_map = gt[..., 1]
+            mua_map = gt[0]  # Channel 0: absorption coefficient
+            musp_map = gt[1]  # Channel 1: reduced scattering coefficient
             
             # Overall statistics
             results[phantom_name] = {
-                'volume_shape': list(gt.shape[:3]),
+                'volume_shape': list(gt.shape[1:]),  # Spatial dimensions only (64,64,64)
                 'total_voxels': int(mua_map.size),
                 'mua_stats': {
                     'min': float(np.min(mua_map)),
@@ -799,12 +799,12 @@ class NIRDatasetAnalyzer:
         print(f"🎯 Ground Truth Maps:")
         print(f"   Shape: {gt_data.shape}")
         print(f"   Data type: {gt_data.dtype}")
-        print(f"   Total voxels: {gt_data.shape[0] * gt_data.shape[1] * gt_data.shape[2]:,}")
-        print(f"   Property channels: {gt_data.shape[3]} (μₐ, μ′s)")
+        print(f"   Total voxels: {gt_data.shape[1] * gt_data.shape[2] * gt_data.shape[3]:,}")
+        print(f"   Property channels: {gt_data.shape[0]} (μₐ, μ′s)")
         
         # Extract absorption and scattering maps
-        mua_map = gt_data[..., 0]  # Absorption coefficient
-        musp_map = gt_data[..., 1]  # Reduced scattering coefficient
+        mua_map = gt_data[0]  # Channel 0: Absorption coefficient
+        musp_map = gt_data[1]  # Channel 1: Reduced scattering coefficient
         
         # Calculate statistics for each property
         mua_stats = {
@@ -1256,8 +1256,8 @@ class NIRDatasetAnalyzer:
             # ═══════════════════════════════════════════════════════════════
             
             # Extract ground truth maps
-            mua_map = gt_data[..., 0]
-            musp_map = gt_data[..., 1]
+            mua_map = gt_data[0]  # Channel 0: absorption
+            musp_map = gt_data[1]  # Channel 1: scattering
             z_center = mua_map.shape[2] // 2
             
             # 5. 3D Probe Geometry
@@ -1488,20 +1488,26 @@ class NIRDatasetAnalyzer:
                 print("-"*40)
                 
                 # Absorption coefficient analysis
-                mua_map = ground_truth[:,:,:,0]
+                mua_map = ground_truth[0]  # Channel 0: absorption coefficient
                 mua_nonzero = mua_map[mua_map > 0]  # Exclude air regions
                 print(f"Absorption Coefficient (μₐ):")
-                print(f"  Range: [{mua_nonzero.min():.4f}, {mua_nonzero.max():.4f}] mm⁻¹")
-                print(f"  Mean: {mua_nonzero.mean():.4f} ± {mua_nonzero.std():.4f} mm⁻¹")
-                print(f"  Unique values: {len(np.unique(mua_nonzero))}")
+                if len(mua_nonzero) > 0:
+                    print(f"  Range: [{mua_nonzero.min():.4f}, {mua_nonzero.max():.4f}] mm⁻¹")
+                    print(f"  Mean: {mua_nonzero.mean():.4f} ± {mua_nonzero.std():.4f} mm⁻¹")
+                    print(f"  Unique values: {len(np.unique(mua_nonzero))}")
+                else:
+                    print(f"  ❌ No tissue regions found (all voxels are air)")
                 
                 # Scattering coefficient analysis
-                musp_map = ground_truth[:,:,:,1]
+                musp_map = ground_truth[1]  # Channel 1: reduced scattering coefficient
                 musp_nonzero = musp_map[musp_map > 0]
                 print(f"\nReduced Scattering (μ′s):")
-                print(f"  Range: [{musp_nonzero.min():.3f}, {musp_nonzero.max():.3f}] mm⁻¹")
-                print(f"  Mean: {musp_nonzero.mean():.3f} ± {musp_nonzero.std():.3f} mm⁻¹")
-                print(f"  Unique values: {len(np.unique(musp_nonzero))}")
+                if len(musp_nonzero) > 0:
+                    print(f"  Range: [{musp_nonzero.min():.3f}, {musp_nonzero.max():.3f}] mm⁻¹")
+                    print(f"  Mean: {musp_nonzero.mean():.3f} ± {musp_nonzero.std():.3f} mm⁻¹")
+                    print(f"  Unique values: {len(np.unique(musp_nonzero))}")
+                else:
+                    print(f"  ❌ No tissue regions found (all voxels are air)")
                 
                 # ========================
                 # TISSUE COMPOSITION ANALYSIS
@@ -1751,8 +1757,8 @@ class NIRDatasetAnalyzer:
                     # ═══════════════════════════════════════════════════════════════
                     # GROUND TRUTH OPTICAL PROPERTIES ANALYSIS
                     # ═══════════════════════════════════════════════════════════════
-                    mua_map = ground_truth[..., 0]
-                    musp_map = ground_truth[..., 1]
+                    mua_map = ground_truth[0]  # Channel 0: absorption
+                    musp_map = ground_truth[1]  # Channel 1: scattering
                     
                     # Absorption analysis (excluding air regions)
                     mua_tissue = mua_map[mua_map > 0]
@@ -1784,8 +1790,10 @@ class NIRDatasetAnalyzer:
                     # TISSUE COMPOSITION & GEOMETRIC COMPLEXITY
                     # ═══════════════════════════════════════════════════════════════
                     
-                    # Identify unique tissue types
-                    unique_combinations = np.unique(ground_truth.reshape(-1, 2), axis=0)
+                    # Identify unique tissue types - need to reshape from channels-first format
+                    # Transpose to (spatial_dims, channels) for unique analysis
+                    reshaped_gt = np.transpose(ground_truth, (1, 2, 3, 0)).reshape(-1, 2)
+                    unique_combinations = np.unique(reshaped_gt, axis=0)
                     tissue_types = len(unique_combinations) - 1  # Exclude air (0,0)
                     dataset_stats['n_tissue_types'].append(tissue_types)
                     

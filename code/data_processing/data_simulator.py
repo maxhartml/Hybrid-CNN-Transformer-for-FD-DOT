@@ -25,9 +25,10 @@ Advanced phantom data generation for NIR tomography training datasets:
 • Binary morphological operations for surface extraction
 • Efficient spatial computations with scipy
 • Controlled randomization for reproducible datasets
+• 2mm voxel size for clinically realistic phantom dimensions (128×128×128mm)
 
 Author: Max Hart - NIR Tomography Research
-Version: 2.0 - ML-Optimized Phantom Generation
+Version: 2.1 - Clinical Scale Phantom Generation (2mm voxels)
 """
 
 # System path configuration for NIRFASTer-FF library access
@@ -67,18 +68,18 @@ sys.path.append(str(project_root / "code"))  # Add code directory to path using 
 from utils.logging_config import get_data_logger, NIRDOTLogger
 
 # Constants for phantom generation
-DEFAULT_PHANTOM_SHAPE = (60, 60, 60)        # Default cubic phantom dimensions in voxels
-DEFAULT_TISSUE_RADIUS_RANGE = (24, 28)      # Healthy tissue ellipsoid semi-axis range
-DEFAULT_TUMOR_RADIUS_RANGE = (5, 10)        # Tumor ellipsoid semi-axis range  
+DEFAULT_PHANTOM_SHAPE = (64, 64, 64)        # Default cubic phantom dimensions in voxels (power of 2)
+DEFAULT_TISSUE_RADIUS_RANGE = (26, 30)      # Healthy tissue ellipsoid semi-axis range (52-60mm with 2mm voxels)
+DEFAULT_TUMOR_RADIUS_RANGE = (5, 10)        # Tumor ellipsoid semi-axis range (10-20mm with 2mm voxels)
 DEFAULT_MAX_TUMORS = 5                       # Maximum number of tumors per phantom
 DEFAULT_N_PROBES = 500                       # Optimal probe count for ML training
-DEFAULT_MIN_PROBE_DISTANCE = 10              # Minimum source-detector separation [mm]
-DEFAULT_MAX_PROBE_DISTANCE = 40              # Maximum source-detector separation [mm]
-DEFAULT_PATCH_RADIUS = 30                    # Patch radius [mm] for surface probe placement
+DEFAULT_MIN_PROBE_DISTANCE = 10              # Minimum source-detector separation [mm] (standard diffusive regime)
+DEFAULT_MAX_PROBE_DISTANCE = 50              # Maximum source-detector separation [mm] (optimal clinical coverage)
+DEFAULT_PATCH_RADIUS = 40                    # Patch radius [mm] for surface probe placement (scaled for larger phantom)
 DEFAULT_MIN_PATCH_VOXELS = 500               # Minimum surface voxels for valid patch placement
 DEFAULT_FD_FREQUENCY = 140e6                 # Frequency-domain modulation frequency [Hz]
-DEFAULT_MESH_CELL_SIZE = 1.65                # CGAL mesh characteristic cell size [mm]
-VOXEL_SIZE_MM = 1.0                          # Voxel size in millimeters for spatial calibration
+DEFAULT_MESH_CELL_SIZE = 1.65                # CGAL mesh characteristic cell size [mm] (maintained for high accuracy)
+VOXEL_SIZE_MM = 2.0                          # Voxel size in millimeters for spatial calibration (doubled for clinical realism)
 
 # Tissue label constants for clarity and consistency
 AIR_LABEL = 0                                # Background air regions
@@ -101,8 +102,8 @@ MAX_TUMOR_PLACEMENT_ATTEMPTS = 50            # Maximum iterations for tumor plac
 TUMOR_TISSUE_EMBEDDING_THRESHOLD = 0.80      # Required fraction of tumor volume inside tissue (80%)
 
 # Mesh validation parameters
-MIN_ELEMENT_VOLUME_MM3 = 0.1                 # Minimum acceptable tetrahedral element volume [mm³]
-MAX_ELEMENT_VOLUME_MM3 = 10.0                # Maximum acceptable tetrahedral element volume [mm³]
+MIN_ELEMENT_VOLUME_MM3 = 0.8                 # Minimum acceptable tetrahedral element volume [mm³] (scaled for 2mm voxels)
+MAX_ELEMENT_VOLUME_MM3 = 80.0                # Maximum acceptable tetrahedral element volume [mm³] (scaled for 2mm voxels)
 
 # Surface processing and batch parameters  
 SURFACE_BATCH_SIZE = 1000                    # Batch size for safe center identification
@@ -568,20 +569,21 @@ def assign_optical_properties(phantom_mesh, phantom_volume, rng_seed=None):
 
     # Generate dense voxel-wise ground truth maps for reconstruction evaluation
     Nx, Ny, Nz = phantom_volume.shape
-    # Shape: (Nx, Ny, Nz, 2) where last dimension is [μₐ, μ′s]
-    ground_truth_maps = np.zeros((Nx, Ny, Nz, 2))
+    # Shape: (2, Nx, Ny, Nz) where first dimension is [μₐ, μ′s] - channels first for PyTorch
+    ground_truth_maps = np.zeros((2, Nx, Ny, Nz))
     
-    logger.debug("Generating dense ground truth maps...")
+    logger.debug("Generating dense ground truth maps in channels-first format...")
     # Populate ground truth grid using region-based property lookup
     # This creates pixel-perfect reference maps for quantitative evaluation
     for region_label, (tissue_mua, tissue_musp) in region_optical_lookup.items():
         # Apply properties to all voxels belonging to this tissue region
-        ground_truth_maps[phantom_volume == region_label, 0] = tissue_mua   # Channel 0: absorption coefficient
-        ground_truth_maps[phantom_volume == region_label, 1] = tissue_musp  # Channel 1: reduced scattering coefficient
+        region_mask = (phantom_volume == region_label)
+        ground_truth_maps[0, region_mask] = tissue_mua   # Channel 0: absorption coefficient
+        ground_truth_maps[1, region_mask] = tissue_musp  # Channel 1: reduced scattering coefficient
 
-    logger.info(f"✓ Ground truth maps generated - shape {ground_truth_maps.shape}")
-    logger.debug(f"Value ranges: μₐ=[{ground_truth_maps[...,0].min():.4f}, {ground_truth_maps[...,0].max():.4f}], "
-                f"μ′s=[{ground_truth_maps[...,1].min():.3f}, {ground_truth_maps[...,1].max():.3f}]")
+    logger.info(f"✓ Ground truth maps generated - shape {ground_truth_maps.shape} (channels-first)")
+    logger.debug(f"Value ranges: μₐ=[{ground_truth_maps[0].min():.4f}, {ground_truth_maps[0].max():.4f}], "
+                f"μ′s=[{ground_truth_maps[1].min():.3f}, {ground_truth_maps[1].max():.3f}]")
 
     return phantom_mesh, ground_truth_maps
 
@@ -655,13 +657,28 @@ def extract_surface_voxels(phantom_volume, tissue_threshold=HEALTHY_TISSUE_LABEL
 # STEP 5: PATCH-BASED SURFACE PROBE PLACEMENT FOR CLINICAL REALISM
 # --------------------------------------------------------------
 
+def convert_voxel_to_physical_coordinates(voxel_coordinates):
+    """
+    Convert voxel indices to physical millimeter coordinates.
+    
+    Transforms discrete voxel indices (i,j,k) to continuous spatial coordinates (x,y,z)
+    using the global voxel size. Critical for accurate distance calculations in probe placement.
+    
+    Args:
+        voxel_coordinates (numpy.ndarray): Voxel indices, shape (N, 3)
+        
+    Returns:
+        numpy.ndarray: Physical coordinates in mm, shape (N, 3)
+    """
+    return voxel_coordinates.astype(float) * VOXEL_SIZE_MM
+
 def find_safe_patch_centers(surface_coordinates, patch_radius=DEFAULT_PATCH_RADIUS, 
                            min_patch_voxels=DEFAULT_MIN_PATCH_VOXELS, rng_seed=None):
     """
     Identifies surface voxels that can support full-radius patches for robust probe placement.
     
     This function implements safe center placement by pre-filtering surface positions to ensure
-    each potential patch center can accommodate the full 20mm radius patch without extending
+    each potential patch center can accommodate the full 40mm radius patch without extending
     beyond the tissue boundary. This prevents edge effects and ensures consistent patch sizes.
     
     Clinical Motivation:
@@ -688,6 +705,9 @@ def find_safe_patch_centers(surface_coordinates, patch_radius=DEFAULT_PATCH_RADI
     logger.info(f"Identifying safe patch centers (radius={patch_radius}mm, min_voxels={min_patch_voxels})")
     logger.debug(f"Input surface positions: {len(surface_coordinates):,} voxels")
     
+    # Convert voxel coordinates to physical millimeter coordinates for accurate distance calculations
+    surface_coordinates_mm = convert_voxel_to_physical_coordinates(surface_coordinates)
+    
     safe_centers = []
     total_candidates = len(surface_coordinates)
     
@@ -696,17 +716,18 @@ def find_safe_patch_centers(surface_coordinates, patch_radius=DEFAULT_PATCH_RADI
     
     for batch_start in range(0, total_candidates, batch_size):
         batch_end = min(batch_start + batch_size, total_candidates)
-        batch_centers = surface_coordinates[batch_start:batch_end]
+        batch_centers_mm = surface_coordinates_mm[batch_start:batch_end]
         
-        # Compute distances from batch centers to all surface voxels
-        distances = cdist(batch_centers, surface_coordinates)
+        # Compute distances from batch centers to all surface voxels in millimeters
+        distances = cdist(batch_centers_mm, surface_coordinates_mm)
         
         # Count surface voxels within patch radius for each center candidate
         for i, center_distances in enumerate(distances):
             voxels_in_patch = np.sum(center_distances <= patch_radius)
             
             if voxels_in_patch >= min_patch_voxels:
-                safe_centers.append(batch_centers[i])
+                # Store original voxel coordinates (not mm coordinates) for consistency
+                safe_centers.append(surface_coordinates[batch_start + i])
         
         if (batch_end // batch_size) % 5 == 0:  # Progress logging
             logger.debug(f"Processed {batch_end:,}/{total_candidates:,} surface voxels")
@@ -734,7 +755,7 @@ def build_patch_based_probe_layout(surface_coordinates, n_probes=DEFAULT_N_PROBE
     Generates realistic probe configurations using patch-based surface sampling for clinical fidelity.
     
     This function implements the advanced patch-based probe placement strategy:
-    1. Identifies safe patch centers that can support full 20mm radius patches
+    1. Identifies safe patch centers that can support full 40mm radius patches
     2. Randomly selects one patch center per phantom for spatial diversity
     3. Creates localized surface patch within specified radius
     4. Places 500 sources randomly within the patch region
@@ -748,17 +769,17 @@ def build_patch_based_probe_layout(surface_coordinates, n_probes=DEFAULT_N_PROBE
     - Supports efficient distance calculations within localized regions
     
     Clinical Realism Features:
-    - Patch size (40mm diameter) matches typical clinical probe array footprints
-    - SDS range (10-40mm) reflects real NIR measurement capabilities
+    - Patch size (80mm diameter) matches typical clinical probe array footprints for larger phantoms
+    - SDS range (10-50mm) reflects real NIR measurement capabilities for 2mm voxel phantoms
     - Single patch placement simulates realistic partial tissue coverage scenarios
     - Surface-only placement prevents non-physical floating probe positions
     
     Args:
         surface_coordinates (numpy.ndarray): Surface voxel positions from binary erosion, shape (N_surface, 3)
         n_probes (int): Number of source positions to place within the patch (500 for training diversity)
-        patch_radius (float): Patch radius in mm defining local probe placement region (20mm clinical size)
+        patch_radius (float): Patch radius in mm defining local probe placement region (40mm clinical size)
         min_source_detector_distance (float): Minimum SDS in mm for diffusive regime validity (10mm)
-        max_source_detector_distance (float): Maximum SDS in mm for clinical realism (40mm) 
+        max_source_detector_distance (float): Maximum SDS in mm for clinical realism (50mm) 
         min_patch_voxels (int): Minimum surface voxels required for valid patch (100 for adequate sampling)
         rng_seed (int): Random seed for reproducible patch selection and probe placement
         
@@ -793,9 +814,14 @@ def build_patch_based_probe_layout(surface_coordinates, n_probes=DEFAULT_N_PROBE
     
     # STEP 5.3: Create patch by filtering surface voxels within radius
     logger.debug("Step 3/5: Creating surface patch...")
-    distances_to_center = cdist([selected_patch_center], surface_coordinates)[0]
+    # Convert coordinates to physical mm for accurate distance calculations
+    surface_coordinates_mm = convert_voxel_to_physical_coordinates(surface_coordinates)
+    selected_patch_center_mm = convert_voxel_to_physical_coordinates([selected_patch_center])[0]
+    
+    distances_to_center = cdist([selected_patch_center_mm], surface_coordinates_mm)[0]
     patch_mask = distances_to_center <= patch_radius
-    patch_surface_coordinates = surface_coordinates[patch_mask]
+    patch_surface_coordinates = surface_coordinates[patch_mask]  # Keep as voxel coordinates
+    patch_surface_coordinates_mm = surface_coordinates_mm[patch_mask]  # Physical coordinates for distance calc
     
     patch_size = len(patch_surface_coordinates)
     logger.info(f"Patch created: {patch_size:,} surface voxels within {patch_radius}mm radius")
@@ -821,14 +847,16 @@ def build_patch_based_probe_layout(surface_coordinates, n_probes=DEFAULT_N_PROBE
             # STEP 5.4.1: Randomly sample source position from patch surface voxels
             source_idx = rng.integers(0, len(patch_surface_coordinates))
             current_source_position = patch_surface_coordinates[source_idx]
+            current_source_position_mm = patch_surface_coordinates_mm[source_idx]
             
             # STEP 5.4.2: Find valid detector candidates within SDS constraints
-            source_to_patch_distances = cdist([current_source_position], patch_surface_coordinates)[0]
+            # Use physical coordinates (mm) for accurate distance calculations
+            source_to_patch_distances = cdist([current_source_position_mm], patch_surface_coordinates_mm)[0]
             
             # Apply clinical SDS range constraints within the patch
             distance_mask = (source_to_patch_distances >= min_source_detector_distance) & \
                            (source_to_patch_distances <= max_source_detector_distance)
-            valid_detector_coordinates = patch_surface_coordinates[distance_mask]
+            valid_detector_coordinates = patch_surface_coordinates[distance_mask]  # Voxel coordinates
             
             # STEP 5.4.3: Validate sufficient detector availability
             if len(valid_detector_coordinates) < 3:
@@ -920,8 +948,11 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
     
     # Convert discrete voxel coordinates to continuous spatial coordinates for FEM compatibility
     # Ensures proper interpolation and boundary condition application in finite element solver
-    phantom_mesh.source = ff.base.optode(probe_sources.astype(float))   # NIRFASTer source container
-    phantom_mesh.meas = ff.base.optode(probe_detectors.astype(float))   # NIRFASTer detector container
+    probe_sources_mm = convert_voxel_to_physical_coordinates(probe_sources)
+    probe_detectors_mm = convert_voxel_to_physical_coordinates(probe_detectors)
+    
+    phantom_mesh.source = ff.base.optode(probe_sources_mm.astype(float))   # NIRFASTer source container
+    phantom_mesh.meas = ff.base.optode(probe_detectors_mm.astype(float))   # NIRFASTer detector container
     phantom_mesh.link = measurement_links  # Connectivity matrix defining active source-detector pairs
     
     logger.debug(f"Optode configuration: {len(probe_sources)} sources, {len(probe_detectors)} detectors")
@@ -1058,16 +1089,16 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
         phase_dataset.attrs["shape_interpretation"] = "(N_sources, 3_detectors_per_source)"
 
         # SUBSTEP 5.2: Save complete geometric configuration for reconstruction and visualization
-        source_dataset = h5_file.create_dataset("source_positions", data=probe_sources)
+        source_dataset = h5_file.create_dataset("source_positions", data=probe_sources_mm)
         source_dataset.attrs["units"] = "mm"
         source_dataset.attrs["description"] = "NIR source positions in phantom coordinate system"
-        source_dataset.attrs["coordinate_system"] = "Phantom voxel coordinates with 1mm spacing"
+        source_dataset.attrs["coordinate_system"] = f"Physical coordinates in millimeters (voxel_size={VOXEL_SIZE_MM}mm)"
         source_dataset.attrs["placement_method"] = "Patch-based surface sampling with clinical constraints"
         
-        detector_dataset = h5_file.create_dataset("detector_positions", data=probe_detectors.reshape(-1,3,3))
+        detector_dataset = h5_file.create_dataset("detector_positions", data=probe_detectors_mm.reshape(-1,3,3))
         detector_dataset.attrs["units"] = "mm"
         detector_dataset.attrs["description"] = "Detector positions grouped by source (3 detectors per source)"
-        detector_dataset.attrs["coordinate_system"] = "Phantom voxel coordinates with 1mm spacing"
+        detector_dataset.attrs["coordinate_system"] = f"Physical coordinates in millimeters (voxel_size={VOXEL_SIZE_MM}mm)"
         detector_dataset.attrs["sds_range"] = f"[{DEFAULT_MIN_PROBE_DISTANCE}, {DEFAULT_MAX_PROBE_DISTANCE}]mm"
         detector_dataset.attrs["grouping"] = "Shape: (N_sources, 3, 3) for [source_idx][detector_idx][x,y,z]"
         
@@ -1085,7 +1116,7 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
         ground_truth_dataset.attrs["units"] = "mm^-1"
         ground_truth_dataset.attrs["description"] = "Dense voxel-wise optical property maps for reconstruction validation"
         ground_truth_dataset.attrs["wavelength"] = "800nm (typical NIR tomography wavelength)"
-        ground_truth_dataset.attrs["shape_interpretation"] = "(Nx, Ny, Nz, 2) for [μₐ, μ′s] channels"
+        ground_truth_dataset.attrs["shape_interpretation"] = "(2, Nx, Ny, Nz) for [μₐ, μ′s] channels (channels-first format)"
         ground_truth_dataset.attrs["clinical_relevance"] = "Literature-based physiological ranges with tumor contrast"
         
         # SUBSTEP 5.5: Save original phantom segmentation for region-specific analysis and visualization
@@ -1110,7 +1141,7 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
     file_size_mb = os.path.getsize(output_h5_filename) / (1024**2)
     logger.info(f"✓ Dataset saved successfully - {output_h5_filename} ({file_size_mb:.1f} MB)")
     logger.info(f"Final dataset: {log_amplitude_processed.shape[0]} probes × {log_amplitude_processed.shape[1]} detectors")
-    logger.debug(f"Ground truth shape: {ground_truth_maps.shape[0]}×{ground_truth_maps.shape[1]}×{ground_truth_maps.shape[2]} voxels")
+    logger.debug(f"Ground truth shape: {ground_truth_maps.shape[0]}×{ground_truth_maps.shape[1]}×{ground_truth_maps.shape[2]}×{ground_truth_maps.shape[3]} voxels")
 
 # --------------------------------------------------------------
 # VISUALIZATION: 3D PROBE-MESH RENDERING FOR GEOMETRIC VALIDATION
@@ -1375,7 +1406,7 @@ def main():
 
     # STEP 2: Configure dataset generation parameters for machine learning training requirements
     # Generate multiple phantoms to ensure statistical diversity and prevent overfitting in ML models
-    n_phantoms = 300  # Production dataset size for robust ML training
+    n_phantoms = 10  # Production dataset size for robust ML training
     expected_measurements = n_phantoms * DEFAULT_N_PROBES * 3  # Total measurement count for memory planning
     
     logger.info(f"Generating {n_phantoms} phantom datasets for machine learning training")

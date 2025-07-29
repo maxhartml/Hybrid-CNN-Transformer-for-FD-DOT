@@ -12,7 +12,7 @@ Streamlined PyTorch DataLoader for NIR phantom datasets featuring:
 • 8/1/1 train/validation/test splits at phant            Returns:
                 Dict[str, torch.Tensor]: Complete phantom data containing:
                     - 'nir_measurements': All NIR measurements (1500, DEFAULT_NIR_FEATURE_DIMENSION) - features per measurement
-                    - 'ground_truth': Target volume (DEFAULT_OPTICAL_CHANNELS, 60, 60, 60) - same for all measurements
+                    - 'ground_truth': Target volume (DEFAULT_OPTICAL_CHANNELS, 64, 64, 64) - same for all measurements
                     - 'phantom_id': Phantom identifier for trackingevel
 • Toggle functionality for two-stage training approach
 
@@ -54,7 +54,7 @@ except ImportError:
 # ===============================================================================
 
 # Phantom data structure parameters
-DEFAULT_PHANTOM_SHAPE = (60, 60, 60)             # Standard phantom dimensions (Nx, Ny, Nz)
+DEFAULT_PHANTOM_SHAPE = (64, 64, 64)             # Standard phantom dimensions (Nx, Ny, Nz)
 DEFAULT_N_SOURCES = 500                           # Number of NIR sources per phantom
 DEFAULT_N_DETECTORS_PER_SOURCE = 3               # Detectors per source (creates 1500 measurements)
 DEFAULT_NIR_FEATURE_DIMENSION = 8                # Features per NIR measurement (log_amp + phase + 6 coords)
@@ -108,14 +108,14 @@ def extract_tissue_patch(ground_truth: np.ndarray,
     Extracts a local patch of optical properties around source/detector positions.
     
     Args:
-        ground_truth (np.ndarray): Full phantom optical properties, shape (Nx, Ny, Nz, 2)
+        ground_truth (np.ndarray): Full phantom optical properties, shape (2, Nx, Ny, Nz) - channels-first
         position (np.ndarray): Center position coordinates [x, y, z] in voxel indices
         patch_size (tuple): Patch dimensions (px, py, pz), default (7,7,7)
         
     Returns:
         np.ndarray: Flattened patch for tissue context encoder, shape (patch_size^3 * 2,)
     """
-    Nx, Ny, Nz, n_channels = ground_truth.shape
+    n_channels, Nx, Ny, Nz = ground_truth.shape
     px, py, pz = patch_size
     
     # Convert position to integer indices
@@ -127,8 +127,8 @@ def extract_tissue_patch(ground_truth: np.ndarray,
     y_start, y_end = cy - half_py, cy + half_py + 1  
     z_start, z_end = cz - half_pz, cz + half_pz + 1
     
-    # Initialize patch with air padding
-    patch = np.full((px, py, pz, n_channels), AIR_VALUE, dtype=ground_truth.dtype)
+    # Initialize patch with air padding - channels-first format
+    patch = np.full((n_channels, px, py, pz), AIR_VALUE, dtype=ground_truth.dtype)
     
     # Extract valid region
     gt_x_start, gt_x_end = max(0, x_start), min(Nx, x_end)
@@ -142,16 +142,16 @@ def extract_tissue_patch(ground_truth: np.ndarray,
     patch_z_start = max(0, -z_start)
     patch_z_end = patch_z_start + (gt_z_end - gt_z_start)
     
-    # Copy valid region
+    # Copy valid region - using channels-first indexing
     if (gt_x_end > gt_x_start and gt_y_end > gt_y_start and gt_z_end > gt_z_start):
-        patch[patch_x_start:patch_x_end, 
+        patch[:, patch_x_start:patch_x_end, 
               patch_y_start:patch_y_end, 
-              patch_z_start:patch_z_end] = ground_truth[gt_x_start:gt_x_end,
+              patch_z_start:patch_z_end] = ground_truth[:, gt_x_start:gt_x_end,
                                                        gt_y_start:gt_y_end,
                                                        gt_z_start:gt_z_end]
     
-    # Return flattened patch for tissue context encoder
-    return patch.reshape(-1)
+    # Return flattened patch for tissue context encoder (flatten spatial dimensions but preserve channels)
+    return patch.reshape(n_channels, -1).T.reshape(-1)  # Interleave channels: [ch0_vox0, ch1_vox0, ch0_vox1, ch1_vox1, ...]
 
 
 # ===============================================================================
@@ -393,8 +393,8 @@ class NIRPhantomDataset(Dataset):
                 ])  # Total: DEFAULT_NIR_FEATURE_DIMENSION features per measurement
                 
                 # Load ground truth volume (this is what we're trying to reconstruct)
-                ground_truth = f[H5_KEYS['ground_truth']][:]  # Shape: (60, 60, 60, 2)
-                ground_truth = np.transpose(ground_truth, (3, 0, 1, 2))  # Convert to (2, 60, 60, 60)
+                ground_truth = f[H5_KEYS['ground_truth']][:]  # Shape: (2, 64, 64, 64) - already channels-first
+                # No transpose needed since data is already in channels-first format!
                 
                 # The key insight: NIR measurements → Transformer → 512D features → CNN decoder → Ground truth
                 # Stage 1: Ground truth → CNN encoder → 512D → CNN decoder → Ground truth (learns compression)
@@ -429,8 +429,8 @@ class NIRPhantomDataset(Dataset):
             # For Stage 2: Use NIR measurements as input, ground truth as target
             'measurements': torch.tensor(nir_measurements, dtype=torch.float32),        # (DEFAULT_NIR_FEATURE_DIMENSION,) NIR measurement vector
             'nir_measurements': torch.tensor(nir_measurements, dtype=torch.float32),    # (DEFAULT_NIR_FEATURE_DIMENSION,) Raw NIR data
-            'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),            # (DEFAULT_OPTICAL_CHANNELS, 60, 60, 60) Target volume  
-            'volumes': torch.tensor(ground_truth, dtype=torch.float32),                 # (DEFAULT_OPTICAL_CHANNELS, 60, 60, 60) For Stage 1 input
+            'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),            # (DEFAULT_OPTICAL_CHANNELS, 64, 64, 64) Target volume  
+            'volumes': torch.tensor(ground_truth, dtype=torch.float32),                 # (DEFAULT_OPTICAL_CHANNELS, 64, 64, 64) For Stage 1 input
             'metadata': torch.tensor([phantom_id, probe_idx, det_idx], dtype=torch.long)
         }
         
@@ -453,7 +453,7 @@ class NIRPhantomDataset(Dataset):
         Returns:
             Dict[str, torch.Tensor]: Complete phantom data containing:
                 - 'nir_measurements': All NIR measurements (1500, 8) - 8D features per measurement
-                - 'ground_truth': Target volume (2, 60, 60, 60) - same for all measurements
+                - 'ground_truth': Target volume (2, 64, 64, 64) - same for all measurements
                 - 'phantom_id': Phantom identifier for tracking
         """
         if phantom_idx >= len(self.phantom_files):
@@ -472,8 +472,8 @@ class NIRPhantomDataset(Dataset):
                 detector_pos = f[H5_KEYS['det_pos']][:]          # Shape: (DEFAULT_N_SOURCES, DEFAULT_N_DETECTORS_PER_SOURCE, 3)
                 
                 # Load ground truth volume (same for all measurements in phantom)
-                ground_truth = f[H5_KEYS['ground_truth']][:]     # Shape: (60, 60, 60, 2)
-                ground_truth = np.transpose(ground_truth, (3, 0, 1, 2))  # Convert to (DEFAULT_OPTICAL_CHANNELS, 60, 60, 60)
+                ground_truth = f[H5_KEYS['ground_truth']][:]     # Shape: (2, 64, 64, 64) - already channels-first
+                # No transpose needed since data is already in channels-first format!
                 
                 # Build complete measurement array (DEFAULT_N_SOURCES * DEFAULT_N_DETECTORS_PER_SOURCE, DEFAULT_NIR_FEATURE_DIMENSION)
                 n_sources, n_detectors = log_amplitude.shape
@@ -510,7 +510,7 @@ class NIRPhantomDataset(Dataset):
         
         return {
             'nir_measurements': torch.tensor(nir_measurements, dtype=torch.float32),  # (1500, DEFAULT_NIR_FEATURE_DIMENSION)
-            'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),          # (DEFAULT_OPTICAL_CHANNELS, 60, 60, 60)
+            'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),          # (DEFAULT_OPTICAL_CHANNELS, 64, 64, 64)
             'phantom_id': torch.tensor(phantom_id, dtype=torch.long)
         }
 
