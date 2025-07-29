@@ -16,19 +16,19 @@ The physics is elegant yet complex: when NIR light (around 800nm wavelength) ent
 
 **The Problem:** This is an **inverse problem** of extraordinary difficulty. We can easily simulate how light travels through known tissue (the forward problem), but reconstructing the internal tissue properties from surface measurements requires solving a highly ill-posed inverse problem that has challenged researchers for decades.
 
-### **The Mathematical Challenge: From Millions to Thousands**
+### **The Mathematical Challenge: From Thousands to Hundreds of Thousands**
 
 ```text
 # Forward Problem (Physics): Known ✓
-3D_volume(524,288 voxels) → Light_transport → NIR_measurements(12,000 values)
+3D_volume(262,144 voxels) → Light_transport → NIR_measurements(2,048 values)
 
 # Inverse Problem (Your AI): Unknown ❓  
-NIR_measurements(12,000 values) → ??? → 3D_volume(524,288 voxels)
+NIR_measurements(2,048 values) → ??? → 3D_volume(262,144 voxels)
 #                                  ↑
 #                           Your hybrid model learns this!
 ```
 
-This represents a **44:1 reconstruction challenge** – from 12,000 surface measurements, we must reconstruct 524,288 internal tissue properties. It's like trying to understand the entire internal structure of a building from only the shadows it casts!
+This represents a **128:1 reconstruction challenge** – from 2,048 surface measurements, we must reconstruct 262,144 internal tissue properties. It's like trying to understand the entire internal structure of a building from only the shadows it casts!
 
 **Our Solution:** A groundbreaking **hybrid CNN-Transformer architecture** that learns the complex physics of light transport while leveraging modern AI to achieve unprecedented reconstruction quality.
 
@@ -72,8 +72,8 @@ We've built a sophisticated **phantom generation engine** that creates thousands
 
 - **Realistic geometry:** Ellipsoidal tissue regions with embedded tumors, all randomly rotated in 3D to eliminate bias
 - **Smart tumor placement:** Advanced algorithms ensure tumors are realistically embedded within tissue (80% overlap constraint)
-- **Biological realism:** Optical properties based on extensive literature review of real tissue measurements
-- **Anatomical variety:** From simple single-lesion cases to complex multi-tumor scenarios
+- **Biological realism:** Optical properties based on extensive literature review of real tissue measurements at 2mm resolution
+- **Anatomical variety:** From simple single-lesion cases to complex multi-tumor scenarios in 128×128×128mm clinical volumes
 
 ### **Step 2: Finite Element Light Transport Simulation**
 
@@ -92,10 +92,10 @@ Creating datasets that match real hospital equipment
 
 Our measurement simulation creates surface data exactly as real NIR-DOT systems would collect:
 
-- **500 source-detector pairs:** Comprehensive coverage of the tissue surface
+- **256 source-detector pairs:** Optimized coverage within 40mm patch radius for clinical realism
 - **Dual measurements:** Both log-amplitude and phase data for maximum information
 - **Realistic noise:** Carefully calibrated noise levels matching clinical equipment
-- **Surface constraints:** Probes placed only on tissue surfaces, just like in real procedures
+- **Surface constraints:** Probes placed only on tissue surfaces with 10-40mm separation, just like in real procedures
 
 ### **The Complete Data Structure: From Physics to AI**
 
@@ -106,14 +106,14 @@ Each simulated phantom generates a comprehensive HDF5 file containing everything
 ```text
 # === DATA SIMULATION OUTPUT ===
 physics_simulation → HDF5_files
-├── 'log_amplitude': (500, 3)      # 500 sources × 3 detectors  
-├── 'phase': (500, 3)              # 500 sources × 3 detectors
-├── 'source_positions': (500, 3)   # 500 sources × [x,y,z]
-├── 'detector_positions': (500, 3, 3)  # 500 sources × 3 detectors × [x,y,z]
+├── 'log_amplitude': (256,)            # 256 source-detector pairs  
+├── 'phase': (256,)                    # 256 source-detector pairs
+├── 'source_positions': (256, 3)       # 256 sources × [x,y,z]
+├── 'detector_positions': (256, 3)     # 256 detectors × [x,y,z]
 └── 'ground_truth': (2, 64, 64, 64)    # Channels-first: [μₐ, μ′s] × Volume
 ```
 
-This creates **1,500 total measurements per phantom** (500 sources × 3 detectors), each with **8-dimensional feature vectors** containing amplitude, phase, and spatial coordinates. The ground truth provides complete optical property maps for supervised learning.
+This creates **256 total measurements per phantom**, each with **8-dimensional feature vectors** containing amplitude, phase, and spatial coordinates. The ground truth provides complete optical property maps for supervised learning.
 
 ---
 
@@ -163,14 +163,14 @@ Each phantom in our dataset represents a unique case:
 - **Geometric variation:** Random rotations and tissue shapes eliminate directional bias
 - **Pathological diversity:** From healthy tissue to complex multi-tumor scenarios
 - **Optical property ranges:** Physiologically accurate absorption and scattering coefficients
-- **Resolution excellence:** Sub-millimeter 64³ voxel reconstruction capabilities
+- **Resolution excellence:** 2mm voxel precision with 64³ reconstruction capabilities (128×128×128mm clinical volume)
 
-### **1,500 Measurements Per Phantom: Comprehensive Light Sampling**
+### **256 Source-Detector Pairs: Optimized Clinical Coverage**
 
-- **500 sources × 3 detectors = 1,500 data points**
+- **256 independent measurements:** Each measurement is a dedicated source-detector pair
 - **8-dimensional feature vectors:** Log-amplitude, phase, and spatial coordinates
-- **Surface-constrained placement:** Clinically realistic probe positioning
-- **Comprehensive coverage:** Optimal sampling for reconstruction quality
+- **Surface-constrained placement:** Clinically realistic probe positioning within 40mm patch radius
+- **10-40mm SDS range:** Optimal separation distances for 2mm voxel phantom resolution
 
 ### **HDF5 Efficiency: Big Data for Medical AI**
 
@@ -218,10 +218,10 @@ The hybrid model learns the measurement-to-tissue mapping:
 ```text
 # === STAGE 2 TRAINING FLOW ===
 HDF5_files → phantom_dataloaders → Stage2_trainer
-├── Input: nir_measurements (batch_size, 1500, 8)       # e.g., (4, 1500, 8)
-├── NIR_project: (4, 1500, 8) → (4, 1500, 512)         # Feature alignment
-├── Transformer: (4, 1500, 512) → (4, 1500, 512)       # Attention processing
-├── Aggregate: (4, 1500, 512) → (4, 512)               # Mean pooling
+├── Input: nir_measurements (batch_size, 256, 8)        # e.g., (4, 256, 8)
+├── NIR_project: (4, 256, 8) → (4, 256, 512)           # Feature alignment
+├── Transformer: (4, 256, 512) → (4, 256, 512)         # Attention processing
+├── Aggregate: (4, 256, 512) → (4, 512)                # Mean pooling
 ├── CNN_decode: (4, 512) → (4, 2, 64, 64, 64)          # Frozen reconstruction
 └── Loss: MSE(reconstruction, ground_truth)
 ```
@@ -238,11 +238,11 @@ This two-stage approach ensures the model first understands **what realistic tis
 # === CLINICAL DEPLOYMENT FLOW ===
 Patient → NIR_Scanner → Measurements → AI_Pipeline → 3D_Reconstruction → Clinical_Decision
 
-1. Patient_Setup:     Position patient, apply source-detector array
-2. Data_Acquisition:  Collect NIR measurements (1500 channels, 8 features)
+1. Patient_Setup:     Position patient, apply source-detector array (40mm patch)
+2. Data_Acquisition:  Collect NIR measurements (256 channels, 8 features)
 3. Preprocessing:     Normalize, quality check, format for inference
 4. AI_Inference:      Stage2_model(measurements) → tissue_properties
-5. Visualization:     Render 3D absorption/scattering maps
+5. Visualization:     Render 3D absorption/scattering maps (2mm resolution)
 6. Clinical_Analysis: Identify pathology, plan intervention
 ```
 

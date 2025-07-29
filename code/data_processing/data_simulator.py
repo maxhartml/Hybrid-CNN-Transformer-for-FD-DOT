@@ -1360,7 +1360,7 @@ def main():
 
     # STEP 2: Configure dataset generation parameters for machine learning training requirements
     # Generate multiple phantoms to ensure statistical diversity and prevent overfitting in ML models
-    n_phantoms = 2  # Production dataset size for robust ML training 
+    n_phantoms = 10  # Production dataset size for robust ML training 
     expected_measurements = n_phantoms * DEFAULT_N_MEASUREMENTS  # Total measurement count for memory planning
     
     logger.info(f"Generating {n_phantoms} phantom datasets for machine learning training")
