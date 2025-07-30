@@ -7,6 +7,12 @@ improved gradient flow and progressive downsampling/upsampling for spatial featu
 
 The autoencoder is designed for stage 1 pre-training in a two-stage hybrid approach,
 focusing on learning low-level spatial features from DOT measurements.
+
+ARCHITECTURE OPTIMIZATION:
+- Base channels: 16 (optimized from 32/64 to reduce parameters)
+- Target parameters: ~7M total (down from 26.9M)
+- Feature dimension: 256 (maintained as required by supervisor)
+- Channel progression: 16→32→64→128→256 (efficient scaling)
 """
 import os
 import sys
@@ -16,19 +22,19 @@ import torch.nn.functional as F
 import math
 from typing import Tuple
 
-# Add parent directories to path for logging
+# Add parent directories to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utils.logging_config import get_model_logger
 
 # =============================================================================
-# HYPERPARAMETERS AND CONSTANTS
+# CNN AUTOENCODER CONFIGURATION
 # =============================================================================
 
 # Model Architecture Parameters
-DEFAULT_INPUT_CHANNELS = 2              # Absorption and scattering coefficients
-DEFAULT_OUTPUT_SIZE = (64, 64, 64)      # Target volume dimensions (power of 2)
-DEFAULT_BASE_CHANNELS = 32              # Base number of CNN channels (reduced from 64)
-DEFAULT_FEATURE_DIM = 256               # Encoder output feature dimension (reduced from 512)
+INPUT_CHANNELS = 2                      # Absorption and scattering coefficients
+OUTPUT_SIZE = (64, 64, 64)              # Target volume dimensions (power of 2)
+BASE_CHANNELS = 16                      # Base number of CNN channels (optimized for ~7M params)
+FEATURE_DIM = 256                       # Encoder output feature dimension (required by supervisor)
 
 # Encoder Architecture
 ENCODER_KERNEL_SIZE_INITIAL = 7         # Initial convolution kernel size
@@ -52,23 +58,12 @@ DECODER_TRANSCONV_PADDING = 1           # Transposed convolution padding
 DECODER_FINAL_CONV_KERNEL = 3           # Final convolution kernel size
 DECODER_FINAL_CONV_PADDING = 1          # Final convolution padding
 
-# Channel Progression (perfectly symmetric)
-ENCODER_CHANNEL_MULTIPLIERS = [1, 1, 2, 4, 8]    # Progressive channel increase: 32→32→64→128→256
-DECODER_CHANNEL_DIVISORS = [8, 4, 2, 1, 1]       # Progressive channel decrease: 256→128→64→32→32 (perfectly symmetric)
+# Channel Progression (optimized for parameter efficiency)
+ENCODER_CHANNEL_MULTIPLIERS = [1, 2, 4, 8, 16]    # Progressive channel increase: 16→32→64→128→256
+DECODER_CHANNEL_DIVISORS = [16, 8, 4, 2, 1]       # Progressive channel decrease: 256→128→64→32→16
 
-# Training Parameters
+# Weight Initialization
 WEIGHT_INIT_STD = 0.02                  # Standard deviation for weight initialization
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from typing import Tuple
-import sys
-import os
-
-# Add parent directories to path for logging
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from utils.logging_config import get_model_logger
 
 # Initialize logger for this module
 logger = get_model_logger(__name__)
@@ -154,9 +149,9 @@ class CNNEncoder(nn.Module):
         base_channels (int, optional): Base number of channels. Defaults to 64.
     """
     
-    def __init__(self, input_channels: int = DEFAULT_INPUT_CHANNELS, 
-                 base_channels: int = DEFAULT_BASE_CHANNELS, 
-                 feature_dim: int = DEFAULT_FEATURE_DIM):
+    def __init__(self, input_channels: int = INPUT_CHANNELS, 
+                 base_channels: int = BASE_CHANNELS, 
+                 feature_dim: int = FEATURE_DIM):
         super().__init__()
         
         # Initial feature extraction with aggressive downsampling
@@ -187,7 +182,7 @@ class CNNEncoder(nn.Module):
         
         # Configurable feature dimension with linear projection
         self.feature_dim = feature_dim
-        self.feature_projection = nn.Linear(base_channels * 8, feature_dim)  # 256 → 256 for base_channels=32
+        self.feature_projection = nn.Linear(base_channels * 16, feature_dim)  # 256 → 256 for base_channels=16
         
         logger.debug(f"CNNEncoder initialized: {input_channels} input channels, "
                     f"{base_channels} base channels, feature_dim={self.feature_dim}")
@@ -244,7 +239,7 @@ class CNNEncoder(nn.Module):
         x = self.global_avg_pool(x)
         logger.debug(f"📦 After global_avg_pool: {x.shape}")
         
-        x = x.view(x.size(0), -1)  # Flatten to [batch_size, base_channels * 8]
+        x = x.view(x.size(0), -1)  # Flatten to [batch_size, base_channels * 16]
         logger.debug(f"📦 After flatten: {x.shape}")
         
         x = self.feature_projection(x)  # Project to configurable feature dimension
@@ -268,9 +263,9 @@ class CNNDecoder(nn.Module):
         base_channels (int, optional): Base number of channels. Defaults to 64.
     """
     
-    def __init__(self, feature_dim: int = DEFAULT_FEATURE_DIM, 
-                 output_size: Tuple[int, int, int] = DEFAULT_OUTPUT_SIZE,
-                 base_channels: int = DEFAULT_BASE_CHANNELS):
+    def __init__(self, feature_dim: int = FEATURE_DIM, 
+                 output_size: Tuple[int, int, int] = OUTPUT_SIZE,
+                 base_channels: int = BASE_CHANNELS):
         super().__init__()
         self.feature_dim = feature_dim
         self.output_size = output_size
@@ -332,7 +327,7 @@ class CNNDecoder(nn.Module):
         )
         
         # Final output layer to dual channel volume (absorption + scattering)
-        self.final_conv = nn.Conv3d(16, DEFAULT_INPUT_CHANNELS, 
+        self.final_conv = nn.Conv3d(16, INPUT_CHANNELS, 
                                    kernel_size=DECODER_FINAL_CONV_KERNEL, padding=DECODER_FINAL_CONV_PADDING)
         
         logger.debug(f"CNNDecoder initialized: feature_dim={feature_dim}, "
@@ -354,8 +349,8 @@ class CNNDecoder(nn.Module):
         x = self.fc(x)  # [batch, feature_dim] -> [batch, base_channels*8*8]
         logger.debug(f"📦 After fc expansion: {x.shape}")
         
-        x = x.view(x.size(0), self.base_channels * 8, 
-                   self.init_size, self.init_size, self.init_size)  # [batch, 256, 2, 2, 2]
+        x = x.view(x.size(0), self.base_channels * ENCODER_CHANNEL_MULTIPLIERS[4], 
+                   self.init_size, self.init_size, self.init_size)  # [batch, 256, 2, 2, 2] for base_channels=16
         logger.debug(f"📦 After reshape to 3D: {x.shape}")
         
         # Progressive upsampling through transposed convolutions
@@ -412,10 +407,10 @@ class CNNAutoEncoder(nn.Module):
             Defaults to 64.
     """
     
-    def __init__(self, input_channels: int = DEFAULT_INPUT_CHANNELS, 
-                 output_size: Tuple[int, int, int] = DEFAULT_OUTPUT_SIZE,
-                 feature_dim: int = DEFAULT_FEATURE_DIM,
-                 base_channels: int = DEFAULT_BASE_CHANNELS):
+    def __init__(self, input_channels: int = INPUT_CHANNELS, 
+                 output_size: Tuple[int, int, int] = OUTPUT_SIZE,
+                 feature_dim: int = FEATURE_DIM,
+                 base_channels: int = BASE_CHANNELS):
         super().__init__()
         
         logger.info(f"🏗️  Initializing CNN Autoencoder: input_channels={input_channels}, "

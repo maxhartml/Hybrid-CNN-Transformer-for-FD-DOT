@@ -21,6 +21,29 @@ Features:
     - Detailed logging and progress tracking
     - Device-agnostic training (CPU/GPU)
 """
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+import os
+import sys
+from pathlib import Path
+from typing import Dict
+
+# Add project root to Python path for imports
+project_root = Path(__file__).parent.parent.parent  # Go up 3 levels: stage1_trainer.py -> training -> code -> mah422
+sys.path.insert(0, str(project_root))
+
+try:
+    from code.models.hybrid_model import HybridCNNTransformer
+    from code.config.model_config import TrainingConfig, HybridConfig
+    from code.utils.logging_config import get_training_logger
+except ImportError:
+    # Try relative imports from the current directory structure
+    sys.path.insert(0, str(project_root / "code"))
+    from models.hybrid_model import HybridCNNTransformer
+    from config.model_config import TrainingConfig, HybridConfig
+    from utils.logging_config import get_training_logger
 
 import torch
 import torch.nn as nn
@@ -127,7 +150,7 @@ class Stage1Trainer:
         >>> print(f"Best validation loss: {results['best_val_loss']:.6f}")
     """
     
-    def __init__(self, learning_rate=DEFAULT_LEARNING_RATE, device=DEFAULT_DEVICE):
+    def __init__(self, learning_rate=TrainingConfig.STAGE1_LEARNING_RATE, device=TrainingConfig.DEFAULT_DEVICE):
         """
         Initialize the Stage 1 trainer with model and optimization components.
         
@@ -139,9 +162,13 @@ class Stage1Trainer:
         self.learning_rate = learning_rate
         
         # Initialize model (stage 1: CNN autoencoder only, no tissue patches)
+        # NOTE: Full hybrid model is initialized (including transformer) because:
+        # 1. Stage 1 checkpoint needs complete model state for Stage 2 loading
+        # 2. Only CNN parameters receive gradients in Stage 1 (transformer stays frozen)
+        # 3. Memory allocation is done once for consistency across stages
         self.model = HybridCNNTransformer(
-            use_tissue_patches=USE_TISSUE_PATCHES_STAGE1,
-            training_stage=TRAINING_STAGE_1  # Explicit stage 1 setting
+            use_tissue_patches=TrainingConfig.STAGE1_USE_TISSUE_PATCHES,
+            training_stage=HybridConfig.STAGE1  # Explicit stage 1 setting
         )
         self.model.to(self.device)
         
@@ -206,8 +233,12 @@ class Stage1Trainer:
             total_loss += loss.item()
             num_batches += 1
             
+            # Show batch progress at INFO level (every batch)
+            logger.info(f"📈 Stage 1 Batch {batch_idx + 1}/{len(data_loader)}: Loss = {loss.item():.6f}, Avg = {total_loss/num_batches:.6f}")
+            
+            # Additional detailed logging at DEBUG level
             if batch_idx % 5 == 0:  # Log every 5 batches during DEBUG
-                logger.debug(f"📈 Batch {batch_idx}: Loss = {loss.item():.6f}, Running Avg = {total_loss/num_batches:.6f}")
+                logger.debug(f"� Detailed: Batch {batch_idx}: Loss = {loss.item():.6f}, Running Avg = {total_loss/num_batches:.6f}")
         
         avg_loss = total_loss / num_batches
         logger.debug(f"✅ Training epoch completed. Average loss: {avg_loss:.6f}")
@@ -250,6 +281,9 @@ class Stage1Trainer:
                 
                 total_loss += loss.item()
                 num_batches += 1
+                
+                # Show validation batch progress at INFO level (every batch)
+                logger.info(f"🔍 Stage 1 Val Batch {batch_idx + 1}/{len(data_loader)}: Loss = {loss.item():.6f}, Avg = {total_loss/num_batches:.6f}")
         
         avg_loss = total_loss / num_batches
         logger.debug(f"✅ Validation completed. Average loss: {avg_loss:.6f}")
@@ -284,19 +318,20 @@ class Stage1Trainer:
         for epoch in range(epochs):
             logger.info(f"📅 Starting Epoch {epoch + 1}/{epochs}")
             
-            # Train
-            logger.debug(f"🏋️  Beginning training phase for epoch {epoch}")
+            # Train: Update model parameters using training data
+            logger.debug(f"🏋️  Beginning training phase for epoch {epoch+1}")
             train_loss = self.train_epoch(data_loaders['train'])
-            logger.info(f"🏋️  Training completed - Loss: {train_loss:.6f}")
+            logger.info(f"🏋️  Training completed - Average Loss: {train_loss:.6f}")
             
-            # Validate  
-            logger.debug(f"🔍 Beginning validation phase for epoch {epoch}")
+            # Validate: Evaluate on unseen data (no parameter updates) 
+            # We validate every epoch to: 1) Monitor overfitting, 2) Save best models, 3) Track progress
+            logger.debug(f"🔍 Beginning validation phase for epoch {epoch+1}")
             val_loss = self.validate(data_loaders['val'])
-            logger.info(f"🔍 Validation completed - Loss: {val_loss:.6f}")
+            logger.info(f"🔍 Validation completed - Average Loss: {val_loss:.6f}")
             
             # Print progress
             if epoch % PROGRESS_LOG_INTERVAL == 0 or epoch == epochs - FINAL_EPOCH_OFFSET:
-                logger.info(f"📈 Epoch {epoch:3d}/{epochs}: Train Loss: {train_loss:.6f}, "
+                logger.info(f"📈 Epoch {epoch+1:3d}/{epochs}: Train Loss: {train_loss:.6f}, "
                            f"Val Loss: {val_loss:.6f}")
             
             # Save best model
@@ -304,10 +339,10 @@ class Stage1Trainer:
                 improvement = best_val_loss - val_loss
                 best_val_loss = val_loss
                 checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{STAGE1_CHECKPOINT_FILENAME}"
-                logger.info(f"🎉 New best model! Improvement: {improvement:.6f} -> Saving checkpoint")
+                logger.info(f"🎉 New best model! Improvement: {improvement:.6f} -> Best validation loss: {best_val_loss:.6f}")
                 logger.debug(f"💾 Checkpoint path: {checkpoint_path}")
                 self.save_checkpoint(checkpoint_path, epoch, val_loss)
-                logger.debug(f"💾 New best model saved at epoch {epoch}")
+                logger.debug(f"💾 New best model saved at epoch {epoch+1}")
             else:
                 logger.debug(f"📊 No improvement. Current: {val_loss:.6f}, Best: {best_val_loss:.6f}")
         

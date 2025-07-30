@@ -12,64 +12,42 @@ The hybrid approach uses a two-stage learning strategy:
 The model includes optional tissue context integration for improved
 reconstruction accuracy through anatomical constraints.
 """
+# Standard library imports
+import os
+import sys
+from typing import Optional, Tuple, Dict, Any
+
+# PyTorch imports
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from typing import Optional, Tuple, Dict, Any
-import sys
-import os
-import math
 
-# Add parent directories to path for logging
+# Add parent directories to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-try:
-    # Package imports
-    from .cnn_autoencoder import CNNAutoEncoder
-    from .tissue_context_encoder import TissueContextEncoder, TissueContextToggle
-    from .transformer_encoder import TransformerEncoder
-    from ..utils.logging_config import get_model_logger
-except ImportError:
-    # Standalone imports - add current directory to path
-    current_dir = os.path.dirname(__file__)
-    sys.path.insert(0, current_dir)
-    from cnn_autoencoder import CNNAutoEncoder
-    from tissue_context_encoder import TissueContextEncoder, TissueContextToggle
-    from transformer_encoder import TransformerEncoder
-    from utils.logging_config import get_model_logger
+# Local model component imports
+from .cnn_autoencoder import CNNAutoEncoder
+from .tissue_context_encoder import TissueContextEncoder, TissueContextToggle
+from .transformer_encoder import TransformerEncoder
+from ..utils.logging_config import get_model_logger
+
+# Import configuration constants from their respective modules
+from . import cnn_autoencoder as cnn_config
+from . import transformer_encoder as transformer_config
+from . import tissue_context_encoder as tissue_config
 
 # =============================================================================
-# HYPERPARAMETERS AND CONSTANTS
+# HYBRID MODEL SPECIFIC CONFIGURATION
 # =============================================================================
 
-# Model Architecture Parameters
-DEFAULT_INPUT_CHANNELS = 2              # Absorption and scattering coefficients
-DEFAULT_OUTPUT_SIZE = (64, 64, 64)      # Target volume dimensions (power of 2)
-DEFAULT_CNN_BASE_CHANNELS = 64          # Base CNN channels
+# NIR Measurement Configuration (specific to hybrid model)
+NIR_INPUT_DIM = 8                       # 8D NIR feature vectors (log_amp, phase, source_xyz, det_xyz)
+N_MEASUREMENTS = 256                    # Number of independent source-detector pairs per phantom
 
-# NIR Measurement Configuration
-DEFAULT_NIR_INPUT_DIM = 8               # 8D NIR feature vectors (log_amp, phase, source_xyz, det_xyz)
-DEFAULT_N_MEASUREMENTS = 256            # Number of independent source-detector pairs per phantom (new 1:1 system)
+# Model Behavior Configuration (specific to hybrid model)
+USE_TISSUE_PATCHES = True               # Whether to use tissue context
+TRAINING_STAGE = "stage1"               # Default training stage
 
-# Tissue Context Encoder Configuration
-DEFAULT_PATCH_SIZE = 7                  # Tissue patch size
-DEFAULT_NUM_PATCHES = 2                 # Source + detector regions
-DEFAULT_TISSUE_EMBED_DIM = 256          # Tissue embedding dimension
-DEFAULT_TISSUE_NUM_LAYERS = 3           # Number of tissue encoder layers
-DEFAULT_TISSUE_NUM_HEADS = 8            # Number of tissue attention heads
-
-# Transformer Encoder Configuration
-DEFAULT_TRANSFORMER_EMBED_DIM = 768     # Transformer embedding dimension
-DEFAULT_TRANSFORMER_NUM_LAYERS = 6      # Number of transformer layers
-DEFAULT_TRANSFORMER_NUM_HEADS = 12      # Number of transformer attention heads
-DEFAULT_MLP_RATIO = 4                   # MLP expansion ratio
-DEFAULT_DROPOUT = 0.1                   # Dropout probability
-
-# Model Behavior Configuration
-DEFAULT_USE_TISSUE_PATCHES = True       # Whether to use tissue context
-DEFAULT_TRAINING_STAGE = "stage1"       # Default training stage
-
-# Training Stages
+# Training Stages (specific to hybrid model)
 STAGE1 = "stage1"                       # CNN autoencoder pre-training
 STAGE2 = "stage2"                       # Transformer training stage
 
@@ -111,30 +89,30 @@ class HybridCNNTransformer(nn.Module):
     
     def __init__(self,
                  # CNN autoencoder configuration
-                 input_channels: int = DEFAULT_INPUT_CHANNELS,  # Both absorption and scattering coefficients
-                 output_size: Tuple[int, int, int] = DEFAULT_OUTPUT_SIZE,  # Match your data dimensions
-                 cnn_base_channels: int = DEFAULT_CNN_BASE_CHANNELS,
+                 input_channels: int = cnn_config.INPUT_CHANNELS,  # Both absorption and scattering coefficients
+                 output_size: Tuple[int, int, int] = cnn_config.OUTPUT_SIZE,  # Match your data dimensions
+                 cnn_base_channels: int = cnn_config.BASE_CHANNELS,
                  
                  # NIR measurement configuration
-                 nir_input_dim: int = DEFAULT_NIR_INPUT_DIM,  # 8D NIR feature vectors (log_amp, phase, source_xyz, det_xyz)
+                 nir_input_dim: int = NIR_INPUT_DIM,  # 8D NIR feature vectors (log_amp, phase, source_xyz, det_xyz)
                  
                  # Tissue context encoder configuration
-                 patch_size: int = DEFAULT_PATCH_SIZE,  # Tissue patch size matching data format
-                 num_patches: int = DEFAULT_NUM_PATCHES,  # Source + detector regions
-                 tissue_embed_dim: int = DEFAULT_TISSUE_EMBED_DIM,
-                 tissue_num_layers: int = DEFAULT_TISSUE_NUM_LAYERS,
-                 tissue_num_heads: int = DEFAULT_TISSUE_NUM_HEADS,
+                 patch_size: int = tissue_config.PATCH_SIZE,  # Tissue patch size matching data format
+                 num_patches: int = tissue_config.NUM_PATCHES,  # Source + detector regions
+                 tissue_embed_dim: int = tissue_config.EMBED_DIM,
+                 tissue_num_layers: int = tissue_config.NUM_LAYERS,
+                 tissue_num_heads: int = tissue_config.NUM_HEADS,
                  
                  # Transformer encoder configuration
-                 transformer_embed_dim: int = DEFAULT_TRANSFORMER_EMBED_DIM,
-                 transformer_num_layers: int = DEFAULT_TRANSFORMER_NUM_LAYERS,
-                 transformer_num_heads: int = DEFAULT_TRANSFORMER_NUM_HEADS,
-                 mlp_ratio: int = DEFAULT_MLP_RATIO,
-                 dropout: float = DEFAULT_DROPOUT,
+                 transformer_embed_dim: int = transformer_config.EMBED_DIM,
+                 transformer_num_layers: int = transformer_config.NUM_LAYERS,
+                 transformer_num_heads: int = transformer_config.NUM_HEADS,
+                 mlp_ratio: int = transformer_config.MLP_RATIO,
+                 dropout: float = transformer_config.DROPOUT,
                  
                  # Model behavior configuration
-                 use_tissue_patches: bool = DEFAULT_USE_TISSUE_PATCHES,
-                 training_stage: str = DEFAULT_TRAINING_STAGE):
+                 use_tissue_patches: bool = USE_TISSUE_PATCHES,
+                 training_stage: str = TRAINING_STAGE):
         
         super().__init__()
         
@@ -166,7 +144,7 @@ class HybridCNNTransformer(nn.Module):
         
         # Initialize Transformer Encoder (stage 2 component)
         self.transformer_encoder = TransformerEncoder(
-            cnn_feature_dim=self.cnn_autoencoder.encoder.feature_dim,
+            cnn_feature_dim=cnn_config.FEATURE_DIM,  # Use CNN's actual feature dimension
             tissue_context_dim=tissue_embed_dim if use_tissue_patches else 0,
             embed_dim=transformer_embed_dim,
             num_layers=transformer_num_layers,
@@ -181,7 +159,7 @@ class HybridCNNTransformer(nn.Module):
             nn.ReLU(),
             nn.Linear(64, 256), 
             nn.ReLU(),
-            nn.Linear(256, 512)    # Project to CNN feature dimension
+            nn.Linear(256, cnn_config.FEATURE_DIM)    # Project to CNN feature dimension
         )
         
         # Utility for tissue context toggle functionality

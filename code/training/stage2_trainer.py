@@ -7,7 +7,18 @@ CNN decoder frozen. This approach leverages the robust feature representations
 learned in Stage 1 while adding sophisticated spatial modeling capabilities.
 
 The training process supports both baseline and enhanced modes:
-- Baseline: Standard transformer training without tissue context
+- Baseline:             # Save best model
+            if val_loss < best_val_loss:
+                improvement = best_val_loss - val_loss
+                best_val_loss = val_loss
+                checkpoint_filename = STAGE2_ENHANCED_CHECKPOINT if self.use_tissue_patches else STAGE2_BASELINE_CHECKPOINT
+                checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{checkpoint_filename}"
+                logger.info(f"🎉 New best Stage 2 model! Improvement: {improvement:.6f} -> Best validation loss: {best_val_loss:.6f}")
+                logger.debug(f"💾 Stage 2 checkpoint path: {checkpoint_path}")
+                self.save_checkpoint(checkpoint_path, epoch, val_loss)
+                logger.debug(f"💾 New best Stage 2 model saved at epoch {epoch+1}")
+            else:
+                logger.debug(f"📊 No improvement. Current: {val_loss:.6f}, Best: {best_val_loss:.6f}")nsformer training without tissue context
 - Enhanced: Transformer training with tissue patch integration for improved
   spatial awareness and context-sensitive reconstruction
 
@@ -339,8 +350,13 @@ class Stage2Trainer:
             total_loss += loss.item()
             num_batches += 1
             
-            if batch_idx % 5 == 0:  # Log every 5 batches during DE
-                logger.debug(f"📈 Stage 2 Batch {batch_idx}: Loss = {loss.item():.6f}, Running Avg = {total_loss/num_batches:.6f}")
+            # Show batch progress at INFO level (every batch)
+            mode = "Enhanced" if self.use_tissue_patches else "Baseline"
+            logger.info(f"📈 Stage 2 {mode} Batch {batch_idx + 1}/{len(data_loader)}: Loss = {loss.item():.6f}, Avg = {total_loss/num_batches:.6f}")
+            
+            # Additional detailed logging at DEBUG level
+            if batch_idx % 5 == 0:  # Log every 5 batches during DEBUG
+                logger.debug(f"� Detailed: Stage 2 Batch {batch_idx}: Loss = {loss.item():.6f}, Running Avg = {total_loss/num_batches:.6f}")
         
         avg_loss = total_loss / num_batches
         logger.debug(f"✅ Stage 2 training epoch completed. Average loss: {avg_loss:.6f}")
@@ -392,6 +408,10 @@ class Stage2Trainer:
                 
                 total_loss += loss.item()
                 num_batches += 1
+                
+                # Show validation batch progress at INFO level (every batch)
+                mode = "Enhanced" if self.use_tissue_patches else "Baseline"
+                logger.info(f"🔍 Stage 2 {mode} Val Batch {batch_idx + 1}/{len(data_loader)}: Loss = {loss.item():.6f}, Avg = {total_loss/num_batches:.6f}")
         
         avg_loss = total_loss / num_batches
         logger.debug(f"✅ Stage 2 validation completed. Average loss: {avg_loss:.6f}")
@@ -430,19 +450,19 @@ class Stage2Trainer:
         for epoch in range(epochs):
             logger.info(f"📅 Starting Stage 2 Epoch {epoch + 1}/{epochs}")
             
-            # Train
-            logger.debug(f"🏋️  Beginning Stage 2 training phase for epoch {epoch}")
+            # Train: Update transformer parameters (CNN decoder frozen)
+            logger.debug(f"🏋️  Beginning Stage 2 training phase for epoch {epoch+1}")
             train_loss = self.train_epoch(data_loaders['train'])
-            logger.info(f"🏋️  Stage 2 Training completed - Loss: {train_loss:.6f}")
+            logger.info(f"🏋️  Stage 2 Training completed - Average Loss: {train_loss:.6f}")
             
-            # Validate
-            logger.debug(f"🔍 Beginning Stage 2 validation phase for epoch {epoch}")
+            # Validate: Evaluate hybrid model on unseen data (no parameter updates)
+            logger.debug(f"🔍 Beginning Stage 2 validation phase for epoch {epoch+1}")
             val_loss = self.validate(data_loaders['val'])
-            logger.info(f"🔍 Stage 2 Validation completed - Loss: {val_loss:.6f}")
+            logger.info(f"🔍 Stage 2 Validation completed - Average Loss: {val_loss:.6f}")
             
             # Print progress
             if epoch % PROGRESS_LOG_INTERVAL == 0:
-                logger.info(f"📈 Stage 2 Epoch {epoch:3d}: Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}")
+                logger.info(f"📈 Stage 2 Epoch {epoch+1:3d}: Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}")
             
             # Save best model
             if val_loss < best_val_loss:

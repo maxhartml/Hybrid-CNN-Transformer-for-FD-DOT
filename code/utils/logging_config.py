@@ -32,7 +32,7 @@ class NIRDOTLogger:
     @classmethod
     def setup_logging(cls, 
                       log_dir: str = "logs",
-                      log_level: str = "DEBUG",
+                      log_level: str = "INFO",
                       max_file_size: int = 10 * 1024 * 1024,  # 10MB
                       backup_count: int = 5):
         """

@@ -9,30 +9,29 @@ properties and anatomical constraints.
 The tissue context encoder provides auxiliary information to improve
 reconstruction accuracy in the hybrid learning approach.
 """
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Tuple, Optional
-import sys
 import os
+import sys
+from typing import Tuple, Optional
 
-# Add parent directories to path for logging
+# Add parent directories to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utils.logging_config import get_model_logger
 
 # =============================================================================
-# HYPERPARAMETERS AND CONSTANTS
+# TISSUE CONTEXT ENCODER CONFIGURATION
 # =============================================================================
 
 # Model Architecture Parameters
-DEFAULT_PATCH_SIZE = 7                  # Size of each tissue patch (can be int or tuple)
-DEFAULT_NUM_PATCHES = 2                 # Number of tissue patches (source + detector)
-DEFAULT_EMBED_DIM = 256                 # Embedding dimension
-DEFAULT_NUM_LAYERS = 3                  # Number of transformer encoder layers
-DEFAULT_NUM_HEADS = 8                   # Number of attention heads
-DEFAULT_MLP_RATIO = 4                   # MLP expansion ratio
-DEFAULT_DROPOUT = 0.1                   # Dropout probability
+PATCH_SIZE = 7                          # Size of each tissue patch (can be int or tuple)
+NUM_PATCHES = 2                         # Number of tissue patches (source + detector)
+EMBED_DIM = 256                         # Embedding dimension
+NUM_LAYERS = 3                          # Number of transformer encoder layers
+NUM_HEADS = 8                           # Number of attention heads
+MLP_RATIO = 4                           # MLP expansion ratio
+DROPOUT = 0.1                           # Dropout probability
 
 # Tissue Property Parameters
 NUM_TISSUE_PROPERTY_CHANNELS = 2        # Number of tissue property channels (mu_a, mu_s)
@@ -73,13 +72,13 @@ class TissueContextEncoder(nn.Module):
     """
     
     def __init__(self, 
-                 patch_size = DEFAULT_PATCH_SIZE,  # Size matches actual tissue patch data - can be int or tuple
-                 num_patches: int = DEFAULT_NUM_PATCHES,  # Source + detector patches
-                 embed_dim: int = DEFAULT_EMBED_DIM,
-                 num_layers: int = DEFAULT_NUM_LAYERS,
-                 num_heads: int = DEFAULT_NUM_HEADS,
-                 mlp_ratio: int = DEFAULT_MLP_RATIO,
-                 dropout: float = DEFAULT_DROPOUT,
+                 patch_size = PATCH_SIZE,  # Size matches actual tissue patch data - can be int or tuple
+                 num_patches: int = NUM_PATCHES,  # Source + detector patches
+                 embed_dim: int = EMBED_DIM,
+                 num_layers: int = NUM_LAYERS,
+                 num_heads: int = NUM_HEADS,
+                 mlp_ratio: int = MLP_RATIO,
+                 dropout: float = DROPOUT,
                  num_tissue_types: int = None):  # Optional backward compatibility
         super().__init__()
         

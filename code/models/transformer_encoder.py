@@ -13,27 +13,25 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
-from typing import Optional, Tuple
-import sys
 import os
+import sys
+from typing import Optional, Tuple
 
-# Add parent directories to path for logging
+# Add parent directories to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utils.logging_config import get_model_logger
 
 # =============================================================================
-# HYPERPARAMETERS AND CONSTANTS
+# TRANSFORMER ENCODER CONFIGURATION
 # =============================================================================
 
 # Model Architecture Parameters
-DEFAULT_CNN_FEATURE_DIM = 512           # CNN feature dimension input
-DEFAULT_TISSUE_CONTEXT_DIM = 256        # Tissue context embedding dimension
-DEFAULT_EMBED_DIM = 768                 # Transformer embedding dimension
-DEFAULT_NUM_LAYERS = 6                  # Number of transformer layers
-DEFAULT_NUM_HEADS = 12                  # Number of attention heads
-DEFAULT_MLP_RATIO = 4                   # MLP expansion ratio
-DEFAULT_DROPOUT = 0.1                   # Dropout probability
-DEFAULT_MAX_SEQ_LEN = 1000              # Maximum sequence length
+EMBED_DIM = 768                         # Transformer embedding dimension
+NUM_LAYERS = 6                          # Number of transformer layers
+NUM_HEADS = 12                          # Number of attention heads
+MLP_RATIO = 4                           # MLP expansion ratio
+DROPOUT = 0.1                           # Dropout probability
+MAX_SEQ_LEN = 1000                      # Maximum sequence length
 
 # Positional Encoding Parameters
 POSITIONAL_ENCODING_MAX_LEN = 5000      # Maximum sequence length for positional encoding
@@ -112,7 +110,7 @@ class MultiHeadAttention(nn.Module):
         dropout (float, optional): Dropout probability. Defaults to 0.1.
     """
     
-    def __init__(self, embed_dim: int, num_heads: int, dropout: float = DEFAULT_DROPOUT):
+    def __init__(self, embed_dim: int, num_heads: int, dropout: float = DROPOUT):
         super().__init__()
         assert embed_dim % num_heads == 0, f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})"
         
@@ -197,8 +195,8 @@ class TransformerLayer(nn.Module):
         dropout (float, optional): Dropout probability. Defaults to 0.1.
     """
     
-    def __init__(self, embed_dim: int, num_heads: int, mlp_ratio: int = DEFAULT_MLP_RATIO, 
-                 dropout: float = DEFAULT_DROPOUT):
+    def __init__(self, embed_dim: int, num_heads: int, mlp_ratio: int = MLP_RATIO, 
+                 dropout: float = DROPOUT):
         super().__init__()
         # Multi-head self-attention mechanism
         self.attention = MultiHeadAttention(embed_dim, num_heads, dropout)
@@ -274,14 +272,14 @@ class TransformerEncoder(nn.Module):
     """
     
     def __init__(self, 
-                 cnn_feature_dim: int = DEFAULT_CNN_FEATURE_DIM,
-                 tissue_context_dim: int = DEFAULT_TISSUE_CONTEXT_DIM,
-                 embed_dim: int = DEFAULT_EMBED_DIM,
-                 num_layers: int = DEFAULT_NUM_LAYERS,
-                 num_heads: int = DEFAULT_NUM_HEADS,
-                 mlp_ratio: int = DEFAULT_MLP_RATIO,
-                 dropout: float = DEFAULT_DROPOUT,
-                 max_seq_len: int = DEFAULT_MAX_SEQ_LEN):
+                 cnn_feature_dim: int,  # Must be provided by caller (from CNN module)
+                 tissue_context_dim: int = 0,  # Default 0 means no tissue context
+                 embed_dim: int = EMBED_DIM,
+                 num_layers: int = NUM_LAYERS,
+                 num_heads: int = NUM_HEADS,
+                 mlp_ratio: int = MLP_RATIO,
+                 dropout: float = DROPOUT,
+                 max_seq_len: int = MAX_SEQ_LEN):
         super().__init__()
         
         logger.info(f"🏗️  Initializing Transformer Encoder: {num_layers} layers, "
