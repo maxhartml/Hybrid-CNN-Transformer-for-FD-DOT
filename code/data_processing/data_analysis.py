@@ -910,14 +910,15 @@ def comprehensive_multi_phantom_analysis():
     
     # Ask user how many phantoms to analyze
     try:
-        max_phantoms = min(len(analyzer.phantom_files), 50)  # Reasonable limit
-        choice = input(f"Analyze how many phantoms? [1-{max_phantoms}] (default: {min(20, max_phantoms)}): ").strip()
+        max_phantoms = len(analyzer.phantom_files)  # Use all available phantoms
+        default_phantoms = min(20, max_phantoms)  # Default to 20 or max available
+        choice = input(f"Analyze how many phantoms? [1-{max_phantoms}] (default: {default_phantoms}): ").strip()
         if choice:
             num_phantoms = min(int(choice), max_phantoms)
         else:
-            num_phantoms = min(20, max_phantoms)
+            num_phantoms = default_phantoms
     except ValueError:
-        num_phantoms = min(20, max_phantoms)
+        num_phantoms = default_phantoms
     
     print(f"\n🔬 COMPREHENSIVE {num_phantoms}-PHANTOM PHYSICS VALIDATION")
     print('='*60)

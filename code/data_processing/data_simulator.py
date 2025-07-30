@@ -67,7 +67,7 @@ from scipy.spatial.distance import cdist        # Efficient pairwise distance co
 from code.utils.logging_config import get_data_logger, NIRDOTLogger
 
 # Constants for phantom generation
-DEFAULT_N_PHANTOMS = 50                      # Number of phantoms to generate for dataset
+DEFAULT_N_PHANTOMS = 150                      # Number of phantoms to generate for dataset
 DEFAULT_PHANTOM_SHAPE = (64, 64, 64)        # Default cubic phantom dimensions in voxels (power of 2)
 DEFAULT_TISSUE_RADIUS_RANGE = (25, 30)      # Healthy tissue ellipsoid semi-axis range (50-60mm with 2mm voxels)
 DEFAULT_TUMOR_RADIUS_RANGE = (5, 10)        # Tumor ellipsoid semi-axis range (10-20mm with 2mm voxels)
