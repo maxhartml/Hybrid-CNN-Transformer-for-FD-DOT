@@ -1,43 +1,51 @@
 #!/usr/bin/env python3
 """
-🔬 COMPREHENSIVE NIR PHANTOM DATASET ANALYSIS SUITE 🔬
+🔬 ADVANCED NIR PHANTOM DATASET ANALYSIS SUITE 🔬
 
-Complete analysis toolkit for NIR phantom datasets featuring:
+Professional analysis toolkit for NIR phantom datasets featuring:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📊 COMPREHENSIVE ANALYSIS CAPABILITIES:
-• Complete HDF5 structure and metadata examination
-• Advanced statistical analysis with distribution fitting
-• 3D geometric configuration visualization
-• Ground truth optical property validation
-• Cross-dataset consistency analysis
-• Publication-quality scientific visualizations
-• Interactive reporting with professional plots
+🎯 DUAL ANALYSIS MODES:
+OPTION 1: Single Phantom Analysis
+• Comprehensive 9-graph visualization (3x3 grid)
+• Physics validation, quality assessment, and tissue analysis
+• 3D geometry visualization and statistical distributions
+• Detailed measurement correlation and SNR analysis
 
-🎨 VISUALIZATION FEATURES:
-• Professional scientific plotting themes
-• 3D interactive visualizations
-• Heat maps and correlation matrices
-• Statistical distribution plots
-• Comparative analysis charts
-• High-resolution output for publications
+OPTION 2: Cross-Dataset Physics Validation
+• Physics validation across entire phantom collection
+• Aggregate statistical analysis and success rate assessment
+• Cross-dataset consistency analysis and quality scoring
+• Dataset-wide physics relationship validation
+• Comparative success rate analysis (like physics validation script)
 
-🔍 QUALITY ASSURANCE:
-• Comprehensive data validation
-• Outlier detection and analysis
-• Consistency checks across datasets
-• Physical plausibility verification
-• Missing data identification
+📊 ADVANCED ANALYSIS CAPABILITIES:
+• Physics relationship validation (log-amplitude vs SDS, phase vs SDS)
+• Cross-phantom consistency analysis and quality scoring
+• Statistical distribution analysis with normality testing
+• Principal component analysis and dimensionality reduction
+• Outlier detection using multiple robust methods
+• Tissue property distribution analysis and contrast assessment
+• Measurement noise characterization and SNR analysis
 
-📈 STATISTICAL ANALYSIS:
-• Distribution fitting and normality tests
-• Correlation analysis and PCA
-• Outlier detection using multiple methods
-• Confidence intervals and hypothesis testing
-• Advanced statistical summaries
+🎨 PROFESSIONAL VISUALIZATION FEATURES:
+• Clean, modern scientific plotting themes
+• 3D interactive geometry visualizations
+• Statistical distribution plots with KDE overlays
+• Cross-correlation matrices and heatmaps
+• Comparative box plots and violin plots
+• Physics validation scatter plots with trend analysis
+
+🔬 SCIENTIFIC ANALYSIS METHODS:
+• Shapiro-Wilk normality testing
+• Pearson and Spearman correlation analysis
+• Interquartile range outlier detection
+• Z-score standardization and comparison
+• Physics compliance scoring and validation
+• Cross-dataset consistency metrics
 
 Author: Max Hart - NIR Tomography Research
-Version: 2.0 - Complete Analysis Suite
+Version: 3.0 - Dual-Mode Professional Analysis Suite
 """
 
 import os
@@ -60,8 +68,8 @@ warnings.filterwarnings('ignore')
 # Get the project root directory (mah422) - works regardless of where script is run from
 project_root = Path(__file__).parent.parent.parent  # Go up to mah422 directory
 
-# Configure matplotlib for ultra-high-quality scientific plots
-plt.style.use('dark_background')  # Dark theme for modern look
+# Configure matplotlib for professional scientific plots with refined aesthetics
+plt.style.use('seaborn-v0_8-whitegrid')  # Clean, professional theme
 plt.rcParams.update({
     'figure.figsize': (16, 12),
     'figure.dpi': 300,
@@ -75,45 +83,42 @@ plt.rcParams.update({
     'ytick.labelsize': 9,
     'legend.fontsize': 9,
     'axes.grid': True,
-    'grid.alpha': 0.3,
-    'grid.color': '#404040',
-    'lines.linewidth': 2.5,
+    'grid.alpha': 0.2,
+    'grid.color': '#c0c0c0',
+    'lines.linewidth': 2.0,
     'axes.spines.top': False,
     'axes.spines.right': False,
-    'axes.spines.left': True,
-    'axes.spines.bottom': True,
-    'axes.facecolor': '#1a1a1a',
-    'figure.facecolor': '#0d1117',
-    'text.color': 'white',
-    'axes.labelcolor': 'white',
-    'xtick.color': 'white',
-    'ytick.color': 'white',
-    'axes.edgecolor': '#404040'
+    'axes.linewidth': 1.2,
+    'axes.facecolor': 'white',
+    'figure.facecolor': 'white',
+    'text.color': 'black',
+    'axes.labelcolor': 'black',
+    'xtick.color': 'black',
+    'ytick.color': 'black',
+    'axes.edgecolor': '#333333'
 })
 
-# Define professional color schemes for dark theme
+# Professional color palette - refined and less colorful
 COLORS = {
-    'primary': '#00d4ff',      # Bright cyan
-    'secondary': '#ff6b9d',    # Hot pink
-    'accent': '#ffa726',       # Bright orange
-    'success': '#4caf50',      # Green
-    'warning': '#ff9800',      # Orange
-    'error': '#f44336',        # Red
-    'tissue': '#00e676',       # Bright green
-    'tumor': '#ff1744',        # Bright red
-    'air': '#2196f3',          # Blue
-    'source': '#ffd700',       # Gold
-    'detector': '#00ffff',     # Cyan
-    'gradient1': '#667eea',    # Purple-blue
-    'gradient2': '#764ba2',    # Purple
-    'bg_dark': '#1a1a1a',      # Dark background
-    'bg_light': '#2d2d2d'      # Light background
+    'primary': '#2E86AB',      # Professional blue
+    'secondary': '#A23B72',    # Muted magenta
+    'accent': '#F18F01',       # Warm orange
+    'success': '#C73E1D',      # Deep red
+    'tissue': '#2E8B57',       # Sea green
+    'tumor': '#8B0000',        # Dark red
+    'air': '#4682B4',          # Steel blue
+    'source': '#DAA520',       # Golden rod
+    'detector': '#20B2AA',     # Light sea green
+    'neutral1': '#696969',     # Dim gray
+    'neutral2': '#2F4F4F',     # Dark slate gray
+    'bg_light': '#F8F9FA',     # Very light gray
+    'bg_medium': '#E9ECEF'     # Light gray
 }
 
-# Enhanced color palettes for different plot types
-MEASUREMENT_COLORS = ['#00d4ff', '#ff6b9d', '#ffa726', '#4caf50', '#9c27b0']
-TISSUE_COLORS = ['#1a1a1a', '#00e676', '#ff1744', '#ffa726', '#2196f3', '#9c27b0']
-GRADIENT_COLORS = ['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe', '#00f2fe']
+# Refined color palettes for different plot types
+MEASUREMENT_COLORS = ['#2E86AB', '#A23B72', '#F18F01', '#2E8B57', '#4682B4']
+TISSUE_COLORS = ['#F8F9FA', '#2E8B57', '#8B0000', '#F18F01', '#4682B4', '#A23B72']
+SCIENTIFIC_COLORMAP = 'viridis'  # Professional scientific colormap
 
 class NIRDatasetAnalyzer:
     """
@@ -154,7 +159,7 @@ class NIRDatasetAnalyzer:
         
     def _discover_datasets(self):
         """🔍 Discover and validate all available phantom datasets."""
-        print("\n� DATASET DISCOVERY")
+        print("\n📁 DATASET DISCOVERY")
         print("-" * 50)
         
         if not self.data_dir.exists():
@@ -177,7 +182,7 @@ class NIRDatasetAnalyzer:
             print("\n💡 Run the data simulator first to generate phantom datasets!")
             return
             
-        print(f"� Scanning {len(phantom_dirs)} phantom directories...")
+        print(f"📂 Scanning {len(phantom_dirs)} phantom directories...")
         
         valid_count = 0
         total_size = 0
@@ -214,423 +219,6 @@ class NIRDatasetAnalyzer:
             print("\n❌ No valid datasets found! Cannot proceed with analysis.")
         else:
             print(f"\n🚀 Ready to analyze {valid_count} datasets!")
-    
-    def load_all_datasets(self):
-        """📂 Load all datasets into memory for comprehensive analysis."""
-        print("\n📂 LOADING ALL DATASETS INTO MEMORY")
-        print("-" * 50)
-        
-        if not self.phantom_files:
-            print("❌ No datasets available to load!")
-            return False
-        
-        loading_start = time.time()
-        successful_loads = 0
-        
-        for i, file_path in enumerate(self.phantom_files):
-            phantom_name = file_path.parent.name
-            print(f"   Loading {phantom_name:15} [{i+1:2d}/{len(self.phantom_files):2d}]", end=" ")
-            
-            try:
-                with h5py.File(file_path, 'r') as f:
-                    data = {
-                        'phantom_name': phantom_name,
-                        'file_path': file_path,
-                        'log_amplitude': f['log_amplitude'][:],
-                        'phase': f['phase'][:],
-                        'ground_truth': f['ground_truth'][:],
-                        'source_pos': f['source_positions'][:],
-                        'det_pos': f['detector_positions'][:],
-                        'file_size_mb': file_path.stat().st_size / (1024**2),
-                        'datasets': list(f.keys()),
-                        'attributes': dict(f.attrs) if f.attrs else {}
-                    }
-                    
-                    # Add derived statistics
-                    data['n_measurements'] = data['log_amplitude'].size
-                    data['volume_shape'] = data['ground_truth'].shape[1:]  # Skip channel dimension for spatial shape (64,64,64)
-                    data['n_sources'] = len(data['source_pos'])
-                    
-                    self.all_data[phantom_name] = data
-                    successful_loads += 1
-                    print("✅")
-                    
-            except Exception as e:
-                print(f"❌ Error: {str(e)[:50]}...")
-        
-        loading_time = time.time() - loading_start
-        
-        print(f"\n📊 LOADING SUMMARY:")
-        print(f"   Datasets attempted: {len(self.phantom_files)}")
-        print(f"   Successfully loaded: {successful_loads}")
-        print(f"   Loading time: {loading_time:.2f} seconds")
-        print(f"   Average time per dataset: {loading_time/len(self.phantom_files):.2f}s")
-        
-        return successful_loads > 0
-    
-    def comprehensive_analysis(self):
-        """🔬 Perform comprehensive analysis of all datasets."""
-        print("\n🔬 COMPREHENSIVE DATASET ANALYSIS")
-        print("-" * 50)
-        
-        if not self.all_data:
-            print("❌ No data loaded! Run load_all_datasets() first.")
-            return
-        
-        analysis_start = time.time()
-        
-        # Perform different types of analysis
-        print("🧮 Performing statistical analysis...")
-        self._statistical_analysis()
-        
-        print("🎯 Analyzing ground truth properties...")
-        self._ground_truth_analysis()
-        
-        print("📐 Examining geometric configurations...")
-        self._geometric_analysis()
-        
-        print("🔍 Running quality validation...")
-        self._quality_validation()
-        
-        print("🔄 Checking cross-dataset consistency...")
-        self._consistency_analysis()
-        
-        analysis_time = time.time() - analysis_start
-        print(f"\n✅ Comprehensive analysis completed in {analysis_time:.2f} seconds")
-    
-    def _statistical_analysis(self):
-        """📊 Advanced statistical analysis of measurements."""
-        results = {}
-        
-        all_log_amp = []
-        all_phase = []
-        
-        for phantom_name, data in self.all_data.items():
-            log_amp = data['log_amplitude'].flatten()
-            phase = data['phase'].flatten()
-            
-            # Remove invalid values
-            log_amp = log_amp[np.isfinite(log_amp)]
-            phase = phase[np.isfinite(phase)]
-            
-            if len(log_amp) > 0 and len(phase) > 0:
-                all_log_amp.extend(log_amp)
-                all_phase.extend(phase)
-                
-                # Per-phantom statistics
-                results[phantom_name] = {
-                    'log_amplitude': {
-                        'count': len(log_amp),
-                        'mean': np.mean(log_amp),
-                        'std': np.std(log_amp),
-                        'min': np.min(log_amp),
-                        'max': np.max(log_amp),
-                        'median': np.median(log_amp),
-                        'q25': np.percentile(log_amp, 25),
-                        'q75': np.percentile(log_amp, 75),
-                        'skewness': stats.skew(log_amp),
-                        'kurtosis': stats.kurtosis(log_amp)
-                    },
-                    'phase': {
-                        'count': len(phase),
-                        'mean': np.mean(phase),
-                        'std': np.std(phase),
-                        'min': np.min(phase),
-                        'max': np.max(phase),
-                        'median': np.median(phase),
-                        'q25': np.percentile(phase, 25),
-                        'q75': np.percentile(phase, 75),
-                        'skewness': stats.skew(phase),
-                        'kurtosis': stats.kurtosis(phase)
-                    }
-                }
-                
-                # Normality tests (sample for speed)
-                sample_size = min(5000, len(log_amp))
-                if sample_size > 50:
-                    sample_idx = np.random.choice(len(log_amp), sample_size, replace=False)
-                    _, p_normal_amp = stats.shapiro(log_amp[sample_idx])
-                    _, p_normal_phase = stats.shapiro(phase[sample_idx])
-                    
-                    results[phantom_name]['log_amplitude']['normality_p'] = p_normal_amp
-                    results[phantom_name]['phase']['normality_p'] = p_normal_phase
-        
-        # Global statistics
-        if all_log_amp and all_phase:
-            all_log_amp = np.array(all_log_amp)
-            all_phase = np.array(all_phase)
-            
-            # Correlation analysis with robust error handling
-            try:
-                # Ensure we have valid data for correlation
-                if len(all_log_amp) > 10 and len(all_phase) > 10:
-                    # Remove any non-finite values
-                    valid_mask = np.isfinite(all_log_amp) & np.isfinite(all_phase)
-                    clean_log_amp = all_log_amp[valid_mask]
-                    clean_phase = all_phase[valid_mask]
-                    
-                    if len(clean_log_amp) > 10 and np.std(clean_log_amp) > 0 and np.std(clean_phase) > 0:
-                        correlation = np.corrcoef(clean_log_amp, clean_phase)[0, 1]
-                    else:
-                        correlation = 0.0  # Set to zero if insufficient variance
-                else:
-                    correlation = 0.0  # Set to zero if insufficient data
-            except Exception as e:
-                correlation = 0.0  # Default fallback
-                print(f"Warning: Correlation calculation failed: {e}")
-            
-            results['global'] = {
-                'total_measurements': len(all_log_amp),
-                'log_amp_range': [float(np.min(all_log_amp)), float(np.max(all_log_amp))] if len(all_log_amp) > 0 else [0.0, 0.0],
-                'phase_range': [float(np.min(all_phase)), float(np.max(all_phase))] if len(all_phase) > 0 else [0.0, 0.0],
-                'correlation': float(correlation)
-            }
-        
-        self.analysis_results['statistics'] = results
-    
-    def _ground_truth_analysis(self):
-        """🎯 Analyze ground truth optical property distributions."""
-        results = {}
-        
-        all_mua = []
-        all_musp = []
-        tissue_type_counts = {}
-        
-        for phantom_name, data in self.all_data.items():
-            gt = data['ground_truth']
-            mua_map = gt[0]  # Channel 0: absorption coefficient
-            musp_map = gt[1]  # Channel 1: reduced scattering coefficient
-            
-            # Overall statistics
-            results[phantom_name] = {
-                'volume_shape': list(gt.shape[1:]),  # Spatial dimensions only (64,64,64)
-                'total_voxels': int(mua_map.size),
-                'mua_stats': {
-                    'min': float(np.min(mua_map)),
-                    'max': float(np.max(mua_map)),
-                    'mean': float(np.mean(mua_map)),
-                    'std': float(np.std(mua_map)),
-                    'nonzero_count': int(np.sum(mua_map > 0))
-                },
-                'musp_stats': {
-                    'min': float(np.min(musp_map)),
-                    'max': float(np.max(musp_map)),
-                    'mean': float(np.mean(musp_map)),
-                    'std': float(np.std(musp_map)),
-                    'nonzero_count': int(np.sum(musp_map > 0))
-                }
-            }
-            
-            # Tissue type analysis
-            unique_combinations = np.unique(gt.reshape(-1, 2), axis=0)
-            tissue_types = []
-            
-            for mua_val, musp_val in unique_combinations:
-                voxel_count = np.sum((mua_map == mua_val) & (musp_map == musp_val))
-                
-                if mua_val == 0 and musp_val == 0:
-                    tissue_type = 'air'
-                else:
-                    tissue_type = f'tissue_{len(tissue_types)}'
-                
-                tissue_types.append({
-                    'type': tissue_type,
-                    'mua': float(mua_val),
-                    'musp': float(musp_val),
-                    'voxel_count': int(voxel_count),
-                    'percentage': float(voxel_count / mua_map.size * 100)
-                })
-                
-                # Collect for global analysis
-                if mua_val > 0 or musp_val > 0:  # Non-air voxels
-                    all_mua.extend([mua_val] * voxel_count)
-                    all_musp.extend([musp_val] * voxel_count)
-            
-            results[phantom_name]['tissue_types'] = tissue_types
-            results[phantom_name]['n_tissue_types'] = len([t for t in tissue_types if t['type'] != 'air'])
-            
-            # Add to global counts
-            n_types = results[phantom_name]['n_tissue_types']
-            tissue_type_counts[n_types] = tissue_type_counts.get(n_types, 0) + 1
-        
-        # Global ground truth statistics
-        if all_mua and all_musp:
-            results['global'] = {
-                'mua_global_range': [float(np.min(all_mua)), float(np.max(all_mua))],
-                'musp_global_range': [float(np.min(all_musp)), float(np.max(all_musp))],
-                'tissue_type_distribution': tissue_type_counts,
-                'total_tissue_voxels': len(all_mua)
-            }
-        
-        self.analysis_results['ground_truth'] = results
-    
-    def _geometric_analysis(self):
-        """📐 Analyze geometric configurations and probe layouts."""
-        results = {}
-        
-        all_distances = []
-        
-        for phantom_name, data in self.all_data.items():
-            source_pos = data['source_pos']
-            det_pos = data['det_pos']
-            
-            # Basic geometry stats
-            results[phantom_name] = {
-                'n_sources': len(source_pos),
-                'source_bounds': {
-                    'x': [float(source_pos[:, 0].min()), float(source_pos[:, 0].max())],
-                    'y': [float(source_pos[:, 1].min()), float(source_pos[:, 1].max())],
-                    'z': [float(source_pos[:, 2].min()), float(source_pos[:, 2].max())]
-                }
-            }
-            
-            # Detector analysis (updated for new 1:1 measurement system)
-            if len(det_pos.shape) == 2:  # (n_measurements, 3) - new 1:1 system
-                results[phantom_name]['n_measurements'] = det_pos.shape[0]
-                results[phantom_name]['total_detectors'] = det_pos.shape[0]  # One detector per measurement
-                
-                # Calculate all source-detector distances (1:1 pairing)
-                distances = []
-                for i in range(len(source_pos)):
-                    src = source_pos[i]
-                    det = det_pos[i]  # Single detector for this measurement
-                    dist = np.linalg.norm(det - src)
-                    distances.append(dist)
-                    all_distances.append(dist)
-                
-                if distances:
-                    distances = np.array(distances)
-                    results[phantom_name]['distance_stats'] = {
-                        'min': float(distances.min()),
-                        'max': float(distances.max()),
-                        'mean': float(distances.mean()),
-                        'std': float(distances.std()),
-                        'median': float(np.median(distances))
-                    }
-            
-            # Source distribution analysis
-            if len(source_pos) > 1:
-                source_distances = pdist(source_pos)
-                results[phantom_name]['source_separation'] = {
-                    'min': float(source_distances.min()),
-                    'max': float(source_distances.max()),
-                    'mean': float(source_distances.mean())
-                }
-        
-        # Global geometry statistics
-        if all_distances:
-            all_distances = np.array(all_distances)
-            results['global'] = {
-                'distance_range': [float(all_distances.min()), float(all_distances.max())],
-                'distance_mean': float(all_distances.mean()),
-                'distance_std': float(all_distances.std()),
-                'total_measurements': len(all_distances)
-            }
-        
-        self.analysis_results['geometry'] = results
-    
-    def _quality_validation(self):
-        """🔍 Comprehensive data quality validation."""
-        results = {}
-        
-        for phantom_name, data in self.all_data.items():
-            issues = []
-            warnings = []
-            
-            log_amp = data['log_amplitude']
-            phase = data['phase']
-            gt = data['ground_truth']
-            
-            # Check for invalid values
-            if np.any(np.isnan(log_amp)) or np.any(np.isnan(phase)):
-                issues.append("NaN values in measurements")
-            
-            if np.any(np.isinf(log_amp)) or np.any(np.isinf(phase)):
-                issues.append("Infinite values in measurements")
-            
-            if np.any(gt < 0):
-                issues.append("Negative optical properties")
-            
-            # Range checks
-            if np.min(log_amp[np.isfinite(log_amp)]) < -25:
-                warnings.append(f"Very low log-amplitude values: {np.min(log_amp[np.isfinite(log_amp)]):.3f}")
-            
-            if np.max(np.abs(phase[np.isfinite(phase)])) > 5000:
-                warnings.append(f"Extreme phase values: max={np.max(np.abs(phase[np.isfinite(phase)])):.1f}°")
-            
-            # Measurement count consistency
-            expected_measurements = data['n_sources'] * (data['det_pos'].shape[1] if len(data['det_pos'].shape) > 1 else 1)
-            actual_measurements = data['n_measurements']
-            
-            if expected_measurements != actual_measurements:
-                issues.append(f"Measurement count mismatch: expected {expected_measurements}, got {actual_measurements}")
-            
-            results[phantom_name] = {
-                'issues': issues,
-                'warnings': warnings,
-                'is_valid': len(issues) == 0,
-                'quality_score': max(0, 100 - len(issues)*30 - len(warnings)*10)
-            }
-        
-        # Global quality summary
-        valid_datasets = sum(1 for r in results.values() if r['is_valid'])
-        avg_quality = np.mean([r['quality_score'] for r in results.values()])
-        
-        results['global'] = {
-            'total_datasets': len(results) - 1,  # Exclude 'global'
-            'valid_datasets': valid_datasets,
-            'average_quality_score': avg_quality,
-            'success_rate': valid_datasets / (len(results) - 1) * 100
-        }
-        
-        self.analysis_results['quality'] = results
-    
-    def _consistency_analysis(self):
-        """🔄 Cross-dataset consistency analysis."""
-        results = {}
-        
-        if len(self.all_data) < 2:
-            results['status'] = 'insufficient_data'
-            self.analysis_results['consistency'] = results
-            return
-        
-        # Check volume shape consistency
-        shapes = [data['volume_shape'] for data in self.all_data.values()]
-        unique_shapes = list(set(tuple(s) for s in shapes))
-        results['volume_shapes'] = {
-            'consistent': len(unique_shapes) == 1,
-            'unique_shapes': unique_shapes,
-            'most_common': max(set(tuple(s) for s in shapes), key=shapes.count) if shapes else None
-        }
-        
-        # Check measurement count consistency
-        measurement_counts = [data['n_measurements'] for data in self.all_data.values()]
-        results['measurement_counts'] = {
-            'consistent': len(set(measurement_counts)) == 1,
-            'range': [min(measurement_counts), max(measurement_counts)] if measurement_counts else [0, 0],
-            'most_common': max(set(measurement_counts), key=measurement_counts.count) if measurement_counts else 0
-        }
-        
-        # Check source count consistency
-        source_counts = [data['n_sources'] for data in self.all_data.values()]
-        results['source_counts'] = {
-            'consistent': len(set(source_counts)) == 1,
-            'range': [min(source_counts), max(source_counts)] if source_counts else [0, 0]
-        }
-        
-        # Calculate consistency score
-        consistency_score = 0
-        if results['volume_shapes']['consistent']:
-            consistency_score += 40
-        if results['measurement_counts']['consistent']:
-            consistency_score += 30
-        if results['source_counts']['consistent']:
-            consistency_score += 30
-        
-        results['overall_consistency_score'] = consistency_score
-        results['status'] = 'completed'
-        
-        self.analysis_results['consistency'] = results
     
     def analyze_single_dataset(self, file_path, detailed=True):
         """
@@ -1033,9 +621,6 @@ class NIRDatasetAnalyzer:
                 
                 if len(clean_log_amp) > 10 and np.std(clean_log_amp) > 1e-10 and np.std(clean_phase) > 1e-10:
                     correlation = np.corrcoef(clean_log_amp, clean_phase)[0, 1]
-                    # Validate correlation result
-                    if not np.isfinite(correlation):
-                        correlation = 0.0
                 else:
                     correlation = 0.0  # Set to zero if insufficient variance
             else:
@@ -1072,75 +657,10 @@ class NIRDatasetAnalyzer:
             }
         }
     
-    def analyze_all_datasets(self):
-        """Analyze all discovered datasets and generate comparative report."""
-        
-        if not self.phantom_files:
-            print("❌ No datasets found to analyze!")
-            return
-        
-        print(f"\n🔍 ANALYZING ALL {len(self.phantom_files)} DATASETS")
-        print("="*80)
-        
-        all_results = []
-        
-        for i, file_path in enumerate(self.phantom_files):
-            print(f"\n[{i+1}/{len(self.phantom_files)}]", end=" ")
-            results = self.analyze_single_dataset(file_path, detailed=False)
-            all_results.append(results)
-        
-        # Generate comparative summary
-        self._generate_comparative_summary(all_results)
-        
-        return all_results
-    
-    def _generate_comparative_summary(self, all_results):
-        """Generate comparative summary across all datasets."""
-        
-        print(f"\n📊 COMPARATIVE DATASET SUMMARY")
-        print("="*60)
-        
-        valid_results = [r for r in all_results if 'error' not in r]
-        
-        if not valid_results:
-            print("❌ No valid datasets for comparison!")
-            return
-        
-        # File sizes
-        file_sizes = [r['file_size_mb'] for r in valid_results]
-        print(f"📁 File Sizes:")
-        print(f"   Range: {min(file_sizes):.1f} - {max(file_sizes):.1f} MB")
-        print(f"   Mean: {np.mean(file_sizes):.1f} MB")
-        
-        # Measurement statistics
-        print(f"\n📏 Measurement Consistency:")
-        log_amp_ranges = [(r['measurements']['log_amplitude']['min'], 
-                          r['measurements']['log_amplitude']['max']) for r in valid_results]
-        phase_ranges = [(r['measurements']['phase']['min'], 
-                        r['measurements']['phase']['max']) for r in valid_results]
-        
-        print(f"   Log-amplitude ranges: {len(set(log_amp_ranges))} unique")
-        print(f"   Phase ranges: {len(set(phase_ranges))} unique")
-        
-        # Ground truth diversity
-        print(f"\n🎯 Ground Truth Diversity:")
-        tissue_type_counts = [r['ground_truth']['tissue_distribution']['tissue_types'] 
-                             for r in valid_results]
-        print(f"   Tissue types per phantom: {min(tissue_type_counts)} - {max(tissue_type_counts)}")
-        
-        # Data quality summary
-        print(f"\n✅ Data Quality Summary:")
-        quality_passed = sum(1 for r in valid_results if r['data_quality']['passed'])
-        print(f"   Datasets passing all checks: {quality_passed}/{len(valid_results)}")
-        
-        if quality_passed < len(valid_results):
-            print(f"   Datasets with issues: {len(valid_results) - quality_passed}")
-    
     def visualize_dataset(self, file_path, save_plots=True, show_plots=False):
-        """Create professional comprehensive visualizations for a single dataset."""
-        
-        print(f"\n🎨 GENERATING VISUALIZATIONS: {file_path.parent.name}")
-        print("="*70)
+        """🎨 Create comprehensive 9-graph analysis for a single dataset."""
+        print(f"\n🎨 GENERATING COMPREHENSIVE VISUALIZATION: {file_path.parent.name}")
+        print("="*60)
         
         with h5py.File(file_path, 'r') as f:
             # Load data
@@ -1150,1371 +670,559 @@ class NIRDatasetAnalyzer:
             det_pos = f['detector_positions'][:]
             gt_data = f['ground_truth'][:]
             
-            # Calculate source-detector distances for SDS analysis
-            distances = []
-            log_amp_flat = []
-            phase_flat = []
+            # Calculate distances and derived metrics
+            distances = np.array([np.linalg.norm(det_pos[i] - source_pos[i]) 
+                                 for i in range(len(source_pos))])
             
-            # Handle both old format (3D) and new format (2D) detector arrays
-            if len(det_pos.shape) == 3:
-                # Old format: (n_sources, n_detectors_per_source, 3)
-                for i in range(len(source_pos)):
-                    src = source_pos[i]
-                    dets = det_pos[i]
-                    for j, det in enumerate(dets):
-                        dist = np.linalg.norm(det - src)
-                        distances.append(dist)
-                        log_amp_flat.append(log_amp[i, j])
-                        phase_flat.append(phase[i, j])
-            elif len(det_pos.shape) == 2:
-                # New format: (n_measurements, 3) - one detector per measurement
-                for i in range(len(source_pos)):
-                    src = source_pos[i]
-                    det = det_pos[i]  # Single detector for this measurement
-                    dist = np.linalg.norm(det - src)
-                    distances.append(dist)
-                    log_amp_flat.append(log_amp[i])
-                    phase_flat.append(phase[i])
+            # Physics analysis
+            slope_amp, _, r_amp, p_amp, _ = stats.linregress(distances, log_amp)
+            slope_phase, _, r_phase, p_phase, _ = stats.linregress(distances, phase)
             
-            distances = np.array(distances)
-            log_amp_flat = np.array(log_amp_flat)
-            phase_flat = np.array(phase_flat)
+            # Ground truth analysis
+            mua_map = gt_data[0]  # Absorption
+            musp_map = gt_data[1]  # Scattering
             
-            # Create figure with clean 4x2 layout (8 graphs total)
-            fig = plt.figure(figsize=(20, 10), facecolor='#0d1117')
-            fig.suptitle(f'NIR-DOT Dataset Analysis: {file_path.parent.name}', 
-                        fontsize=18, fontweight='bold', color='white', y=0.95)
+            # Create 3x3 comprehensive layout
+            fig = plt.figure(figsize=(20, 16))
+            fig.suptitle(f'Comprehensive NIR Analysis: {file_path.parent.name}', 
+                        fontsize=18, fontweight='bold', y=0.98)
             
-            # Add subtitle with key metrics
-            n_measurements = log_amp.size
-            n_probes = len(source_pos)
-            distance_range = f"{distances.min():.1f}-{distances.max():.1f}mm" if len(distances) > 0 else "N/A"
+            # 1. Physics Validation: Log-amplitude vs Distance
+            ax1 = plt.subplot(3, 3, 1)
+            ax1.scatter(distances, log_amp, alpha=0.6, color=COLORS['primary'], s=30)
+            z_amp = np.polyfit(distances, log_amp, 1)
+            p_amp_line = np.poly1d(z_amp)
+            ax1.plot(distances, p_amp_line(distances), color=COLORS['accent'], linewidth=2,
+                    label=f'Slope: {slope_amp:.4f}\nR²: {r_amp**2:.3f}')
+            ax1.set_xlabel('Distance [mm]')
+            ax1.set_ylabel('Log-Amplitude')
+            ax1.set_title('Physics: Log-Amplitude vs Distance')
+            ax1.legend(fontsize=8)
+            ax1.grid(True, alpha=0.3)
             
-            fig.text(0.5, 0.91, f'{n_measurements:,} measurements • {n_probes} probes • SDS range: {distance_range}', 
-                    ha='center', fontsize=11, color='#888888', style='italic')
+            # 2. Physics Validation: Phase vs Distance  
+            ax2 = plt.subplot(3, 3, 2)
+            ax2.scatter(distances, phase, alpha=0.6, color=COLORS['secondary'], s=30)
+            z_phase = np.polyfit(distances, phase, 1)
+            p_phase_line = np.poly1d(z_phase)
+            ax2.plot(distances, p_phase_line(distances), color=COLORS['accent'], linewidth=2,
+                    label=f'Slope: {slope_phase:.4f}\nR²: {r_phase**2:.3f}')
+            ax2.set_xlabel('Distance [mm]')
+            ax2.set_ylabel('Phase [degrees]')
+            ax2.set_title('Physics: Phase vs Distance')
+            ax2.legend(fontsize=8)
+            ax2.grid(True, alpha=0.3)
             
-            # ═══════════════════════════════════════════════════════════════
-            # ROW 1: MEASUREMENT DISTRIBUTIONS & CORRELATIONS (4 graphs)
-            # ═══════════════════════════════════════════════════════════════
+            # 3. Log-Amplitude vs Phase Correlation
+            ax3 = plt.subplot(3, 3, 3)
+            ax3.scatter(log_amp, phase, alpha=0.5, color=COLORS['tissue'], s=20)
+            correlation = np.corrcoef(log_amp, phase)[0, 1]
+            ax3.set_xlabel('Log-Amplitude')
+            ax3.set_ylabel('Phase [degrees]')
+            ax3.set_title(f'Amplitude-Phase Correlation\nR = {correlation:.3f}')
+            ax3.grid(True, alpha=0.3)
             
-            # 1. Log-Amplitude Distribution with KDE
-            ax1 = plt.subplot(2, 4, 1)
-            n, bins, patches = plt.hist(log_amp.flatten(), bins=50, alpha=0.7, 
-                                       color=COLORS['primary'], edgecolor='white', linewidth=0.5)
+            # 4. Ground Truth: Absorption (Central Slice)
+            ax4 = plt.subplot(3, 3, 4)
+            central_slice = mua_map.shape[2] // 2
+            im4 = ax4.imshow(mua_map[:, :, central_slice], cmap='plasma', aspect='equal')
+            ax4.set_title('Ground Truth: Absorption (μₐ)')
+            ax4.set_xlabel('X [voxels]')
+            ax4.set_ylabel('Y [voxels]')
+            plt.colorbar(im4, ax=ax4, label='μₐ [mm⁻¹]', shrink=0.8)
             
-            # Add KDE overlay
-            from scipy.stats import gaussian_kde
-            kde = gaussian_kde(log_amp.flatten())
-            x_kde = np.linspace(log_amp.min(), log_amp.max(), 200)
-            kde_values = kde(x_kde)
-            kde_scaled = kde_values * (np.max(n) / np.max(kde_values))
-            plt.plot(x_kde, kde_scaled, color=COLORS['accent'], linewidth=2, label='KDE')
+            # 5. Ground Truth: Scattering (Central Slice)
+            ax5 = plt.subplot(3, 3, 5)
+            im5 = ax5.imshow(musp_map[:, :, central_slice], cmap='viridis', aspect='equal')
+            ax5.set_title('Ground Truth: Scattering (μ′s)')
+            ax5.set_xlabel('X [voxels]')
+            ax5.set_ylabel('Y [voxels]')
+            plt.colorbar(im5, ax=ax5, label='μ′s [mm⁻¹]', shrink=0.8)
             
-            plt.title('Log-Amplitude Distribution', fontweight='bold', pad=12)
-            plt.xlabel('Log-Amplitude', fontweight='bold')
-            plt.ylabel('Frequency', fontweight='bold')
-            plt.grid(True, alpha=0.3, color='#404040')
-            plt.legend()
+            # 6. 3D Source-Detector Geometry
+            ax6 = plt.subplot(3, 3, 6, projection='3d')
+            ax6.scatter(source_pos[:, 0], source_pos[:, 1], source_pos[:, 2], 
+                       c=COLORS['source'], s=30, alpha=0.7, label='Sources')
+            ax6.scatter(det_pos[:, 0], det_pos[:, 1], det_pos[:, 2], 
+                       c=COLORS['detector'], s=30, alpha=0.7, label='Detectors')
+            ax6.set_xlabel('X [mm]')
+            ax6.set_ylabel('Y [mm]')
+            ax6.set_zlabel('Z [mm]')
+            ax6.set_title('3D Geometry Layout')
+            ax6.legend(fontsize=8)
             
-            # Add statistics text
-            mean_val = np.mean(log_amp.flatten())
-            std_val = np.std(log_amp.flatten())
-            plt.text(0.02, 0.98, f'μ = {mean_val:.2f}\nσ = {std_val:.2f}', 
-                    transform=ax1.transAxes, va='top', fontsize=9, 
-                    bbox=dict(boxstyle='round', facecolor='black', alpha=0.8))
+            # 7. Measurement Distributions
+            ax7 = plt.subplot(3, 3, 7)
+            ax7.hist(log_amp, bins=40, alpha=0.7, color=COLORS['primary'], 
+                    density=True, label='Log-Amplitude')
+            ax7_twin = ax7.twinx()
+            ax7_twin.hist(phase, bins=40, alpha=0.7, color=COLORS['secondary'],
+                         density=True, label='Phase')
+            ax7.set_xlabel('Log-Amplitude')
+            ax7.set_ylabel('Density (Log-Amp)', color=COLORS['primary'])
+            ax7_twin.set_ylabel('Density (Phase)', color=COLORS['secondary'])
+            ax7.set_title('Measurement Distributions')
+            ax7.tick_params(axis='y', labelcolor=COLORS['primary'])
+            ax7_twin.tick_params(axis='y', labelcolor=COLORS['secondary'])
             
-            # 2. Phase Distribution with KDE
-            ax2 = plt.subplot(2, 4, 2)
-            n2, bins2, patches2 = plt.hist(phase.flatten(), bins=50, alpha=0.7, 
-                                          color=COLORS['secondary'], edgecolor='white', linewidth=0.5)
+            # 8. Distance Distribution Analysis
+            ax8 = plt.subplot(3, 3, 8)
+            ax8.hist(distances, bins=30, alpha=0.7, color=COLORS['neutral1'], 
+                    edgecolor='black', linewidth=0.5)
+            ax8.axvline(distances.mean(), color=COLORS['accent'], linestyle='--', 
+                       linewidth=2, label=f'Mean: {distances.mean():.1f}mm')
+            ax8.axvline(np.median(distances), color=COLORS['success'], linestyle='--', 
+                       linewidth=2, label=f'Median: {np.median(distances):.1f}mm')
+            ax8.set_xlabel('Source-Detector Distance [mm]')
+            ax8.set_ylabel('Frequency')
+            ax8.set_title('Distance Distribution')
+            ax8.legend(fontsize=8)
+            ax8.grid(True, alpha=0.3)
             
-            # Add KDE overlay for phase
-            kde2 = gaussian_kde(phase.flatten())
-            x_kde2 = np.linspace(phase.min(), phase.max(), 200)
-            kde_values2 = kde2(x_kde2)
-            kde_scaled2 = kde_values2 * (np.max(n2) / np.max(kde_values2))
-            plt.plot(x_kde2, kde_scaled2, color=COLORS['accent'], linewidth=2, label='KDE')
+            # 9. Quality Assessment Summary
+            ax9 = plt.subplot(3, 3, 9)
+            ax9.axis('off')
             
-            plt.title('Phase Distribution', fontweight='bold', pad=12)
-            plt.xlabel('Phase (degrees)', fontweight='bold')
-            plt.ylabel('Frequency', fontweight='bold')
-            plt.grid(True, alpha=0.3, color='#404040')
-            plt.legend()
+            # Calculate quality metrics
+            physics_correct = (slope_amp < 0 and slope_phase > 0)
+            correlation_strength = abs(correlation)
+            snr_estimate = np.std(log_amp) / np.mean(np.abs(log_amp))
+            distance_uniformity = 1 - (np.std(distances) / np.mean(distances))
             
-            # Add statistics text
-            mean_phase = np.mean(phase.flatten())
-            std_phase = np.std(phase.flatten())
-            plt.text(0.02, 0.98, f'μ = {mean_phase:.1f}°\nσ = {std_phase:.1f}°', 
-                    transform=ax2.transAxes, va='top', fontsize=9,
-                    bbox=dict(boxstyle='round', facecolor='black', alpha=0.8))
+            # Quality indicators
+            quality_text = f"""
+QUALITY ASSESSMENT
+{'='*25}
+
+Physics Validation:
+  • Log-Amp Slope: {'✅' if slope_amp < 0 else '❌'} {slope_amp:.4f}
+  • Phase Slope: {'✅' if slope_phase > 0 else '❌'} {slope_phase:.4f}
+  • Overall Physics: {'✅ PASS' if physics_correct else '❌ FAIL'}
+
+Statistical Metrics:
+  • Amp-Phase Correlation: {correlation:.3f}
+  • Signal Quality: {snr_estimate:.3f}
+  • Distance Uniformity: {distance_uniformity:.3f}
+
+Dataset Properties:
+  • Measurements: {len(log_amp):,}
+  • Distance Range: {distances.min():.1f}-{distances.max():.1f}mm
+  • Tissue Types: {len(np.unique(mua_map))}
+  • File Size: {file_path.stat().st_size / (1024**2):.1f} MB
+
+Overall Status: {'🎉 EXCELLENT' if physics_correct and correlation_strength > 0.3 else '✅ GOOD' if physics_correct else '⚠️ NEEDS REVIEW'}
+            """
             
-            # 3. Log-Amplitude vs SDS Analysis
-            ax3 = plt.subplot(2, 4, 3)
-            if len(distances) > 0:
-                # Plot scatter with color mapping
-                scatter = plt.scatter(distances, log_amp_flat, c=phase_flat, 
-                                    cmap='viridis', alpha=0.6, s=20, edgecolors='none')
-                
-                # Add linear trend line
-                z_amp = np.polyfit(distances, log_amp_flat, 1)
-                p_amp = np.poly1d(z_amp)
-                x_line_amp = np.linspace(distances.min(), distances.max(), 100)
-                plt.plot(x_line_amp, p_amp(x_line_amp), color=COLORS['accent'], 
-                        linewidth=2, linestyle='--', 
-                        label=f'Slope = {z_amp[0]:.3f}')
-                
-                plt.title('Log-Amplitude vs SDS', fontweight='bold', pad=12)
-                plt.xlabel('SDS Distance (mm)', fontweight='bold')
-                plt.ylabel('Log-Amplitude', fontweight='bold')
-                plt.grid(True, alpha=0.2, color='#404040')
-                plt.legend()
-                
-                cbar2 = plt.colorbar(scatter, label='Phase (°)')
-                cbar2.set_label('Phase (degrees)', fontweight='bold')
-            else:
-                # Show empty plot with message when no distances available
-                plt.text(0.5, 0.5, 'No SDS distances\navailable', 
-                        ha='center', va='center', fontsize=12, 
-                        transform=ax3.transAxes, color='white')
-                plt.title('Log-Amplitude vs SDS', fontweight='bold', pad=12)
-                plt.xlabel('SDS Distance (mm)', fontweight='bold')
-                plt.ylabel('Log-Amplitude', fontweight='bold')
-                plt.grid(True, alpha=0.2, color='#404040')
+            ax9.text(0.05, 0.95, quality_text, transform=ax9.transAxes, 
+                    fontsize=9, verticalalignment='top', fontfamily='monospace',
+                    bbox=dict(boxstyle="round,pad=0.5", facecolor=COLORS['bg_light'], alpha=0.8))
             
-            # 4. Phase vs SDS Analysis
-            ax4 = plt.subplot(2, 4, 4)
-            if len(distances) > 0:
-                # Plot scatter with color mapping
-                scatter2 = plt.scatter(distances, phase_flat, c=log_amp_flat, 
-                                     cmap='plasma', alpha=0.6, s=20, edgecolors='none')
-                
-                # Add linear fit for phase
-                z_phase = np.polyfit(distances, phase_flat, 1)
-                p_phase = np.poly1d(z_phase)
-                x_line_phase = np.linspace(distances.min(), distances.max(), 100)
-                plt.plot(x_line_phase, p_phase(x_line_phase), color=COLORS['warning'], 
-                        linewidth=2, linestyle='--', 
-                        label=f'Slope = {z_phase[0]:.2f}°/mm')
-                
-                plt.title('Phase vs SDS', fontweight='bold', pad=12)
-                plt.xlabel('SDS Distance (mm)', fontweight='bold')
-                plt.ylabel('Phase (degrees)', fontweight='bold')
-                plt.grid(True, alpha=0.2, color='#404040')
-                plt.legend()
-                
-                cbar3 = plt.colorbar(scatter2, label='Log-Amp')
-                cbar3.set_label('Log-Amplitude', fontweight='bold')
-            else:
-                # Show empty plot with message when no distances available
-                plt.text(0.5, 0.5, 'No SDS distances\navailable', 
-                        ha='center', va='center', fontsize=12, 
-                        transform=ax4.transAxes, color='white')
-                plt.title('Phase vs SDS', fontweight='bold', pad=12)
-                plt.xlabel('SDS Distance (mm)', fontweight='bold')
-                plt.ylabel('Phase (degrees)', fontweight='bold')
-                plt.grid(True, alpha=0.2, color='#404040')
-            
-            # ═══════════════════════════════════════════════════════════════
-            # ROW 2: 3D GEOMETRY AND GROUND TRUTH (4 graphs)
-            # ═══════════════════════════════════════════════════════════════
-            
-            # Extract ground truth maps
-            mua_map = gt_data[0]  # Channel 0: absorption
-            musp_map = gt_data[1]  # Channel 1: scattering
-            z_center = mua_map.shape[2] // 2
-            
-            # 5. 3D Probe Geometry
-            ax5 = plt.subplot(2, 4, 5, projection='3d')
-            ax5.set_facecolor('#1a1a1a')
-            
-            # Sources with enhanced styling
-            source_scatter = ax5.scatter(source_pos[:, 0], source_pos[:, 1], source_pos[:, 2], 
-                                       c=COLORS['source'], s=50, alpha=0.9, 
-                                       edgecolors='black', linewidth=1, label='Sources')
-            
-            # Detectors with enhanced styling (updated for 1:1 system)
-            if len(det_pos.shape) == 2:  # (n_measurements, 3) - new format
-                det_colors = plt.cm.viridis(np.linspace(0, 1, len(det_pos)))
-                det_scatter = ax5.scatter(det_pos[:, 0], det_pos[:, 1], det_pos[:, 2], 
-                                        c=det_colors, s=20, alpha=0.7, 
-                                        edgecolors='white', linewidth=0.5, label='Detectors')
-                
-                # Add connection lines for first few measurements (cleaner visualization)
-                for i in range(min(3, len(source_pos))):
-                    src = source_pos[i]
-                    det = det_pos[i]  # Single detector for this measurement
-                    ax5.plot([src[0], det[0]], [src[1], det[1]], [src[2], det[2]], 
-                           color=COLORS['primary'], alpha=0.2, linewidth=1)
-            
-            ax5.set_title('3D Probe Geometry', fontweight='bold', pad=15)
-            ax5.set_xlabel('X (mm)', fontweight='bold')
-            ax5.set_ylabel('Y (mm)', fontweight='bold')
-            ax5.set_zlabel('Z (mm)', fontweight='bold')
-            ax5.legend()
-            
-            # Style the 3D plot
-            ax5.xaxis.pane.fill = False
-            ax5.yaxis.pane.fill = False
-            ax5.zaxis.pane.fill = False
-            ax5.grid(True, alpha=0.3)
-            
-            # 6. Absorption coefficient map
-            ax6 = plt.subplot(2, 4, 6)
-            im6 = plt.imshow(mua_map[:, :, z_center], cmap='magma', aspect='equal', 
-                           interpolation='bilinear')
-            plt.title(f'Absorption μₐ (Z={z_center})', fontweight='bold', pad=12)
-            cbar6 = plt.colorbar(im6, label='μₐ (mm⁻¹)', shrink=0.8)
-            cbar6.set_label('μₐ (mm⁻¹)', fontweight='bold')
-            plt.xlabel('X (voxels)', fontweight='bold')
-            plt.ylabel('Y (voxels)', fontweight='bold')
-            
-            # 7. Scattering coefficient map
-            ax7 = plt.subplot(2, 4, 7)
-            im7 = plt.imshow(musp_map[:, :, z_center], cmap='plasma', aspect='equal', 
-                           interpolation='bilinear')
-            plt.title(f'Scattering μ′s (Z={z_center})', fontweight='bold', pad=12)
-            cbar7 = plt.colorbar(im7, label='μ′s (mm⁻¹)', shrink=0.8)
-            cbar7.set_label('μ′s (mm⁻¹)', fontweight='bold')
-            plt.xlabel('X (voxels)', fontweight='bold')
-            plt.ylabel('Y (voxels)', fontweight='bold')
-            
-            # 8. Distance Distribution
-            ax8 = plt.subplot(2, 4, 8)
-            if len(distances) > 0:
-                n_dist, bins_dist, patches_dist = plt.hist(distances, bins=25, alpha=0.8, 
-                                                          color=COLORS['success'], 
-                                                          edgecolor='white', linewidth=0.5)
-                
-                # Color gradient for bars
-                for i, patch in enumerate(patches_dist):
-                    patch.set_facecolor(plt.cm.viridis(i / len(patches_dist)))
-                
-                # Add vertical lines for constraints
-                plt.axvline(x=10, color=COLORS['warning'], linestyle='--', linewidth=2, 
-                           label='Min distance (10mm)', alpha=0.8)
-                plt.axvline(x=40, color=COLORS['error'], linestyle='--', linewidth=2, 
-                           label='Max distance (40mm)', alpha=0.8)
-                
-                # Add statistics
-                mean_dist = np.mean(distances)
-                plt.axvline(x=mean_dist, color=COLORS['accent'], linewidth=2, 
-                           label=f'Mean ({mean_dist:.1f}mm)')
-                
-                plt.title('SDS Distance Distribution', fontweight='bold', pad=12)
-                plt.xlabel('Distance (mm)', fontweight='bold')
-                plt.ylabel('Frequency', fontweight='bold')
-                plt.legend(fontsize=8)
-                plt.grid(True, alpha=0.3, color='#404040')
-            else:
-                # Show empty plot with message when no distances available
-                plt.text(0.5, 0.5, 'No SDS distances\navailable', 
-                        ha='center', va='center', fontsize=12, 
-                        transform=ax8.transAxes, color='white')
-                plt.title('SDS Distance Distribution', fontweight='bold', pad=12)
-                plt.xlabel('Distance (mm)', fontweight='bold')
-                plt.ylabel('Frequency', fontweight='bold')
-                plt.grid(True, alpha=0.3, color='#404040')
-            
-            # Improve spacing between subplots for clean 4x2 grid
-            plt.tight_layout(pad=3.5, h_pad=3.0, w_pad=2.5)
+            plt.tight_layout()
             
             if save_plots:
-                # Create professional filename with timestamp
-                from datetime import datetime
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                output_dir = file_path.parent
-                plot_path = output_dir / f"nir_dot_analysis_{file_path.parent.name}_{timestamp}.png"
-                plt.savefig(plot_path, dpi=300, bbox_inches='tight', facecolor='#0d1117', 
-                           edgecolor='none', pad_inches=0.1)
-                print(f"📊 Analysis visualization saved: {plot_path}")
+                # Create results directory
+                results_dir = project_root / "analysis_results"
+                results_dir.mkdir(exist_ok=True)
                 
-                # Close the figure to prevent it from showing
-                plt.close(fig)
-            elif show_plots:
+                plot_path = results_dir / f"{file_path.parent.name}_comprehensive_analysis.png"
+                plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+                print(f"   ✅ Comprehensive plot saved: {plot_path}")
+            
+            if show_plots:
                 plt.show()
             else:
-                plt.close(fig)
-            
-            # Calculate unique tissue properties for return data
-            unique_props = np.unique(gt_data.reshape(-1, 2), axis=0)
-            
-            return {
-                'n_measurements': n_measurements,
-                'n_probes': n_probes,
-                'sds_range': [distances.min(), distances.max()] if len(distances) > 0 else [0, 0],
-                'log_amp_stats': [log_amp.min(), log_amp.max(), log_amp.mean(), log_amp.std()],
-                'phase_stats': [phase.min(), phase.max(), phase.mean(), phase.std()],
-                'tissue_types': len(unique_props) - 1,
-                'visualization_saved': save_plots
-            }
+                plt.close()
 
     def deep_single_analysis(self, file_path):
-        """
-        Comprehensive, detailed analysis of a single phantom dataset.
-        
-        This function performs an exhaustive examination of one phantom including:
-        - Complete dataset structure analysis
-        - Detailed statistical breakdown of all measurements
-        - Advanced quality assessment metrics
-        - Comprehensive metadata examination
-        - Tissue composition analysis
-        - Probe placement efficiency metrics
-        - Measurement distribution analysis with advanced statistics
-        - Ground truth validation and cross-correlation analysis
-        """
-        print(f"\n🔬 DEEP ANALYSIS: {file_path.parent.name}")
-        print("="*60)
-        
-        try:
-            with h5py.File(file_path, 'r') as f:
-                # ========================
-                # DATASET STRUCTURE & METADATA
-                # ========================
-                print("\n📋 DATASET STRUCTURE & METADATA")
-                print("-"*40)
-                
-                # File size analysis
-                file_size_mb = file_path.stat().st_size / (1024**2)
-                print(f"File size: {file_size_mb:.2f} MB")
-                
-                # Dataset dimensions (updated for new 1:1 format)
-                log_amplitude = f['log_amplitude'][:]
-                phase = f['phase'][:]
-                ground_truth = f['ground_truth'][:]
-                source_pos = f['source_positions'][:]
-                det_pos = f['detector_positions'][:]
-                
-                # Handle new 1:1 measurement format
-                if len(log_amplitude.shape) == 1:  # New format: (n_measurements,)
-                    n_measurements = log_amplitude.shape[0]
-                    n_probes = len(source_pos)
-                    n_detectors_per_probe = 1  # 1:1 mapping
-                    total_measurements = n_measurements
-                else:  # Old format: (n_probes, n_detectors_per_probe)
-                    n_probes = log_amplitude.shape[0]
-                    n_detectors_per_probe = log_amplitude.shape[1]
-                    total_measurements = n_probes * n_detectors_per_probe
-                
-                print(f"Measurement format: {'1:1 source-detector pairs' if len(log_amplitude.shape) == 1 else '1:N source-detector mapping'}")
-                print(f"Total measurements: {total_measurements}")
-                print(f"Sources: {n_probes}")
-                print(f"Detectors per source: {n_detectors_per_probe}")
-                print(f"Ground truth shape: {ground_truth.shape}")
-                
-                # Metadata analysis
-                print(f"\nMetadata:")
-                for key, value in f.attrs.items():
-                    print(f"  {key}: {value}")
-                
-                # ========================
-                # MEASUREMENT STATISTICS
-                # ========================
-                print(f"\n📊 COMPREHENSIVE MEASUREMENT STATISTICS")
-                print("-"*40)
-                
-                # Log amplitude analysis
-                log_amp_flat = log_amplitude.flatten()
-                print(f"Log Amplitude Statistics:")
-                print(f"  Range: [{log_amp_flat.min():.3f}, {log_amp_flat.max():.3f}]")
-                print(f"  Mean: {log_amp_flat.mean():.3f} ± {log_amp_flat.std():.3f}")
-                print(f"  Median: {np.median(log_amp_flat):.3f}")
-                print(f"  IQR: [{np.percentile(log_amp_flat, 25):.3f}, {np.percentile(log_amp_flat, 75):.3f}]")
-                print(f"  Skewness: {stats.skew(log_amp_flat):.3f}")
-                print(f"  Kurtosis: {stats.kurtosis(log_amp_flat):.3f}")
-                
-                # Phase analysis
-                phase_flat = phase.flatten()
-                print(f"\nPhase Statistics:")
-                print(f"  Range: [{phase_flat.min():.2f}°, {phase_flat.max():.2f}°]")
-                print(f"  Mean: {phase_flat.mean():.2f}° ± {phase_flat.std():.2f}°")
-                print(f"  Median: {np.median(phase_flat):.2f}°")
-                print(f"  IQR: [{np.percentile(phase_flat, 25):.2f}°, {np.percentile(phase_flat, 75):.2f}°]")
-                print(f"  Skewness: {stats.skew(phase_flat):.3f}")
-                print(f"  Kurtosis: {stats.kurtosis(phase_flat):.3f}")
-                
-                # ========================
-                # SOURCE-DETECTOR SEPARATION ANALYSIS
-                # ========================
-                print(f"\n📏 SOURCE-DETECTOR SEPARATION ANALYSIS")
-                print("-"*40)
-                
-                # Calculate all SDS distances (updated for 1:1 system)
-                all_distances = []
-                for i in range(n_probes):  # n_probes is now n_measurements
-                    source = source_pos[i]
-                    detector = det_pos[i]  # Single detector for this measurement
-                    distance = np.linalg.norm(source - detector)
-                    all_distances.append(distance)
-                
-                all_distances = np.array(all_distances)
-                print(f"SDS Distance Statistics:")
-                print(f"  Count: {len(all_distances)} measurements")
-                print(f"  Range: [{all_distances.min():.1f}, {all_distances.max():.1f}] mm")
-                print(f"  Mean: {all_distances.mean():.1f} ± {all_distances.std():.1f} mm")
-                print(f"  Median: {np.median(all_distances):.1f} mm")
-                
-                # Distance distribution analysis
-                distance_bins = np.arange(10, 41, 2)  # 2mm bins from 10-40mm
-                hist, _ = np.histogram(all_distances, bins=distance_bins)
-                print(f"  Distribution uniformity (std of bin counts): {hist.std():.1f}")
-                
-                # ========================
-                # GROUND TRUTH ANALYSIS
-                # ========================
-                print(f"\n🎯 GROUND TRUTH OPTICAL PROPERTIES")
-                print("-"*40)
-                
-                # Absorption coefficient analysis
-                mua_map = ground_truth[0]  # Channel 0: absorption coefficient
-                mua_nonzero = mua_map[mua_map > 0]  # Exclude air regions
-                print(f"Absorption Coefficient (μₐ):")
-                if len(mua_nonzero) > 0:
-                    print(f"  Range: [{mua_nonzero.min():.4f}, {mua_nonzero.max():.4f}] mm⁻¹")
-                    print(f"  Mean: {mua_nonzero.mean():.4f} ± {mua_nonzero.std():.4f} mm⁻¹")
-                    print(f"  Unique values: {len(np.unique(mua_nonzero))}")
-                else:
-                    print(f"  ❌ No tissue regions found (all voxels are air)")
-                
-                # Scattering coefficient analysis
-                musp_map = ground_truth[1]  # Channel 1: reduced scattering coefficient
-                musp_nonzero = musp_map[musp_map > 0]
-                print(f"\nReduced Scattering (μ′s):")
-                if len(musp_nonzero) > 0:
-                    print(f"  Range: [{musp_nonzero.min():.3f}, {musp_nonzero.max():.3f}] mm⁻¹")
-                    print(f"  Mean: {musp_nonzero.mean():.3f} ± {musp_nonzero.std():.3f} mm⁻¹")
-                    print(f"  Unique values: {len(np.unique(musp_nonzero))}")
-                else:
-                    print(f"  ❌ No tissue regions found (all voxels are air)")
-                
-                # ========================
-                # TISSUE COMPOSITION ANALYSIS
-                # ========================
-                if 'tissue_labels' in f:
-                    print(f"\n🧬 TISSUE COMPOSITION ANALYSIS")
-                    print("-"*40)
-                    
-                    tissue_labels = f['tissue_labels'][:]
-                    unique_labels, counts = np.unique(tissue_labels, return_counts=True)
-                    total_voxels = tissue_labels.size
-                    
-                    print(f"Tissue Distribution:")
-                    for label, count in zip(unique_labels, counts):
-                        percentage = count / total_voxels * 100
-                        if label == 0:
-                            print(f"  Air: {count:,} voxels ({percentage:.1f}%)")
-                        elif label == 1:
-                            print(f"  Healthy tissue: {count:,} voxels ({percentage:.1f}%)")
-                        else:
-                            tumor_num = label - 1
-                            print(f"  Tumor {tumor_num}: {count:,} voxels ({percentage:.1f}%)")
-                    
-                    # Tissue coverage analysis
-                    tissue_voxels = np.sum(tissue_labels > 0)
-                    tissue_coverage = tissue_voxels / total_voxels * 100
-                    print(f"\nTissue Coverage: {tissue_coverage:.1f}%")
-                
-                # ========================
-                # MEASUREMENT QUALITY ASSESSMENT
-                # ========================
-                print(f"\n🎯 MEASUREMENT QUALITY ASSESSMENT")
-                print("-"*40)
-                
-                # Signal dynamic range
-                amp_dynamic_range = log_amp_flat.max() - log_amp_flat.min()
-                print(f"Log-amplitude dynamic range: {amp_dynamic_range:.2f}")
-                
-                # Phase wrapping check
-                phase_range = phase_flat.max() - phase_flat.min()
-                print(f"Phase range: {phase_range:.1f}° (wrapping if > 360°)")
-                
-                # Measurement correlation analysis with robust error handling
-                probe_correlations = []
-                try:
-                    for i in range(min(10, n_probes)):  # Sample first 10 probes
-                        probe_data = np.concatenate([log_amplitude[i], phase[i]])
-                        # Check for valid data
-                        if np.std(probe_data) > 0 and np.all(np.isfinite(probe_data)):
-                            for j in range(i+1, min(10, n_probes)):
-                                other_probe_data = np.concatenate([log_amplitude[j], phase[j]])
-                                # Check for valid comparison data
-                                if np.std(other_probe_data) > 0 and np.all(np.isfinite(other_probe_data)):
-                                    try:
-                                        correlation = np.corrcoef(probe_data, other_probe_data)[0,1]
-                                        if np.isfinite(correlation):
-                                            probe_correlations.append(correlation)
-                                    except Exception as e:
-                                        print(f"   Warning: Probe correlation calculation failed: {e}")
-                                        continue
-                except Exception as e:
-                    print(f"   Warning: Probe correlation analysis failed: {e}")
-                
-                if probe_correlations:
-                    mean_correlation = np.mean(probe_correlations)
-                    print(f"Inter-probe correlation: {mean_correlation:.3f} (lower is better for diversity)")
-                
-                # ========================
-                # ADVANCED STATISTICS
-                # ========================
-                print(f"\n📈 ADVANCED STATISTICAL ANALYSIS")
-                print("-"*40)
-                
-                # Normality tests
-                _, log_amp_p_value = stats.normaltest(log_amp_flat[:1000])  # Sample for speed
-                _, phase_p_value = stats.normaltest(phase_flat[:1000])
-                
-                print(f"Normality tests (p-values):")
-                print(f"  Log amplitude: {log_amp_p_value:.2e} ({'Normal' if log_amp_p_value > 0.05 else 'Non-normal'})")
-                print(f"  Phase: {phase_p_value:.2e} ({'Normal' if phase_p_value > 0.05 else 'Non-normal'})")
-                
-                # Outlier detection
-                def detect_outliers(data, method='iqr'):
-                    if method == 'iqr':
-                        q1, q3 = np.percentile(data, [25, 75])
-                        iqr = q3 - q1
-                        lower = q1 - 1.5 * iqr
-                        upper = q3 + 1.5 * iqr
-                        return np.sum((data < lower) | (data > upper))
-                    elif method == 'zscore':
-                        z_scores = np.abs(stats.zscore(data))
-                        return np.sum(z_scores > 3)
-                
-                log_amp_outliers = detect_outliers(log_amp_flat)
-                phase_outliers = detect_outliers(phase_flat)
-                
-                print(f"\nOutlier detection (IQR method):")
-                print(f"  Log amplitude outliers: {log_amp_outliers} ({log_amp_outliers/len(log_amp_flat)*100:.2f}%)")
-                print(f"  Phase outliers: {phase_outliers} ({phase_outliers/len(phase_flat)*100:.2f}%)")
-                
-                print(f"\n✅ DEEP ANALYSIS COMPLETE")
-                print(f"Dataset: {file_path.parent.name} shows {'EXCELLENT' if log_amp_outliers/len(log_amp_flat) < 0.05 else 'GOOD' if log_amp_outliers/len(log_amp_flat) < 0.1 else 'ACCEPTABLE'} quality")
-                
-        except Exception as e:
-            print(f"❌ Error during deep analysis: {e}")
-
-    def cross_dataset_analysis(self):
-        """
-        Comprehensive analysis across all available phantom datasets.
-        
-        This function performs an exhaustive cross-dataset comparative analysis including:
-        - Advanced statistical characterization with interpretations
-        - Multi-dimensional consistency validation  
-        - Detailed measurement quality assessments
-        - Comprehensive tissue composition analysis
-        - Advanced probe geometry pattern analysis
-        - Dataset-wide outlier detection and impact assessment
-        - Machine learning training suitability scoring
-        - Signal-to-noise ratio cross-validation
-        - Reconstruction feasibility assessment
-        """
-        print(f"\n🔍 CROSS-DATASET COMPARATIVE ANALYSIS")
+        """🔍 Deep analysis of a single phantom with professional visualizations."""
+        print(f"\n🔬 DEEP SINGLE PHANTOM ANALYSIS")
         print("="*70)
-        print(f"Performing comprehensive analysis across {len(self.phantom_files)} phantom datasets...")
-        print("This analysis provides deep insights into dataset consistency, quality, and ML suitability")
+        print(f"📂 Analyzing: {file_path.parent.name}")
         
-        # Enhanced storage for comprehensive cross-dataset statistics
-        dataset_stats = {
-            'phantom_names': [],
-            'file_sizes_mb': [],
-            'n_probes': [],
-            'n_measurements_total': [],
-            
-            # Log-Amplitude Analysis
-            'log_amp_means': [], 'log_amp_stds': [], 'log_amp_ranges': [],
-            'log_amp_medians': [], 'log_amp_skewness': [], 'log_amp_kurtosis': [],
-            'log_amp_q25': [], 'log_amp_q75': [], 'log_amp_iqr': [],
-            
-            # Phase Analysis  
-            'phase_means': [], 'phase_stds': [], 'phase_ranges': [],
-            'phase_medians': [], 'phase_skewness': [], 'phase_kurtosis': [],
-            'phase_q25': [], 'phase_q75': [], 'phase_iqr': [],
-            
-            # Cross-correlation Analysis
-            'amplitude_phase_correlations': [],
-            
-            # Source-Detector Separation Analysis
-            'sds_means': [], 'sds_stds': [], 'sds_ranges': [],
-            'sds_medians': [], 'sds_compliance_10_40': [], 'sds_optimal_25_35': [],
-            
-            # Ground Truth Optical Properties
-            'mua_means': [], 'mua_stds': [], 'mua_ranges': [], 'mua_contrasts': [],
-            'musp_means': [], 'musp_stds': [], 'musp_ranges': [], 'musp_contrasts': [],
-            
-            # Tissue Composition & Geometry
-            'tissue_coverages': [], 'n_tissue_types': [], 'n_tumors': [],
-            'tissue_volume_ratios': [], 'geometric_complexities': [],
-            
-            # Data Quality Metrics
-            'nan_counts': [], 'inf_counts': [], 'outlier_percentages': [],
-            'snr_estimates': [], 'dynamic_range_ratios': [],
-            
-            # Probe Geometry Quality
-            'probe_spatial_distributions': [], 'coverage_uniformities': []
-        }
+        # Run comprehensive single dataset analysis
+        results = self.analyze_single_dataset(file_path, detailed=True)
         
-        print(f"\n📊 EXTRACTING COMPREHENSIVE DATASET STATISTICS")
-        print("-" * 50)
+        # Create professional visualizations
+        self.visualize_dataset(file_path, save_plots=True, show_plots=True)
         
-        for i, file_path in enumerate(self.phantom_files):
-            phantom_name = file_path.parent.name
-            print(f"Processing {phantom_name}... ({i+1}/{len(self.phantom_files)})")
-            
-            try:
-                with h5py.File(file_path, 'r') as f:
-                    # ═══════════════════════════════════════════════════════════════
-                    # BASIC DATASET INFORMATION
-                    # ═══════════════════════════════════════════════════════════════
-                    dataset_stats['phantom_names'].append(phantom_name)
-                    dataset_stats['file_sizes_mb'].append(file_path.stat().st_size / (1024**2))
-                    
-                    # Load all measurement data
-                    log_amplitude = f['log_amplitude'][:]
-                    phase = f['phase'][:]
-                    source_pos = f['source_positions'][:]
-                    det_pos = f['detector_positions'][:]
-                    ground_truth = f['ground_truth'][:]
-                    
-                    # Handle different measurement formats correctly
-                    if len(log_amplitude.shape) == 1:
-                        # New format: (n_measurements,) - 1:1 source-detector pairs
-                        n_probes = len(source_pos)
-                        n_detectors_per_probe = 1
-                        total_measurements = len(log_amplitude)
-                    else:
-                        # Old format: (n_sources, n_detectors_per_source)
-                        n_probes = log_amplitude.shape[0]
-                        n_detectors_per_probe = log_amplitude.shape[1] if len(log_amplitude.shape) > 1 else 1
-                        total_measurements = n_probes * n_detectors_per_probe
-                    
-                    dataset_stats['n_probes'].append(n_probes)
-                    dataset_stats['n_measurements_total'].append(total_measurements)
-                    
-                    # ═══════════════════════════════════════════════════════════════
-                    # COMPREHENSIVE LOG-AMPLITUDE ANALYSIS
-                    # ═══════════════════════════════════════════════════════════════
-                    log_amp_flat = log_amplitude.flatten()
-                    
-                    dataset_stats['log_amp_means'].append(np.mean(log_amp_flat))
-                    dataset_stats['log_amp_stds'].append(np.std(log_amp_flat))
-                    dataset_stats['log_amp_ranges'].append(np.max(log_amp_flat) - np.min(log_amp_flat))
-                    dataset_stats['log_amp_medians'].append(np.median(log_amp_flat))
-                    dataset_stats['log_amp_skewness'].append(stats.skew(log_amp_flat))
-                    dataset_stats['log_amp_kurtosis'].append(stats.kurtosis(log_amp_flat))
-                    
-                    q25_amp, q75_amp = np.percentile(log_amp_flat, [25, 75])
-                    dataset_stats['log_amp_q25'].append(q25_amp)
-                    dataset_stats['log_amp_q75'].append(q75_amp)
-                    dataset_stats['log_amp_iqr'].append(q75_amp - q25_amp)
-                    
-                    # ═══════════════════════════════════════════════════════════════
-                    # COMPREHENSIVE PHASE ANALYSIS
-                    # ═══════════════════════════════════════════════════════════════
-                    phase_flat = phase.flatten()
-                    
-                    dataset_stats['phase_means'].append(np.mean(phase_flat))
-                    dataset_stats['phase_stds'].append(np.std(phase_flat))
-                    dataset_stats['phase_ranges'].append(np.max(phase_flat) - np.min(phase_flat))
-                    dataset_stats['phase_medians'].append(np.median(phase_flat))
-                    dataset_stats['phase_skewness'].append(stats.skew(phase_flat))
-                    dataset_stats['phase_kurtosis'].append(stats.kurtosis(phase_flat))
-                    
-                    q25_phase, q75_phase = np.percentile(phase_flat, [25, 75])
-                    dataset_stats['phase_q25'].append(q25_phase)
-                    dataset_stats['phase_q75'].append(q75_phase)
-                    dataset_stats['phase_iqr'].append(q75_phase - q25_phase)
-                    
-                    # ═══════════════════════════════════════════════════════════════
-                    # AMPLITUDE-PHASE CORRELATION ANALYSIS
-                    # ═══════════════════════════════════════════════════════════════
-                    try:
-                        # Ensure we have clean, finite data for correlation
-                        valid_amp_mask = np.isfinite(log_amp_flat) & ~np.isnan(log_amp_flat)
-                        valid_phase_mask = np.isfinite(phase_flat) & ~np.isnan(phase_flat)
-                        valid_mask = valid_amp_mask & valid_phase_mask
-                        
-                        if np.sum(valid_mask) > 10:  # Need sufficient data points
-                            clean_amp = log_amp_flat[valid_mask]
-                            clean_phase = phase_flat[valid_mask]
-                            
-                            # Check for sufficient variance
-                            if np.std(clean_amp) > 1e-10 and np.std(clean_phase) > 1e-10:
-                                correlation_coeff = np.corrcoef(clean_amp, clean_phase)[0,1]
-                                # Validate correlation result
-                                if np.isfinite(correlation_coeff):
-                                    dataset_stats['amplitude_phase_correlations'].append(correlation_coeff)
-                                else:
-                                    dataset_stats['amplitude_phase_correlations'].append(0.0)
-                            else:
-                                # Insufficient variance for meaningful correlation
-                                dataset_stats['amplitude_phase_correlations'].append(0.0)
-                        else:
-                            # Insufficient valid data points
-                            dataset_stats['amplitude_phase_correlations'].append(0.0)
-                    except Exception as e:
-                        print(f"  Warning: Correlation calculation failed for {phantom_name}: {e}")
-                        dataset_stats['amplitude_phase_correlations'].append(0.0)
-                    
-                    # ═══════════════════════════════════════════════════════════════
-                    # SOURCE-DETECTOR SEPARATION COMPREHENSIVE ANALYSIS
-                    # ═══════════════════════════════════════════════════════════════
-                    all_distances = []
-                    
-                    # Handle both old format (3D) and new format (2D) detector arrays
-                    if len(det_pos.shape) == 3:
-                        # Old format: (n_sources, n_detectors_per_source, 3)
-                        for j in range(n_probes):
-                            source = source_pos[j]
-                            detectors = det_pos[j]
-                            for detector in detectors:
-                                distance = np.linalg.norm(source - detector)
-                                all_distances.append(distance)
-                    elif len(det_pos.shape) == 2:
-                        # New format: (n_measurements, 3) - 1:1 source-detector pairs
-                        for j in range(min(len(source_pos), len(det_pos))):
-                            source = source_pos[j]
-                            detector = det_pos[j]  # Single detector for this measurement
-                            distance = np.linalg.norm(source - detector)
-                            all_distances.append(distance)
-                    
-                    all_distances = np.array(all_distances)
-                    
-                    if len(all_distances) > 0:
-                        dataset_stats['sds_means'].append(np.mean(all_distances))
-                        dataset_stats['sds_stds'].append(np.std(all_distances))
-                        dataset_stats['sds_ranges'].append(np.max(all_distances) - np.min(all_distances))
-                        dataset_stats['sds_medians'].append(np.median(all_distances))
-                        
-                        # SDS compliance metrics
-                        compliance_10_40 = np.sum((all_distances >= 10) & (all_distances <= 40)) / len(all_distances) * 100
-                        optimal_25_35 = np.sum((all_distances >= 25) & (all_distances <= 35)) / len(all_distances) * 100
-                        dataset_stats['sds_compliance_10_40'].append(compliance_10_40)
-                        dataset_stats['sds_optimal_25_35'].append(optimal_25_35)
-                    else:
-                        # Handle case with no valid distances
-                        dataset_stats['sds_means'].append(0)
-                        dataset_stats['sds_stds'].append(0)
-                        dataset_stats['sds_ranges'].append(0)
-                        dataset_stats['sds_medians'].append(0)
-                        dataset_stats['sds_compliance_10_40'].append(0)
-                        dataset_stats['sds_optimal_25_35'].append(0)
-                    
-                    # ═══════════════════════════════════════════════════════════════
-                    # GROUND TRUTH OPTICAL PROPERTIES ANALYSIS
-                    # ═══════════════════════════════════════════════════════════════
-                    mua_map = ground_truth[0]  # Channel 0: absorption
-                    musp_map = ground_truth[1]  # Channel 1: scattering
-                    
-                    # Absorption analysis (excluding air regions)
-                    mua_tissue = mua_map[mua_map > 0]
-                    if len(mua_tissue) > 0:
-                        mua_mean = np.mean(mua_tissue)
-                        mua_std = np.std(mua_tissue)
-                        mua_range = np.max(mua_tissue) - np.min(mua_tissue)
-                        # Fix contrast calculation to handle division by zero
-                        mua_contrast = (mua_range / mua_mean * 100) if mua_mean > 0 else 0
-                        
-                        dataset_stats['mua_means'].append(mua_mean)
-                        dataset_stats['mua_stds'].append(mua_std)
-                        dataset_stats['mua_ranges'].append(mua_range)
-                        dataset_stats['mua_contrasts'].append(mua_contrast)
-                    else:
-                        dataset_stats['mua_means'].append(0)
-                        dataset_stats['mua_stds'].append(0)
-                        dataset_stats['mua_ranges'].append(0)
-                        dataset_stats['mua_contrasts'].append(0)
-                    
-                    # Scattering analysis
-                    musp_tissue = musp_map[musp_map > 0]
-                    if len(musp_tissue) > 0:
-                        musp_mean = np.mean(musp_tissue)
-                        musp_std = np.std(musp_tissue)
-                        musp_range = np.max(musp_tissue) - np.min(musp_tissue)
-                        # Fix contrast calculation to handle division by zero
-                        musp_contrast = (musp_range / musp_mean * 100) if musp_mean > 0 else 0
-                        
-                        dataset_stats['musp_means'].append(musp_mean)
-                        dataset_stats['musp_stds'].append(musp_std)
-                        dataset_stats['musp_ranges'].append(musp_range)
-                        dataset_stats['musp_contrasts'].append(musp_contrast)
-                    else:
-                        dataset_stats['musp_means'].append(0)
-                        dataset_stats['musp_stds'].append(0)
-                        dataset_stats['musp_ranges'].append(0)
-                        dataset_stats['musp_contrasts'].append(0)
-                    
-                    # ═══════════════════════════════════════════════════════════════
-                    # TISSUE COMPOSITION & GEOMETRIC COMPLEXITY
-                    # ═══════════════════════════════════════════════════════════════
-                    
-                    # Identify unique tissue types - need to reshape from channels-first format
-                    # Transpose to (spatial_dims, channels) for unique analysis
-                    reshaped_gt = np.transpose(ground_truth, (1, 2, 3, 0)).reshape(-1, 2)
-                    unique_combinations = np.unique(reshaped_gt, axis=0)
-                    tissue_types = len(unique_combinations) - 1  # Exclude air (0,0)
-                    dataset_stats['n_tissue_types'].append(tissue_types)
-                    
-                    # Tissue coverage
-                    tissue_voxels = np.sum((mua_map > 0) | (musp_map > 0))
-                    total_voxels = mua_map.size
-                    tissue_coverage = tissue_voxels / total_voxels * 100
-                    dataset_stats['tissue_coverages'].append(tissue_coverage)
-                    
-                    # Count tumors (assuming they have higher absorption)
-                    if len(mua_tissue) > 0:
-                        mean_mua = np.mean(mua_tissue)
-                        tumor_threshold = mean_mua * 1.5  # Tumors typically have 50% higher absorption
-                        n_tumors = len(np.unique(mua_map[mua_map > tumor_threshold]))
-                        dataset_stats['n_tumors'].append(n_tumors)
-                        
-                        # Tissue volume ratio analysis
-                        if n_tumors > 0:
-                            tumor_volume = np.sum(mua_map > tumor_threshold)
-                            healthy_volume = tissue_voxels - tumor_volume
-                            volume_ratio = tumor_volume / healthy_volume if healthy_volume > 0 else 0
-                            dataset_stats['tissue_volume_ratios'].append(volume_ratio)
-                        else:
-                            dataset_stats['tissue_volume_ratios'].append(0)
-                    else:
-                        dataset_stats['n_tumors'].append(0)
-                        dataset_stats['tissue_volume_ratios'].append(0)
-                    
-                    # Geometric complexity (measure of tissue boundary complexity)
-                    # Use gradient magnitude as a proxy for boundary complexity
-                    if len(mua_tissue) > 0:
-                        grad_x = np.gradient(mua_map, axis=0)
-                        grad_y = np.gradient(mua_map, axis=1)
-                        grad_z = np.gradient(mua_map, axis=2)
-                        gradient_magnitude = np.sqrt(grad_x**2 + grad_y**2 + grad_z**2)
-                        complexity = np.mean(gradient_magnitude[gradient_magnitude > 0])
-                        dataset_stats['geometric_complexities'].append(complexity)
-                    else:
-                        dataset_stats['geometric_complexities'].append(0)
-                    
-                    # ═══════════════════════════════════════════════════════════════
-                    # DATA QUALITY METRICS
-                    # ═══════════════════════════════════════════════════════════════
-                    
-                    # Count data quality issues
-                    nan_count = np.sum(np.isnan(log_amp_flat)) + np.sum(np.isnan(phase_flat))
-                    inf_count = np.sum(np.isinf(log_amp_flat)) + np.sum(np.isinf(phase_flat))
-                    dataset_stats['nan_counts'].append(nan_count)
-                    dataset_stats['inf_counts'].append(inf_count)
-                    
-                    # Outlier detection with improved error handling
-                    def detect_outliers_iqr(data):
-                        """Detect outliers using IQR method with proper error handling."""
-                        if len(data) < 4:  # Need at least 4 points for quartiles
-                            return 0
-                        try:
-                            q1, q3 = np.percentile(data, [25, 75])
-                            iqr = q3 - q1
-                            if iqr > 0:  # Only proceed if there's actual spread
-                                lower_bound = q1 - 1.5 * iqr
-                                upper_bound = q3 + 1.5 * iqr
-                                return np.sum((data < lower_bound) | (data > upper_bound))
-                            else:
-                                return 0  # No spread means no outliers
-                        except Exception:
-                            return 0
-                    
-                    amp_outliers = detect_outliers_iqr(log_amp_flat)
-                    phase_outliers = detect_outliers_iqr(phase_flat)
-                    total_outliers = amp_outliers + phase_outliers
-                    total_measurements_for_outliers = 2 * len(log_amp_flat)
-                    outlier_percentage = (total_outliers / total_measurements_for_outliers * 100) if total_measurements_for_outliers > 0 else 0
-                    dataset_stats['outlier_percentages'].append(outlier_percentage)
-                    
-                    # Signal Quality Assessment for NIR-DOT data
-                    # For ultra-clean simulated data, we assess based on measurement consistency
-                    # and realistic signal characteristics rather than traditional SNR
-                    
-                    # Calculate measurement consistency (lower variation = higher quality)
-                    signal_range = np.max(log_amp_flat) - np.min(log_amp_flat)
-                    
-                    # For simulated data with 0.1% noise, we expect very high quality
-                    # Base quality assessment on realistic signal characteristics
-                    if signal_range > 10:  # Good dynamic range
-                        base_quality = 80.0  # High quality for simulated data
-                    elif signal_range > 5:
-                        base_quality = 60.0
-                    else:
-                        base_quality = 40.0
-                    
-                    # Penalize if we detect numerical issues
-                    if np.any(np.isnan(log_amp_flat)) or np.any(np.isinf(log_amp_flat)):
-                        base_quality *= 0.5
-                    
-                    # For NIR-DOT simulated data, report as signal quality score
-                    dataset_stats['snr_estimates'].append(base_quality)
-                    
-                    # Dynamic range ratio (amplitude vs phase)
-                    amp_dynamic_range = np.max(log_amp_flat) - np.min(log_amp_flat)
-                    phase_dynamic_range = np.max(phase_flat) - np.min(phase_flat)
-                    dynamic_ratio = amp_dynamic_range / phase_dynamic_range if phase_dynamic_range > 0 else 0
-                    dataset_stats['dynamic_range_ratios'].append(dynamic_ratio)
-                    
-                    # ═══════════════════════════════════════════════════════════════
-                    # PROBE GEOMETRY QUALITY ANALYSIS
-                    # ═══════════════════════════════════════════════════════════════
-                    
-                    # Spatial distribution uniformity of probes
-                    if len(source_pos) > 1:
-                        # Calculate nearest neighbor distances
-                        from scipy.spatial.distance import pdist
-                        distances_between_probes = pdist(source_pos)
-                        spatial_uniformity = np.std(distances_between_probes) / np.mean(distances_between_probes)
-                        dataset_stats['probe_spatial_distributions'].append(spatial_uniformity)
-                        
-                        # Coverage uniformity (how evenly distributed are the measurement areas)
-                        # Calculate convex hull area coverage
-                        try:
-                            from scipy.spatial import ConvexHull
-                            hull = ConvexHull(source_pos[:, :2])  # 2D projection
-                            hull_area = hull.volume  # In 2D, volume is area
-                            # Normalize by number of probes
-                            coverage_uniformity = hull_area / len(source_pos)
-                            dataset_stats['coverage_uniformities'].append(coverage_uniformity)
-                        except:
-                            dataset_stats['coverage_uniformities'].append(0)
-                    else:
-                        dataset_stats['probe_spatial_distributions'].append(0)
-                        dataset_stats['coverage_uniformities'].append(0)
-                    
-            except Exception as e:
-                print(f"  ⚠️ Error processing {phantom_name}: {e}")
-                # Fill with NaN for failed datasets
-                for key in dataset_stats.keys():
-                    if key != 'phantom_names':
-                        dataset_stats[key].append(np.nan)
-        
-        # Convert to numpy arrays for analysis
-        for key, values in dataset_stats.items():
-            if key != 'phantom_names':
-                dataset_stats[key] = np.array(values)
-        
-        # ═══════════════════════════════════════════════════════════════════════════════════════
-        # COMPREHENSIVE CROSS-DATASET STATISTICAL ANALYSIS WITH DETAILED EXPLANATIONS
-        # ═══════════════════════════════════════════════════════════════════════════════════════
-        
-        # Remove NaN values for statistics
-        valid_indices = ~np.isnan(dataset_stats['n_probes'])
-        n_valid = np.sum(valid_indices)
-        
-        print(f"\n📈 CROSS-DATASET STATISTICAL SUMMARY & INTERPRETATION")
-        print("=" * 70)
-        print(f"Successfully analyzed: {n_valid}/{len(self.phantom_files)} datasets")
-        
-        if n_valid > 0:
-            
-            # ═══════════════════════════════════════════════════════════════
-            # 1. DATASET SCALE & COMPOSITION ANALYSIS
-            # ═══════════════════════════════════════════════════════════════
-            print(f"\n🏗️  DATASET SCALE & COMPOSITION")
-            print("-" * 45)
-            
-            total_measurements = np.nansum(dataset_stats['n_measurements_total'])
-            mean_probes = np.nanmean(dataset_stats['n_probes'])
-            std_probes = np.nanstd(dataset_stats['n_probes'])
-            total_size_gb = np.nansum(dataset_stats['file_sizes_mb']) / 1024
-            
-            print(f"📊 Scale Metrics:")
-            print(f"  Total measurements across all phantoms: {total_measurements:,}")
-            print(f"    → This represents the complete training dataset size for ML models")
-            print(f"    → Ideal for deep learning: >50k measurements (Current: {'✅' if total_measurements > 50000 else '⚠️' if total_measurements > 10000 else '❌'})")
-            print(f"")
-            print(f"  Probes per phantom: {mean_probes:.1f} ± {std_probes:.1f}")
-            print(f"    → Shows measurement density consistency across phantoms")
-            print(f"    → CV: {std_probes/mean_probes*100:.1f}% (Good if <20%: {'✅' if std_probes/mean_probes*100 < 20 else '⚠️'})")
-            print(f"")
-            print(f"  Total dataset size: {total_size_gb:.2f} GB")
-            print(f"    → Storage requirement for complete dataset")
-            print(f"    → Memory efficiency: {total_measurements/(total_size_gb*1024):.0f} measurements/MB")
-            
-            # ═══════════════════════════════════════════════════════════════
-            # 2. LOG-AMPLITUDE SIGNAL CHARACTERISTICS
-            # ═══════════════════════════════════════════════════════════════
-            print(f"\n📡 LOG-AMPLITUDE SIGNAL CHARACTERISTICS")
-            print("-" * 45)
-            
-            amp_mean_global = np.nanmean(dataset_stats['log_amp_means'])
-            amp_std_global = np.nanstd(dataset_stats['log_amp_means'])
-            amp_range_consistency = np.nanstd(dataset_stats['log_amp_ranges'])
-            amp_skew_mean = np.nanmean(dataset_stats['log_amp_skewness'])
-            
-            def cv(data):
-                """Calculate coefficient of variation with proper error handling."""
-                mean_val = np.nanmean(data)
-                std_val = np.nanstd(data)
-                # Ensure we have valid positive mean for CV calculation
-                if mean_val > 0 and np.isfinite(mean_val) and np.isfinite(std_val):
-                    return std_val / mean_val * 100
-                else:
-                    return 0.0
-            
-            print(f"🎯 Central Tendency & Variability:")
-            print(f"  Cross-phantom mean: {amp_mean_global:.3f} ± {amp_std_global:.3f}")
-            print(f"    → Indicates overall signal strength consistency")
-            print(f"    → Low std (< ±0.5) suggests good calibration: {'✅' if amp_std_global < 0.5 else '⚠️'}")
-            print(f"")
-            print(f"  Dynamic range consistency: {amp_range_consistency:.3f}")
-            print(f"    → How consistently each phantom spans the measurement space")
-            print(f"    → Lower values indicate more uniform data collection")
-            print(f"")
-            print(f"  Mean skewness: {amp_skew_mean:.3f}")
-            print(f"    → Distribution shape: {'Symmetric' if abs(amp_skew_mean) < 0.5 else 'Right-skewed' if amp_skew_mean > 0.5 else 'Left-skewed'}")
-            print(f"    → {'✅ Good' if abs(amp_skew_mean) < 1.0 else '⚠️ May need preprocessing'}")
-            
-            print(f"\n📊 Statistical Distribution Analysis:")
-            print(f"  IQR consistency: {cv(dataset_stats['log_amp_iqr']):.1f}% CV")
-            print(f"    → Measures middle 50% data spread consistency")
-            print(f"    → Good consistency: <15% CV ({'✅' if cv(dataset_stats['log_amp_iqr']) < 15 else '⚠️'})")
-            print(f"")
-            print(f"  Kurtosis (tail heaviness): {np.nanmean(dataset_stats['log_amp_kurtosis']):.2f}")
-            print(f"    → Normal distribution ≈ 0, Heavy tails > 0, Light tails < 0")
-            print(f"    → Current: {'Heavy-tailed' if np.nanmean(dataset_stats['log_amp_kurtosis']) > 1 else 'Light-tailed' if np.nanmean(dataset_stats['log_amp_kurtosis']) < -1 else 'Near-normal'}")
-            
-            # ═══════════════════════════════════════════════════════════════
-            # 3. PHASE SIGNAL CHARACTERISTICS  
-            # ═══════════════════════════════════════════════════════════════
-            print(f"\n🌊 PHASE SIGNAL CHARACTERISTICS")
-            print("-" * 40)
-            
-            phase_mean_global = np.nanmean(dataset_stats['phase_means'])
-            phase_std_global = np.nanstd(dataset_stats['phase_means'])
-            phase_range_mean = np.nanmean(dataset_stats['phase_ranges'])
-            phase_wrap_risk = np.sum(dataset_stats['phase_ranges'] > 300) / n_valid * 100
-            
-            print(f"📐 Phase Measurement Quality:")
-            print(f"  Cross-phantom mean: {phase_mean_global:.1f}° ± {phase_std_global:.1f}°")
-            print(f"    → Overall phase shift consistency between phantoms")
-            print(f"    → Good consistency: <10° std ({'✅' if phase_std_global < 10 else '⚠️'})")
-            print(f"")
-            print(f"  Mean phase range: {phase_range_mean:.1f}°")
-            print(f"    → Average phase dynamic range per phantom")
-            print(f"    → Optimal range: 50-200° ({'✅' if 50 <= phase_range_mean <= 200 else '⚠️'})")
-            print(f"")
-            print(f"  Phase wrapping risk: {phase_wrap_risk:.1f}% of phantoms")
-            print(f"    → Percentage with >300° range (potential wrapping issues)")
-            print(f"    → Safe: <5% risk ({'✅' if phase_wrap_risk < 5 else '⚠️ Review needed' if phase_wrap_risk < 20 else '❌ High risk'})")
-            
-            # ═══════════════════════════════════════════════════════════════
-            # 4. AMPLITUDE-PHASE CORRELATION ANALYSIS
-            # ═══════════════════════════════════════════════════════════════
-            print(f"\n🔗 AMPLITUDE-PHASE CORRELATION ANALYSIS")
-            print("-" * 45)
-            
-            corr_mean = np.nanmean(dataset_stats['amplitude_phase_correlations'])
-            corr_std = np.nanstd(dataset_stats['amplitude_phase_correlations'])
-            corr_range = np.nanmax(dataset_stats['amplitude_phase_correlations']) - np.nanmin(dataset_stats['amplitude_phase_correlations'])
-            
-            print(f"🧠 Signal Interdependence:")
-            print(f"  Mean correlation: {corr_mean:.3f} ± {corr_std:.3f}")
-            print(f"    → How predictably phase relates to amplitude")
-            print(f"    → Physics expectation: 0.3-0.8 ({'✅ Physical' if 0.3 <= abs(corr_mean) <= 0.8 else '⚠️ Check physics'})")
-            print(f"")
-            print(f"  Correlation consistency: {corr_std:.3f}")
-            print(f"    → Low values indicate consistent physics across phantoms")
-            print(f"    → Good consistency: <0.1 ({'✅' if corr_std < 0.1 else '⚠️'})")
-            print(f"")
-            print(f"  Correlation range: {corr_range:.3f}")
-            print(f"    → Diversity in phantom optical properties")
-            print(f"    → Good diversity for ML: >0.2 ({'✅' if corr_range > 0.2 else '⚠️'})")
-            
-            # ═══════════════════════════════════════════════════════════════
-            # 5. SOURCE-DETECTOR SEPARATION ANALYSIS  
-            # ═══════════════════════════════════════════════════════════════
-            print(f"\n📏 SOURCE-DETECTOR SEPARATION ANALYSIS")
-            print("-" * 45)
-            
-            sds_mean_global = np.nanmean(dataset_stats['sds_means'])
-            sds_compliance_mean = np.nanmean(dataset_stats['sds_compliance_10_40'])
-            sds_optimal_mean = np.nanmean(dataset_stats['sds_optimal_25_35'])
-            sds_uniformity = cv(dataset_stats['sds_means'])
-            
-            print(f"📐 Distance Distribution Quality:")
-            print(f"  Mean SDS across phantoms: {sds_mean_global:.1f} mm")
-            print(f"    → Overall probe positioning strategy")
-            print(f"    → Optimal range: 25-35mm ({'✅' if 25 <= sds_mean_global <= 35 else '⚠️'})")
-            print(f"")
-            print(f"  Compliance (10-40mm): {sds_compliance_mean:.1f}%")
-            print(f"    → Percentage of measurements within DOT-suitable range")
-            print(f"    → Minimum acceptable: >80% ({'✅' if sds_compliance_mean > 80 else '⚠️' if sds_compliance_mean > 60 else '❌'})")
-            print(f"")
-            print(f"  Optimal range (25-35mm): {sds_optimal_mean:.1f}%")
-            print(f"    → Measurements in highest sensitivity zone")
-            print(f"    → Target: >50% ({'✅' if sds_optimal_mean > 50 else '⚠️'})")
-            print(f"")
-            print(f"  Cross-phantom uniformity: {sds_uniformity:.1f}% CV")
-            print(f"    → Consistency of probe placement strategy")
-            print(f"    → Good consistency: <10% CV ({'✅' if sds_uniformity < 10 else '⚠️'})")
-            
-            # ═══════════════════════════════════════════════════════════════
-            # 6. OPTICAL PROPERTIES ANALYSIS
-            # ═══════════════════════════════════════════════════════════════
-            print(f"\n🔬 OPTICAL PROPERTIES ANALYSIS")
-            print("-" * 40)
-            
-            mua_contrast_mean = np.nanmean(dataset_stats['mua_contrasts'])
-            musp_contrast_mean = np.nanmean(dataset_stats['musp_contrasts'])
-            mua_diversity = cv(dataset_stats['mua_means'])
-            musp_diversity = cv(dataset_stats['musp_means'])
-            
-            print(f"🎯 Absorption Properties (μₐ):")
-            print(f"  Mean contrast: {mua_contrast_mean:.1f}%")
-            print(f"    → Average absorption difference within phantoms")
-            print(f"    → Tumor detection needs: >20% ({'✅' if mua_contrast_mean > 20 else '⚠️' if mua_contrast_mean > 10 else '❌'})")
-            print(f"")
-            print(f"  Cross-phantom diversity: {mua_diversity:.1f}% CV")
-            print(f"    → Variety in baseline absorption across phantoms")
-            print(f"    → Good for ML generalization: >15% CV ({'✅' if mua_diversity > 15 else '⚠️'})")
-            print(f"")
-            print(f"✨ Scattering Properties (μ′s):")
-            print(f"  Mean contrast: {musp_contrast_mean:.1f}%")
-            print(f"    → Scattering heterogeneity within phantoms")
-            print(f"    → Realistic tissue variation: >5% ({'✅' if musp_contrast_mean > 5 else '⚠️'})")
-            print(f"")
-            print(f"  Cross-phantom diversity: {musp_diversity:.1f}% CV")
-            print(f"    → Baseline scattering variety across dataset")
-            print(f"    → Sufficient diversity: >10% CV ({'✅' if musp_diversity > 10 else '⚠️'})")
-            
-            # ═══════════════════════════════════════════════════════════════
-            # 7. TISSUE COMPOSITION & GEOMETRIC COMPLEXITY
-            # ═══════════════════════════════════════════════════════════════
-            print(f"\n🧬 TISSUE COMPOSITION & GEOMETRIC COMPLEXITY")
-            print("-" * 50)
-            
-            tissue_coverage_mean = np.nanmean(dataset_stats['tissue_coverages'])
-            tissue_types_mean = np.nanmean(dataset_stats['n_tissue_types'])
-            tumor_count_mean = np.nanmean(dataset_stats['n_tumors'])
-            complexity_mean = np.nanmean(dataset_stats['geometric_complexities'])
-            
-            print(f"🏗️  Structural Characteristics:")
-            print(f"  Mean tissue coverage: {tissue_coverage_mean:.1f}%")
-            print(f"    → Portion of phantom volume containing tissue")
-            print(f"    → Realistic simulation: 30-70% ({'✅' if 30 <= tissue_coverage_mean <= 70 else '⚠️'})")
-            print(f"")
-            print(f"  Average tissue types per phantom: {tissue_types_mean:.1f}")
-            print(f"    → Complexity of tissue heterogeneity")
-            print(f"    → Clinical relevance: 2-5 types ({'✅' if 2 <= tissue_types_mean <= 5 else '⚠️'})")
-            print(f"")
-            print(f"  Average tumors per phantom: {tumor_count_mean:.1f}")
-            print(f"    → Oncological application suitability")
-            print(f"    → Clinical scenarios: 0-3 tumors ({'✅' if 0 <= tumor_count_mean <= 3 else '⚠️'})")
-            print(f"")
-            print(f"  Geometric complexity: {complexity_mean:.6f}")
-            print(f"    → Boundary roughness/irregularity measure")
-            print(f"    → Higher values = more realistic tissue boundaries")
-            
-            # ═══════════════════════════════════════════════════════════════
-            # 8. DATA QUALITY & INTEGRITY ASSESSMENT
-            # ═══════════════════════════════════════════════════════════════
-            print(f"\n🎯 DATA QUALITY & INTEGRITY ASSESSMENT")
-            print("-" * 45)
-            
-            total_nan = np.nansum(dataset_stats['nan_counts'])
-            total_inf = np.nansum(dataset_stats['inf_counts'])
-            mean_outliers = np.nanmean(dataset_stats['outlier_percentages'])
-            mean_snr = np.nanmean(dataset_stats['snr_estimates'])
-            
-            print(f"🔍 Data Integrity Metrics:")
-            print(f"  Total NaN values: {int(total_nan):,}")
-            print(f"    → Missing or undefined measurements")
-            print(f"    → Acceptable: 0 values ({'✅' if total_nan == 0 else '❌ Data corruption detected'})")
-            print(f"")
-            print(f"  Total infinite values: {int(total_inf):,}")
-            print(f"    → Numerical overflow/underflow issues")
-            print(f"    → Acceptable: 0 values ({'✅' if total_inf == 0 else '❌ Numerical instability'})")
-            print(f"")
-            print(f"  Mean outlier percentage: {mean_outliers:.2f}%")
-            print(f"    → Data points outside normal statistical bounds")
-            print(f"    → Acceptable range: <5% ({'✅' if mean_outliers < 5 else '⚠️' if mean_outliers < 10 else '❌'})")
-            print(f"")
-            print(f"🔊 Signal Quality Metrics:")
-            print(f"  Mean signal quality: {mean_snr:.1f}/100")
-            print(f"    → Overall data quality across all phantoms")
-            print(f"    → Excellent: >80, Good: >60, Fair: >40 ({'✅ Excellent' if mean_snr >= 80 else '✅ Good' if mean_snr > 60 else '⚠️ Fair' if mean_snr > 40 else '❌ Poor'})")
-            
-            # ═══════════════════════════════════════════════════════════════
-            # 9. ADVANCED CONSISTENCY ANALYSIS
-            # ═══════════════════════════════════════════════════════════════
-            print(f"\n🎯 ADVANCED CONSISTENCY ANALYSIS")
-            print("-" * 40)
-            
-            # Multi-dimensional consistency score
-            consistency_metrics = {
-                'probe_count': cv(dataset_stats['n_probes']),
-                'amplitude_mean': cv(dataset_stats['log_amp_means']),
-                'phase_mean': cv(dataset_stats['phase_means']),
-                'sds_mean': cv(dataset_stats['sds_means']),
-                'tissue_coverage': cv(dataset_stats['tissue_coverages'])
-            }
-            
-            overall_consistency = np.mean(list(consistency_metrics.values()))
-            
-            print(f"📊 Multi-Dimensional Consistency (Coefficient of Variation %):")
-            for metric, cv_val in consistency_metrics.items():
-                status = '✅' if cv_val < 15 else '⚠️' if cv_val < 25 else '❌'
-                print(f"  {metric.replace('_', ' ').title()}: {cv_val:.1f}% {status}")
-            print(f"")
-            print(f"  Overall consistency score: {overall_consistency:.1f}% CV")
-            print(f"    → Lower values indicate more uniform dataset")
-            print(f"    → {'✅ Excellent' if overall_consistency < 15 else '✅ Good' if overall_consistency < 25 else '⚠️ Acceptable' if overall_consistency < 35 else '❌ Poor'} consistency")
-            
-            # ═══════════════════════════════════════════════════════════════
-            # 10. MACHINE LEARNING SUITABILITY ASSESSMENT
-            # ═══════════════════════════════════════════════════════════════
-            print(f"\n🤖 MACHINE LEARNING SUITABILITY ASSESSMENT")
-            print("-" * 50)
-            
-            # Comprehensive ML readiness scoring
-            ml_scores = {
-                'data_volume': min(100, total_measurements / 1000),  # 100k measurements = 100 points
-                'data_quality': max(0, 100 - mean_outliers * 10),   # Penalize outliers
-                'signal_quality': mean_snr,  # Direct signal quality score (0-100)
-                'diversity': min(100, max(30, (mua_diversity + musp_diversity) * 1.5)),  # Better diversity scoring
-                'consistency': max(0, 100 - overall_consistency * 2),  # Penalize inconsistency
-                'coverage': min(100, sds_compliance_mean),  # SDS compliance directly translates
-                'physics': min(100, abs(corr_mean) * 125)  # Reward realistic amplitude-phase correlation
-            }
-            
-            overall_ml_score = np.mean(list(ml_scores.values()))
-            
-            print(f"🎯 ML Readiness Scoring (0-100 scale):")
-            for category, score in ml_scores.items():
-                stars = '⭐' * int(score / 20)  # 5-star rating
-                print(f"  {category.replace('_', ' ').title()}: {score:.1f}/100 {stars}")
-            print(f"")
-            print(f"  🏆 Overall ML Suitability: {overall_ml_score:.1f}/100")
-            
-            if overall_ml_score >= 80:
-                assessment = "OUTSTANDING"
-                recommendation = "Dataset exceeds requirements for robust ML training. Ready for production models."
-            elif overall_ml_score >= 70:
-                assessment = "EXCELLENT" 
-                recommendation = "Dataset is highly suitable for ML training with strong performance expected."
-            elif overall_ml_score >= 60:
-                assessment = "GOOD"
-                recommendation = "Dataset is suitable for ML training. Minor improvements could enhance performance."
-            elif overall_ml_score >= 50:
-                assessment = "ACCEPTABLE"
-                recommendation = "Dataset is adequate for basic ML training. Consider improvements for better results."
-            else:
-                assessment = "NEEDS IMPROVEMENT"
-                recommendation = "Dataset requires significant enhancement before reliable ML training."
-            
-            print(f"")
-            print(f"  📈 Assessment: {assessment}")
-            print(f"  💡 Recommendation: {recommendation}")
-            
-            # ═══════════════════════════════════════════════════════════════
-            # 11. SPECIFIC RECOMMENDATIONS
-            # ═══════════════════════════════════════════════════════════════
-            print(f"\n💡 SPECIFIC IMPROVEMENT RECOMMENDATIONS")
-            print("-" * 50)
-            
-            recommendations = []
-            
-            if total_measurements < 10000:
-                recommendations.append("🔢 Generate more phantom datasets to reach >10k measurements for robust training")
-            
-            if sds_compliance_mean < 80:
-                recommendations.append("📏 Improve probe placement to achieve >80% SDS compliance (10-40mm range)")
-            
-            if mean_snr < 60:
-                recommendations.append("🔊 Enhance signal quality - consider checking data generation parameters")
-            
-            if mua_contrast_mean < 20:
-                recommendations.append("🎯 Increase absorption contrast for better tumor detection capability")
-            
-            if overall_consistency > 25:
-                recommendations.append("⚖️ Improve measurement consistency across phantoms for stable training")
-            
-            if abs(corr_mean) < 0.3:
-                recommendations.append("🔗 Review physics simulation - amplitude-phase correlation seems unrealistic")
-            
-            if mean_outliers > 5:
-                recommendations.append("🧹 Clean outlier data points to improve training stability")
-            
-            if not recommendations:
-                recommendations.append("✅ Dataset quality is excellent - no specific improvements needed!")
-            
-            for i, rec in enumerate(recommendations, 1):
-                print(f"  {i}. {rec}")
-        
-        print(f"\n✅ COMPREHENSIVE CROSS-DATASET ANALYSIS COMPLETE")
-        print("=" * 70)
-        print(f"📊 Analyzed {n_valid} phantom datasets with {len([k for k in dataset_stats.keys() if k != 'phantom_names'])} statistical metrics")
-        print(f"🎯 Generated comprehensive insights for dataset optimization and ML training preparation")
-        print("=" * 70)
+        return results
 
-def main():
-    """Main function to run comprehensive dataset analysis with 3 focused options."""
+
+# ============================================================================
+# DUAL-MODE MAIN MENU SYSTEM  
+# ============================================================================
+
+def single_phantom_analysis():
+    """🎯 OPTION 1: Single Phantom Analysis with sleek visualizations."""
+    print("\n" + "="*80)
+    print("🔬 SINGLE PHANTOM ANALYSIS")
+    print("="*80)
     
-    print("🧬 NIR PHANTOM DATASET ANALYZER")
-    print("="*50)
-    print("Comprehensive analysis of HDF5 phantom datasets")
-    print("="*50)
+    # Initialize analyzer to discover datasets
+    analyzer = NIRDatasetAnalyzer()
+    
+    if not analyzer.phantom_files:
+        print("❌ No phantom datasets found!")
+        return
+    
+    # Show available phantoms
+    print(f"\n📋 Available Phantoms ({len(analyzer.phantom_files)}):")
+    for i, file_path in enumerate(analyzer.phantom_files):
+        phantom_name = file_path.parent.name
+        file_size = file_path.stat().st_size / (1024**2)
+        print(f"   [{i+1:2d}] {phantom_name:15} ({file_size:6.1f} MB)")
+    
+    # Get user selection
+    try:
+        choice = input(f"\nSelect phantom [1-{len(analyzer.phantom_files)}]: ").strip()
+        phantom_idx = int(choice) - 1
+        
+        if 0 <= phantom_idx < len(analyzer.phantom_files):
+            selected_file = analyzer.phantom_files[phantom_idx]
+            analyzer.deep_single_analysis(selected_file)
+        else:
+            print("❌ Invalid selection!")
+    except (ValueError, KeyboardInterrupt):
+        print("❌ Invalid input or cancelled!")
+
+
+def comprehensive_multi_phantom_analysis():
+    """🎯 OPTION 2: True Cross-Dataset Analysis (not individual analysis)."""
+    print("\n" + "="*80)
+    print("🔬 COMPREHENSIVE CROSS-DATASET ANALYSIS")
+    print("="*80)
     
     # Initialize analyzer
     analyzer = NIRDatasetAnalyzer()
     
     if not analyzer.phantom_files:
-        print("❌ No datasets found. Please run the data simulator first.")
+        print("❌ No phantom datasets found!")
         return
     
-    # Streamlined analysis options
-    print("\n📋 NIR Dataset Analysis Options:")
-    print("1. 🔬 Deep Single Dataset Analysis (comprehensive phantom examination)")
-    print("2. 📊 Spectacular Visualizations (enhanced plots and 3D rendering)")  
-    print("3. 🔍 Cross-Dataset Comparative Analysis (analyze all phantoms together)")
+    print(f"📊 Found {len(analyzer.phantom_files)} phantoms for cross-dataset analysis")
+    print("🔄 This will perform comprehensive physics validation across ALL phantoms...")
+    print("   • Physics relationship validation for entire dataset")
+    print("   • Statistical comparison and quality assessment")
+    print("   • Cross-phantom consistency analysis")
+    print()
     
-    choice = input("\nSelect option (1-3): ").strip()
+    # Ask user how many phantoms to analyze
+    try:
+        max_phantoms = min(len(analyzer.phantom_files), 50)  # Reasonable limit
+        choice = input(f"Analyze how many phantoms? [1-{max_phantoms}] (default: {min(20, max_phantoms)}): ").strip()
+        if choice:
+            num_phantoms = min(int(choice), max_phantoms)
+        else:
+            num_phantoms = min(20, max_phantoms)
+    except ValueError:
+        num_phantoms = min(20, max_phantoms)
     
-    if choice == "1":
-        # OPTION 1: Deep Single Dataset Analysis
-        print("\n🔬 DEEP SINGLE DATASET ANALYSIS")
-        print("="*40)
-        print("Available datasets:")
-        for i, file_path in enumerate(analyzer.phantom_files):
-            print(f"   {i+1}. {file_path.parent.name}")
+    print(f"\n🔬 COMPREHENSIVE {num_phantoms}-PHANTOM PHYSICS VALIDATION")
+    print('='*60)
+    print("Performing cross-dataset analysis...")
+    print()
+    
+    # Initialize cross-dataset results tracking
+    results = {}
+    physics_violations = []
+    working_phantoms = []
+    all_slopes_amp = []
+    all_slopes_phase = []
+    all_r2_amp = []
+    all_r2_phase = []
+    all_distances = []
+    all_log_amp = []
+    all_phase = []
+    
+    # Process each phantom
+    for i in range(num_phantoms):
+        file_path = analyzer.phantom_files[i]
+        phantom_name = file_path.parent.name
         
         try:
-            idx = int(input(f"Select dataset (1-{len(analyzer.phantom_files)}): ")) - 1
-            selected_file = analyzer.phantom_files[idx]
-            
-            print(f"\n🔍 Performing comprehensive analysis of {selected_file.parent.name}...")
-            analyzer.deep_single_analysis(selected_file)
-            
-        except (ValueError, IndexError):
-            print("❌ Invalid selection")
+            with h5py.File(file_path, 'r') as f:
+                log_amp = f['log_amplitude'][:]
+                phase = f['phase'][:]
+                sources = f['source_positions'][:]
+                detectors = f['detector_positions'][:]
+                
+                # Calculate distances
+                distances = np.array([np.linalg.norm(detectors[j] - sources[j]) 
+                                    for j in range(len(sources))])
+                
+                # Physics analysis
+                slope_amp, _, r_amp, p_amp, _ = stats.linregress(distances, log_amp)
+                slope_phase, _, r_phase, p_phase, _ = stats.linregress(distances, phase)
+                
+                # Physics validation
+                amp_correct = slope_amp < 0  # Should be negative (attenuation)
+                phase_correct = slope_phase > 0  # Should be positive (delay)
+                physics_correct = amp_correct and phase_correct
+                
+                # Store individual results
+                results[phantom_name] = {
+                    'slope_amp': slope_amp,
+                    'slope_phase': slope_phase,
+                    'r2_amp': r_amp**2,
+                    'r2_phase': r_phase**2,
+                    'p_amp': p_amp,
+                    'p_phase': p_phase,
+                    'physics_correct': physics_correct,
+                    'amp_correct': amp_correct,
+                    'phase_correct': phase_correct,
+                    'n_measurements': len(log_amp)
+                }
+                
+                # Aggregate data for cross-dataset analysis
+                all_slopes_amp.append(slope_amp)
+                all_slopes_phase.append(slope_phase)
+                all_r2_amp.append(r_amp**2)
+                all_r2_phase.append(r_phase**2)
+                all_distances.extend(distances)
+                all_log_amp.extend(log_amp)
+                all_phase.extend(phase)
+                
+                # Classification
+                if physics_correct:
+                    working_phantoms.append(phantom_name)
+                else:
+                    physics_violations.append(phantom_name)
+                
+                # Status indicators
+                amp_status = '✅' if amp_correct else '🚨'
+                phase_status = '✅' if phase_correct else '🚨'
+                physics_status = '✅' if physics_correct else '🚨'
+                
+                print(f'{phantom_name}: {physics_status}')
+                print(f'  Log-amp: slope={slope_amp:.6f} {amp_status} | R²={r_amp**2:.4f} | p={p_amp:.3f}')
+                print(f'  Phase:   slope={slope_phase:.6f} {phase_status} | R²={r_phase**2:.4f} | p={p_phase:.3f}')
+                
+        except Exception as e:
+            print(f'{phantom_name}: ❌ ERROR - {e}')
+            physics_violations.append(phantom_name)
     
-    elif choice == "2":
-        # OPTION 2: Visualizations
-        print("\n📊 VISUALIZATIONS")
-        print("="*40)
-        print("Available datasets:")
-        for i, file_path in enumerate(analyzer.phantom_files):
-            print(f"   {i+1}. {file_path.parent.name}")
-        
-        try:
-            idx = int(input(f"Select dataset (1-{len(analyzer.phantom_files)}): ")) - 1
-            selected_file = analyzer.phantom_files[idx]
-            
-            print(f"\n🎨 Creating spectacular visualizations for {selected_file.parent.name}...")
-            analyzer.visualize_dataset(selected_file)
-            
-        except (ValueError, IndexError):
-            print("❌ Invalid selection")
+    # Convert to numpy arrays for analysis
+    all_slopes_amp = np.array(all_slopes_amp)
+    all_slopes_phase = np.array(all_slopes_phase)
+    all_r2_amp = np.array(all_r2_amp)
+    all_r2_phase = np.array(all_r2_phase)
+    all_distances = np.array(all_distances)
+    all_log_amp = np.array(all_log_amp)
+    all_phase = np.array(all_phase)
     
-    elif choice == "3":
-        # OPTION 3: Cross-Dataset Comparative Analysis
-        print("\n🔍 CROSS-DATASET COMPARATIVE ANALYSIS")
-        print("="*40)
-        print(f"Analyzing {len(analyzer.phantom_files)} phantom datasets...")
-        
-        analyzer.cross_dataset_analysis()
+    print()
+    print('🎯 CROSS-DATASET PHYSICS VALIDATION SUMMARY')
+    print('='*50)
+    print(f'Total phantoms tested: {num_phantoms}')
+    print(f'✅ Correct physics: {len(working_phantoms)}/{num_phantoms} ({len(working_phantoms)/num_phantoms*100:.1f}%)')
+    print(f'🚨 Physics violations: {len(physics_violations)}/{num_phantoms} ({len(physics_violations)/num_phantoms*100:.1f}%)')
     
+    # Success rate assessment
+    success_rate = len(working_phantoms) / num_phantoms
+    if success_rate >= 0.75:
+        print('\n🎉 EXCELLENT! ≥75% success rate - dataset is working very well!')
+    elif success_rate >= 0.60:
+        print('\n✅ GOOD! ≥60% success rate - dataset is working!')
+    elif success_rate >= 0.50:
+        print('\n⚠️  MODERATE! ≥50% success rate - some phantoms need review')
     else:
-        print("❌ Invalid option selected")
+        print('\n❌ POOR! <50% success rate - significant issues detected')
+    
+    print()
+    print('Working phantoms:', working_phantoms[:5], '...' if len(working_phantoms) > 5 else '')
+    if physics_violations:
+        print('Violation phantoms:', physics_violations[:5], '...' if len(physics_violations) > 5 else '')
+    
+    # Cross-dataset statistical analysis
+    print()
+    print('📊 CROSS-DATASET STATISTICAL ANALYSIS')
+    print('='*40)
+    print(f'Slope distributions (log-amplitude):')
+    print(f'  Mean: {np.mean(all_slopes_amp):.6f} ± {np.std(all_slopes_amp):.6f}')
+    print(f'  Range: [{np.min(all_slopes_amp):.6f}, {np.max(all_slopes_amp):.6f}]')
+    print(f'  Correct slopes: {np.sum(all_slopes_amp < 0)}/{len(all_slopes_amp)} ({np.sum(all_slopes_amp < 0)/len(all_slopes_amp)*100:.1f}%)')
+    
+    print(f'Slope distributions (phase):')
+    print(f'  Mean: {np.mean(all_slopes_phase):.6f} ± {np.std(all_slopes_phase):.6f}')
+    print(f'  Range: [{np.min(all_slopes_phase):.6f}, {np.max(all_slopes_phase):.6f}]')
+    print(f'  Correct slopes: {np.sum(all_slopes_phase > 0)}/{len(all_slopes_phase)} ({np.sum(all_slopes_phase > 0)/len(all_slopes_phase)*100:.1f}%)')
+    
+    print(f'R² distributions:')
+    print(f'  Log-amp R²: {np.mean(all_r2_amp):.4f} ± {np.std(all_r2_amp):.4f}')
+    print(f'  Phase R²: {np.mean(all_r2_phase):.4f} ± {np.std(all_r2_phase):.4f}')
+    
+    # Create cross-dataset visualization
+    print()
+    print('🎨 Creating cross-dataset visualization...')
+    
+    fig = plt.figure(figsize=(20, 12))
+    fig.suptitle(f'Cross-Dataset Analysis: {num_phantoms} Phantoms', fontsize=18, fontweight='bold')
+    
+    # 1. Slope distributions
+    ax1 = plt.subplot(2, 4, 1)
+    ax1.hist(all_slopes_amp, bins=20, alpha=0.7, color=COLORS['primary'], edgecolor='black')
+    ax1.axvline(0, color='red', linestyle='--', linewidth=2, label='Physics Boundary')
+    ax1.set_xlabel('Log-Amplitude Slope')
+    ax1.set_ylabel('Frequency')
+    ax1.set_title('Log-Amp Slope Distribution')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    
+    ax2 = plt.subplot(2, 4, 2)
+    ax2.hist(all_slopes_phase, bins=20, alpha=0.7, color=COLORS['secondary'], edgecolor='black')
+    ax2.axvline(0, color='red', linestyle='--', linewidth=2, label='Physics Boundary')
+    ax2.set_xlabel('Phase Slope')
+    ax2.set_ylabel('Frequency')
+    ax2.set_title('Phase Slope Distribution')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    
+    # 2. R² distributions
+    ax3 = plt.subplot(2, 4, 3)
+    ax3.hist(all_r2_amp, bins=20, alpha=0.7, color=COLORS['primary'], edgecolor='black')
+    ax3.set_xlabel('Log-Amplitude R²')
+    ax3.set_ylabel('Frequency')
+    ax3.set_title('Log-Amp R² Distribution')
+    ax3.grid(True, alpha=0.3)
+    
+    ax4 = plt.subplot(2, 4, 4)
+    ax4.hist(all_r2_phase, bins=20, alpha=0.7, color=COLORS['secondary'], edgecolor='black')
+    ax4.set_xlabel('Phase R²')
+    ax4.set_ylabel('Frequency')
+    ax4.set_title('Phase R² Distribution')
+    ax4.grid(True, alpha=0.3)
+    
+    # 3. Aggregated physics relationships
+    ax5 = plt.subplot(2, 4, 5)
+    sample_indices = np.random.choice(len(all_distances), size=min(5000, len(all_distances)), replace=False)
+    ax5.scatter(all_distances[sample_indices], all_log_amp[sample_indices], 
+               alpha=0.3, color=COLORS['primary'], s=5)
+    z_all = np.polyfit(all_distances, all_log_amp, 1)
+    p_all = np.poly1d(z_all)
+    ax5.plot(all_distances, p_all(all_distances), color=COLORS['accent'], linewidth=3,
+            label=f'Overall Slope: {z_all[0]:.6f}')
+    ax5.set_xlabel('Distance [mm]')
+    ax5.set_ylabel('Log-Amplitude')
+    ax5.set_title('Aggregated: Log-Amp vs Distance')
+    ax5.legend()
+    ax5.grid(True, alpha=0.3)
+    
+    ax6 = plt.subplot(2, 4, 6)
+    ax6.scatter(all_distances[sample_indices], all_phase[sample_indices], 
+               alpha=0.3, color=COLORS['secondary'], s=5)
+    z_phase_all = np.polyfit(all_distances, all_phase, 1)
+    p_phase_all = np.poly1d(z_phase_all)
+    ax6.plot(all_distances, p_phase_all(all_distances), color=COLORS['accent'], linewidth=3,
+            label=f'Overall Slope: {z_phase_all[0]:.6f}')
+    ax6.set_xlabel('Distance [mm]')
+    ax6.set_ylabel('Phase [degrees]')
+    ax6.set_title('Aggregated: Phase vs Distance')
+    ax6.legend()
+    ax6.grid(True, alpha=0.3)
+    
+    # 4. Physics validation summary
+    ax7 = plt.subplot(2, 4, 7)
+    phantom_names = list(results.keys())
+    phantom_status = [1 if results[name]['physics_correct'] else 0 for name in phantom_names]
+    colors = [COLORS['success'] if status else COLORS['neutral1'] for status in phantom_status]
+    bars = ax7.bar(range(len(phantom_names)), phantom_status, color=colors)
+    ax7.set_xlabel('Phantom Index')
+    ax7.set_ylabel('Physics Correct (1=Yes, 0=No)')
+    ax7.set_title('Physics Validation per Phantom')
+    ax7.set_ylim(-0.1, 1.1)
+    
+    # 5. Summary statistics
+    ax8 = plt.subplot(2, 4, 8)
+    ax8.axis('off')
+    
+    summary_text = f"""
+CROSS-DATASET SUMMARY
+{'='*25}
+
+Dataset Scale:
+  • Total Phantoms: {num_phantoms}
+  • Total Measurements: {len(all_log_amp):,}
+  • Working Phantoms: {len(working_phantoms)}
+  • Success Rate: {success_rate:.1%}
+
+Physics Validation:
+  • Correct Log-Amp Slopes: {np.sum(all_slopes_amp < 0)}/{len(all_slopes_amp)}
+  • Correct Phase Slopes: {np.sum(all_slopes_phase > 0)}/{len(all_slopes_phase)}
+  • Overall Aggregate Slope (Amp): {z_all[0]:.6f}
+  • Overall Aggregate Slope (Phase): {z_phase_all[0]:.6f}
+
+Quality Metrics:
+  • Mean R² (Log-Amp): {np.mean(all_r2_amp):.3f}
+  • Mean R² (Phase): {np.mean(all_r2_phase):.3f}
+  • Distance Range: {np.min(all_distances):.1f}-{np.max(all_distances):.1f}mm
+
+Status: {'🎉 EXCELLENT' if success_rate >= 0.75 else '✅ GOOD' if success_rate >= 0.6 else '⚠️ REVIEW NEEDED'}
+    """
+    
+    ax8.text(0.05, 0.95, summary_text, transform=ax8.transAxes, 
+            fontsize=10, verticalalignment='top', fontfamily='monospace',
+            bbox=dict(boxstyle="round,pad=0.5", facecolor=COLORS['bg_light'], alpha=0.8))
+    
+    plt.tight_layout()
+    
+    # Save cross-dataset analysis
+    results_dir = project_root / "analysis_results"
+    results_dir.mkdir(exist_ok=True)
+    
+    plot_path = results_dir / f"cross_dataset_analysis_{num_phantoms}_phantoms.png"
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    print(f"   ✅ Cross-dataset analysis saved: {plot_path}")
+    
+    plt.show()
+    
+    print()
+    print("🎉 CROSS-DATASET ANALYSIS COMPLETE!")
+    print(f"📊 Successfully analyzed {num_phantoms} phantoms with {success_rate:.1%} success rate")
+    
+    return results
+
+
+def main_menu():
+    """🎯 Main menu for dual-mode analysis system."""
+    print("\n" + "="*80)
+    print("🔬 NIR PHANTOM DATASET ANALYSIS SUITE")
+    print("="*80)
+    print("🎯 Choose Analysis Mode:")
+    print()
+    print("   [1] 🔍 Single Phantom Analysis")
+    print("       • 9-graph comprehensive visualization")
+    print("       • Physics validation & quality assessment")
+    print("       • Detailed tissue property analysis")
+    print("       • 3D geometry & statistical summaries")
+    print()
+    print("   [2] 📊 Cross-Dataset Analysis")  
+    print("       • Physics validation across ALL phantoms")
+    print("       • Cross-dataset statistical comparison")
+    print("       • Aggregate physics relationship analysis")
+    print("       • Dataset-wide quality assessment")
+    print()
+    print("   [0] 🚪 Exit")
+    print()
+    
+    try:
+        choice = input("Select option [0-2]: ").strip()
+        
+        if choice == "1":
+            single_phantom_analysis()
+        elif choice == "2":
+            comprehensive_multi_phantom_analysis()
+        elif choice == "0":
+            print("👋 Goodbye!")
+            return None
+        else:
+            print("❌ Invalid choice!")
+            return main_menu()
+            
+    except KeyboardInterrupt:
+        print("\n👋 Goodbye!")
+        return None
+
 
 if __name__ == "__main__":
-    main()
+    # Run the main dual-mode menu
+    main_menu()
