@@ -446,16 +446,18 @@ class NIRDatasetAnalyzer:
         print(f"   Tissue voxels: {tissue_voxels:,} ({tissue_voxels/total_voxels*100:.1f}%)")
         
         # Identify different tissue types based on unique property combinations
-        unique_combinations = np.unique(gt_data.reshape(-1, 2), axis=0)
-        tissue_types = len(unique_combinations) - 1  # Subtract air (0,0)
+        # Create combined property array by stacking flattened absorption and scattering maps
+        combined_properties = np.stack([mua_map.flatten(), musp_map.flatten()], axis=1)
+        unique_combinations = np.unique(combined_properties, axis=0)
+        tissue_types = len(unique_combinations) - 1 if (0, 0) in [tuple(comb) for comb in unique_combinations] else len(unique_combinations)
         
         print(f"   Tissue types identified: {tissue_types}")
         print(f"   Property combinations:")
         for i, (mua, musp) in enumerate(unique_combinations):
+            voxel_count = np.sum((mua_map == mua) & (musp_map == musp))
             if mua == 0 and musp == 0:
-                print(f"     Type {i}: Air (μₐ={mua:.6f}, μ′s={musp:.3f})")
+                print(f"     Type {i}: Air (μₐ={mua:.6f}, μ′s={musp:.3f}) - {voxel_count:,} voxels")
             else:
-                voxel_count = np.sum((mua_map == mua) & (musp_map == musp))
                 print(f"     Type {i}: Tissue (μₐ={mua:.6f}, μ′s={musp:.3f}) - {voxel_count:,} voxels")
         
         results['ground_truth'] = {
