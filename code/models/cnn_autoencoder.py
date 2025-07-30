@@ -27,8 +27,8 @@ from utils.logging_config import get_model_logger
 # Model Architecture Parameters
 DEFAULT_INPUT_CHANNELS = 2              # Absorption and scattering coefficients
 DEFAULT_OUTPUT_SIZE = (64, 64, 64)      # Target volume dimensions (power of 2)
-DEFAULT_BASE_CHANNELS = 64              # Base number of CNN channels
-DEFAULT_FEATURE_DIM = 512               # Encoder output feature dimension
+DEFAULT_BASE_CHANNELS = 32              # Base number of CNN channels (reduced from 64)
+DEFAULT_FEATURE_DIM = 256               # Encoder output feature dimension (reduced from 512)
 
 # Encoder Architecture
 ENCODER_KERNEL_SIZE_INITIAL = 7         # Initial convolution kernel size
@@ -42,7 +42,7 @@ ENCODER_MAXPOOL_PADDING = 1             # Max pooling padding
 RESIDUAL_CONV_KERNEL = 3                # Residual block convolution kernel size
 RESIDUAL_CONV_PADDING = 1               # Residual block convolution padding
 RESIDUAL_SHORTCUT_KERNEL = 1            # Shortcut connection kernel size
-NUM_RESIDUAL_BLOCKS_PER_LAYER = 2       # Number of residual blocks per layer
+NUM_RESIDUAL_BLOCKS_PER_LAYER = 1       # Number of residual blocks per layer (reduced from 2)
 
 # Decoder Architecture
 DECODER_INIT_SIZE = 2                   # Initial spatial size for decoder
@@ -52,9 +52,9 @@ DECODER_TRANSCONV_PADDING = 1           # Transposed convolution padding
 DECODER_FINAL_CONV_KERNEL = 3           # Final convolution kernel size
 DECODER_FINAL_CONV_PADDING = 1          # Final convolution padding
 
-# Channel Progression (multipliers of base_channels)
-ENCODER_CHANNEL_MULTIPLIERS = [1, 1, 2, 4, 8]    # Progressive channel increase
-DECODER_CHANNEL_DIVISORS = [8, 4, 2, 1, 2, 4]    # Progressive channel decrease
+# Channel Progression (perfectly symmetric)
+ENCODER_CHANNEL_MULTIPLIERS = [1, 1, 2, 4, 8]    # Progressive channel increase: 32→32→64→128→256
+DECODER_CHANNEL_DIVISORS = [8, 4, 2, 1, 1]       # Progressive channel decrease: 256→128→64→32→32 (perfectly symmetric)
 
 # Training Parameters
 WEIGHT_INIT_STD = 0.02                  # Standard deviation for weight initialization
@@ -187,7 +187,7 @@ class CNNEncoder(nn.Module):
         
         # Configurable feature dimension with linear projection
         self.feature_dim = feature_dim
-        self.feature_projection = nn.Linear(base_channels * 8, feature_dim)
+        self.feature_projection = nn.Linear(base_channels * 8, feature_dim)  # 256 → 256 for base_channels=32
         
         logger.debug(f"CNNEncoder initialized: {input_channels} input channels, "
                     f"{base_channels} base channels, feature_dim={self.feature_dim}")
@@ -285,7 +285,7 @@ class CNNDecoder(nn.Module):
         self.fc = nn.Linear(feature_dim, base_channels * ENCODER_CHANNEL_MULTIPLIERS[4] * (self.init_size ** 3))
         
         # Progressive upsampling layers with transposed convolutions
-        # Symmetric to encoder: 2->4->8->16->32->64 (clean power-of-2 progression)
+        # Perfectly symmetric to encoder: 2→4→8→16→32→64 (exact mirror of encoder path)
         self.deconv1 = nn.Sequential(
             nn.ConvTranspose3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[4], 
                                base_channels * ENCODER_CHANNEL_MULTIPLIERS[3], 
@@ -315,25 +315,24 @@ class CNNDecoder(nn.Module):
         
         self.deconv4 = nn.Sequential(
             nn.ConvTranspose3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[1], 
-                               base_channels // DECODER_CHANNEL_DIVISORS[4], 
+                               base_channels * ENCODER_CHANNEL_MULTIPLIERS[0], 
                                kernel_size=DECODER_TRANSCONV_KERNEL, stride=DECODER_TRANSCONV_STRIDE, 
                                padding=DECODER_TRANSCONV_PADDING),
-            nn.BatchNorm3d(base_channels // DECODER_CHANNEL_DIVISORS[4]),
+            nn.BatchNorm3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[0]),
             nn.ReLU(inplace=True)
         )
         
-        # Additional layer to get closer to target size (32->64)
+        # Final upsampling to reach 64x64x64 and reduce to 16 channels
         self.deconv5 = nn.Sequential(
-            nn.ConvTranspose3d(base_channels // DECODER_CHANNEL_DIVISORS[4], 
-                               base_channels // DECODER_CHANNEL_DIVISORS[5], 
+            nn.ConvTranspose3d(base_channels, 16, 
                                kernel_size=DECODER_TRANSCONV_KERNEL, stride=DECODER_TRANSCONV_STRIDE, 
                                padding=DECODER_TRANSCONV_PADDING),
-            nn.BatchNorm3d(base_channels // DECODER_CHANNEL_DIVISORS[5]),
+            nn.BatchNorm3d(16),
             nn.ReLU(inplace=True)
         )
         
         # Final output layer to dual channel volume (absorption + scattering)
-        self.final_conv = nn.Conv3d(base_channels // DECODER_CHANNEL_DIVISORS[5], DEFAULT_INPUT_CHANNELS, 
+        self.final_conv = nn.Conv3d(16, DEFAULT_INPUT_CHANNELS, 
                                    kernel_size=DECODER_FINAL_CONV_KERNEL, padding=DECODER_FINAL_CONV_PADDING)
         
         logger.debug(f"CNNDecoder initialized: feature_dim={feature_dim}, "
@@ -356,20 +355,20 @@ class CNNDecoder(nn.Module):
         logger.debug(f"📦 After fc expansion: {x.shape}")
         
         x = x.view(x.size(0), self.base_channels * 8, 
-                   self.init_size, self.init_size, self.init_size)  # [batch, 512, 2, 2, 2]
+                   self.init_size, self.init_size, self.init_size)  # [batch, 256, 2, 2, 2]
         logger.debug(f"📦 After reshape to 3D: {x.shape}")
         
         # Progressive upsampling through transposed convolutions
-        x = self.deconv1(x)  # 2x2x2 -> 4x4x4, channels: 512->256
+        x = self.deconv1(x)  # 2x2x2 -> 4x4x4, channels: 256->128
         logger.debug(f"📦 After deconv1: {x.shape}")
         
-        x = self.deconv2(x)  # 4x4x4 -> 8x8x8, channels: 256->128
+        x = self.deconv2(x)  # 4x4x4 -> 8x8x8, channels: 128->64
         logger.debug(f"📦 After deconv2: {x.shape}")
         
-        x = self.deconv3(x)  # 8x8x8 -> 16x16x16, channels: 128->64
+        x = self.deconv3(x)  # 8x8x8 -> 16x16x16, channels: 64->32
         logger.debug(f"📦 After deconv3: {x.shape}")
         
-        x = self.deconv4(x)  # 16x16x16 -> 32x32x32, channels: 64->32
+        x = self.deconv4(x)  # 16x16x16 -> 32x32x32, channels: 32->32
         logger.debug(f"📦 After deconv4: {x.shape}")
         
         x = self.deconv5(x)  # 32x32x32 -> 64x64x64, channels: 32->16

@@ -891,8 +891,8 @@ class NIRDatasetAnalyzer:
         print(f"📐 Geometric Configuration:")
         print(f"   Source positions shape: {source_pos.shape}")
         print(f"   Detector positions shape: {det_pos.shape}")
-        print(f"   Number of probes: {len(source_pos)}")
-        print(f"   Detectors per probe: {det_pos.shape[1] if len(det_pos.shape) > 1 else 'N/A'}")
+        print(f"   Number of measurements: {len(source_pos)}")
+        print(f"   Format: 1:1 source-detector pairs" if len(det_pos.shape) == 2 else "   Format: 1:N source-detector mapping")
         
         # Calculate position statistics
         print(f"\n📊 Source Position Statistics [mm]:")
@@ -927,7 +927,7 @@ class NIRDatasetAnalyzer:
         
         results['geometry'] = {
             'n_sources': len(source_pos),
-            'n_detectors': det_pos.shape[1] if len(det_pos.shape) > 1 else 1,
+            'n_detectors': len(det_pos),  # Updated: for 1:1 format this equals n_sources
             'source_bounds': {
                 'x': [float(source_pos[:, 0].min()), float(source_pos[:, 0].max())],
                 'y': [float(source_pos[:, 1].min()), float(source_pos[:, 1].max())],
@@ -935,7 +935,7 @@ class NIRDatasetAnalyzer:
             }
         }
         
-        if len(det_pos.shape) == 3:
+        if len(det_pos.shape) == 2:  # New format: (n_measurements, 3) - 1:1 pairs  
             results['geometry']['distance_stats'] = {
                 'min': float(distances.min()),
                 'max': float(distances.max()),
@@ -959,7 +959,7 @@ class NIRDatasetAnalyzer:
         if log_amp.shape != phase.shape:
             issues.append(f"Measurement shape mismatch: log_amp {log_amp.shape} vs phase {phase.shape}")
         
-        expected_measurements = len(source_pos) * (det_pos.shape[1] if len(det_pos.shape) > 1 else 1)
+        expected_measurements = len(source_pos)  # Updated for 1:1 system
         actual_measurements = log_amp.size
         if expected_measurements != actual_measurements:
             issues.append(f"Measurement count mismatch: expected {expected_measurements}, got {actual_measurements}")
@@ -1031,8 +1031,11 @@ class NIRDatasetAnalyzer:
                 clean_log_amp = log_amp_flat[valid_mask]
                 clean_phase = phase_flat[valid_mask]
                 
-                if len(clean_log_amp) > 10 and np.std(clean_log_amp) > 0 and np.std(clean_phase) > 0:
+                if len(clean_log_amp) > 10 and np.std(clean_log_amp) > 1e-10 and np.std(clean_phase) > 1e-10:
                     correlation = np.corrcoef(clean_log_amp, clean_phase)[0, 1]
+                    # Validate correlation result
+                    if not np.isfinite(correlation):
+                        correlation = 0.0
                 else:
                     correlation = 0.0  # Set to zero if insufficient variance
             else:
@@ -1474,20 +1477,28 @@ class NIRDatasetAnalyzer:
                 file_size_mb = file_path.stat().st_size / (1024**2)
                 print(f"File size: {file_size_mb:.2f} MB")
                 
-                # Dataset dimensions
+                # Dataset dimensions (updated for new 1:1 format)
                 log_amplitude = f['log_amplitude'][:]
                 phase = f['phase'][:]
                 ground_truth = f['ground_truth'][:]
                 source_pos = f['source_positions'][:]
                 det_pos = f['detector_positions'][:]
                 
-                n_probes = log_amplitude.shape[0]
-                n_detectors_per_probe = log_amplitude.shape[1]
-                total_measurements = n_probes * n_detectors_per_probe
+                # Handle new 1:1 measurement format
+                if len(log_amplitude.shape) == 1:  # New format: (n_measurements,)
+                    n_measurements = log_amplitude.shape[0]
+                    n_probes = len(source_pos)
+                    n_detectors_per_probe = 1  # 1:1 mapping
+                    total_measurements = n_measurements
+                else:  # Old format: (n_probes, n_detectors_per_probe)
+                    n_probes = log_amplitude.shape[0]
+                    n_detectors_per_probe = log_amplitude.shape[1]
+                    total_measurements = n_probes * n_detectors_per_probe
                 
-                print(f"Probes: {n_probes}")
-                print(f"Detectors per probe: {n_detectors_per_probe}")
+                print(f"Measurement format: {'1:1 source-detector pairs' if len(log_amplitude.shape) == 1 else '1:N source-detector mapping'}")
                 print(f"Total measurements: {total_measurements}")
+                print(f"Sources: {n_probes}")
+                print(f"Detectors per source: {n_detectors_per_probe}")
                 print(f"Ground truth shape: {ground_truth.shape}")
                 
                 # Metadata analysis
@@ -1762,9 +1773,17 @@ class NIRDatasetAnalyzer:
                     det_pos = f['detector_positions'][:]
                     ground_truth = f['ground_truth'][:]
                     
-                    n_probes = log_amplitude.shape[0]
-                    n_detectors_per_probe = log_amplitude.shape[1] if len(log_amplitude.shape) > 1 else 1
-                    total_measurements = n_probes * n_detectors_per_probe
+                    # Handle different measurement formats correctly
+                    if len(log_amplitude.shape) == 1:
+                        # New format: (n_measurements,) - 1:1 source-detector pairs
+                        n_probes = len(source_pos)
+                        n_detectors_per_probe = 1
+                        total_measurements = len(log_amplitude)
+                    else:
+                        # Old format: (n_sources, n_detectors_per_source)
+                        n_probes = log_amplitude.shape[0]
+                        n_detectors_per_probe = log_amplitude.shape[1] if len(log_amplitude.shape) > 1 else 1
+                        total_measurements = n_probes * n_detectors_per_probe
                     
                     dataset_stats['n_probes'].append(n_probes)
                     dataset_stats['n_measurements_total'].append(total_measurements)
@@ -1806,31 +1825,77 @@ class NIRDatasetAnalyzer:
                     # ═══════════════════════════════════════════════════════════════
                     # AMPLITUDE-PHASE CORRELATION ANALYSIS
                     # ═══════════════════════════════════════════════════════════════
-                    correlation_coeff = np.corrcoef(log_amp_flat, phase_flat)[0,1]
-                    dataset_stats['amplitude_phase_correlations'].append(correlation_coeff)
+                    try:
+                        # Ensure we have clean, finite data for correlation
+                        valid_amp_mask = np.isfinite(log_amp_flat) & ~np.isnan(log_amp_flat)
+                        valid_phase_mask = np.isfinite(phase_flat) & ~np.isnan(phase_flat)
+                        valid_mask = valid_amp_mask & valid_phase_mask
+                        
+                        if np.sum(valid_mask) > 10:  # Need sufficient data points
+                            clean_amp = log_amp_flat[valid_mask]
+                            clean_phase = phase_flat[valid_mask]
+                            
+                            # Check for sufficient variance
+                            if np.std(clean_amp) > 1e-10 and np.std(clean_phase) > 1e-10:
+                                correlation_coeff = np.corrcoef(clean_amp, clean_phase)[0,1]
+                                # Validate correlation result
+                                if np.isfinite(correlation_coeff):
+                                    dataset_stats['amplitude_phase_correlations'].append(correlation_coeff)
+                                else:
+                                    dataset_stats['amplitude_phase_correlations'].append(0.0)
+                            else:
+                                # Insufficient variance for meaningful correlation
+                                dataset_stats['amplitude_phase_correlations'].append(0.0)
+                        else:
+                            # Insufficient valid data points
+                            dataset_stats['amplitude_phase_correlations'].append(0.0)
+                    except Exception as e:
+                        print(f"  Warning: Correlation calculation failed for {phantom_name}: {e}")
+                        dataset_stats['amplitude_phase_correlations'].append(0.0)
                     
                     # ═══════════════════════════════════════════════════════════════
                     # SOURCE-DETECTOR SEPARATION COMPREHENSIVE ANALYSIS
                     # ═══════════════════════════════════════════════════════════════
                     all_distances = []
-                    for j in range(n_probes):
-                        source = source_pos[j]
-                        detectors = det_pos[j] if len(det_pos.shape) > 2 else [det_pos[j]]
-                        for detector in detectors:
+                    
+                    # Handle both old format (3D) and new format (2D) detector arrays
+                    if len(det_pos.shape) == 3:
+                        # Old format: (n_sources, n_detectors_per_source, 3)
+                        for j in range(n_probes):
+                            source = source_pos[j]
+                            detectors = det_pos[j]
+                            for detector in detectors:
+                                distance = np.linalg.norm(source - detector)
+                                all_distances.append(distance)
+                    elif len(det_pos.shape) == 2:
+                        # New format: (n_measurements, 3) - 1:1 source-detector pairs
+                        for j in range(min(len(source_pos), len(det_pos))):
+                            source = source_pos[j]
+                            detector = det_pos[j]  # Single detector for this measurement
                             distance = np.linalg.norm(source - detector)
                             all_distances.append(distance)
                     
                     all_distances = np.array(all_distances)
-                    dataset_stats['sds_means'].append(np.mean(all_distances))
-                    dataset_stats['sds_stds'].append(np.std(all_distances))
-                    dataset_stats['sds_ranges'].append(np.max(all_distances) - np.min(all_distances))
-                    dataset_stats['sds_medians'].append(np.median(all_distances))
                     
-                    # SDS compliance metrics
-                    compliance_10_40 = np.sum((all_distances >= 10) & (all_distances <= 40)) / len(all_distances) * 100
-                    optimal_25_35 = np.sum((all_distances >= 25) & (all_distances <= 35)) / len(all_distances) * 100
-                    dataset_stats['sds_compliance_10_40'].append(compliance_10_40)
-                    dataset_stats['sds_optimal_25_35'].append(optimal_25_35)
+                    if len(all_distances) > 0:
+                        dataset_stats['sds_means'].append(np.mean(all_distances))
+                        dataset_stats['sds_stds'].append(np.std(all_distances))
+                        dataset_stats['sds_ranges'].append(np.max(all_distances) - np.min(all_distances))
+                        dataset_stats['sds_medians'].append(np.median(all_distances))
+                        
+                        # SDS compliance metrics
+                        compliance_10_40 = np.sum((all_distances >= 10) & (all_distances <= 40)) / len(all_distances) * 100
+                        optimal_25_35 = np.sum((all_distances >= 25) & (all_distances <= 35)) / len(all_distances) * 100
+                        dataset_stats['sds_compliance_10_40'].append(compliance_10_40)
+                        dataset_stats['sds_optimal_25_35'].append(optimal_25_35)
+                    else:
+                        # Handle case with no valid distances
+                        dataset_stats['sds_means'].append(0)
+                        dataset_stats['sds_stds'].append(0)
+                        dataset_stats['sds_ranges'].append(0)
+                        dataset_stats['sds_medians'].append(0)
+                        dataset_stats['sds_compliance_10_40'].append(0)
+                        dataset_stats['sds_optimal_25_35'].append(0)
                     
                     # ═══════════════════════════════════════════════════════════════
                     # GROUND TRUTH OPTICAL PROPERTIES ANALYSIS
@@ -1841,10 +1906,16 @@ class NIRDatasetAnalyzer:
                     # Absorption analysis (excluding air regions)
                     mua_tissue = mua_map[mua_map > 0]
                     if len(mua_tissue) > 0:
-                        dataset_stats['mua_means'].append(np.mean(mua_tissue))
-                        dataset_stats['mua_stds'].append(np.std(mua_tissue))
-                        dataset_stats['mua_ranges'].append(np.max(mua_tissue) - np.min(mua_tissue))
-                        dataset_stats['mua_contrasts'].append((np.max(mua_tissue) - np.min(mua_tissue)) / np.mean(mua_tissue) * 100)
+                        mua_mean = np.mean(mua_tissue)
+                        mua_std = np.std(mua_tissue)
+                        mua_range = np.max(mua_tissue) - np.min(mua_tissue)
+                        # Fix contrast calculation to handle division by zero
+                        mua_contrast = (mua_range / mua_mean * 100) if mua_mean > 0 else 0
+                        
+                        dataset_stats['mua_means'].append(mua_mean)
+                        dataset_stats['mua_stds'].append(mua_std)
+                        dataset_stats['mua_ranges'].append(mua_range)
+                        dataset_stats['mua_contrasts'].append(mua_contrast)
                     else:
                         dataset_stats['mua_means'].append(0)
                         dataset_stats['mua_stds'].append(0)
@@ -1854,10 +1925,16 @@ class NIRDatasetAnalyzer:
                     # Scattering analysis
                     musp_tissue = musp_map[musp_map > 0]
                     if len(musp_tissue) > 0:
-                        dataset_stats['musp_means'].append(np.mean(musp_tissue))
-                        dataset_stats['musp_stds'].append(np.std(musp_tissue))
-                        dataset_stats['musp_ranges'].append(np.max(musp_tissue) - np.min(musp_tissue))
-                        dataset_stats['musp_contrasts'].append((np.max(musp_tissue) - np.min(musp_tissue)) / np.mean(musp_tissue) * 100)
+                        musp_mean = np.mean(musp_tissue)
+                        musp_std = np.std(musp_tissue)
+                        musp_range = np.max(musp_tissue) - np.min(musp_tissue)
+                        # Fix contrast calculation to handle division by zero
+                        musp_contrast = (musp_range / musp_mean * 100) if musp_mean > 0 else 0
+                        
+                        dataset_stats['musp_means'].append(musp_mean)
+                        dataset_stats['musp_stds'].append(musp_std)
+                        dataset_stats['musp_ranges'].append(musp_range)
+                        dataset_stats['musp_contrasts'].append(musp_contrast)
                     else:
                         dataset_stats['musp_means'].append(0)
                         dataset_stats['musp_stds'].append(0)
@@ -1922,18 +1999,28 @@ class NIRDatasetAnalyzer:
                     dataset_stats['nan_counts'].append(nan_count)
                     dataset_stats['inf_counts'].append(inf_count)
                     
-                    # Outlier detection
+                    # Outlier detection with improved error handling
                     def detect_outliers_iqr(data):
-                        q1, q3 = np.percentile(data, [25, 75])
-                        iqr = q3 - q1
-                        lower_bound = q1 - 1.5 * iqr
-                        upper_bound = q3 + 1.5 * iqr
-                        return np.sum((data < lower_bound) | (data > upper_bound))
+                        """Detect outliers using IQR method with proper error handling."""
+                        if len(data) < 4:  # Need at least 4 points for quartiles
+                            return 0
+                        try:
+                            q1, q3 = np.percentile(data, [25, 75])
+                            iqr = q3 - q1
+                            if iqr > 0:  # Only proceed if there's actual spread
+                                lower_bound = q1 - 1.5 * iqr
+                                upper_bound = q3 + 1.5 * iqr
+                                return np.sum((data < lower_bound) | (data > upper_bound))
+                            else:
+                                return 0  # No spread means no outliers
+                        except Exception:
+                            return 0
                     
                     amp_outliers = detect_outliers_iqr(log_amp_flat)
                     phase_outliers = detect_outliers_iqr(phase_flat)
                     total_outliers = amp_outliers + phase_outliers
-                    outlier_percentage = total_outliers / (2 * len(log_amp_flat)) * 100
+                    total_measurements_for_outliers = 2 * len(log_amp_flat)
+                    outlier_percentage = (total_outliers / total_measurements_for_outliers * 100) if total_measurements_for_outliers > 0 else 0
                     dataset_stats['outlier_percentages'].append(outlier_percentage)
                     
                     # Signal Quality Assessment for NIR-DOT data
@@ -2054,7 +2141,14 @@ class NIRDatasetAnalyzer:
             amp_skew_mean = np.nanmean(dataset_stats['log_amp_skewness'])
             
             def cv(data):
-                return np.nanstd(data) / np.nanmean(data) * 100 if np.nanmean(data) != 0 else 0
+                """Calculate coefficient of variation with proper error handling."""
+                mean_val = np.nanmean(data)
+                std_val = np.nanstd(data)
+                # Ensure we have valid positive mean for CV calculation
+                if mean_val > 0 and np.isfinite(mean_val) and np.isfinite(std_val):
+                    return std_val / mean_val * 100
+                else:
+                    return 0.0
             
             print(f"🎯 Central Tendency & Variability:")
             print(f"  Cross-phantom mean: {amp_mean_global:.3f} ± {amp_std_global:.3f}")

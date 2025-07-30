@@ -68,6 +68,7 @@ sys.path.append(str(project_root / "code"))  # Add code directory to path using 
 from utils.logging_config import get_data_logger, NIRDOTLogger
 
 # Constants for phantom generation
+DEFAULT_N_PHANTOMS = 20                       # Number of phantoms to generate for dataset
 DEFAULT_PHANTOM_SHAPE = (64, 64, 64)        # Default cubic phantom dimensions in voxels (power of 2)
 DEFAULT_TISSUE_RADIUS_RANGE = (26, 30)      # Healthy tissue ellipsoid semi-axis range (52-60mm with 2mm voxels)
 DEFAULT_TUMOR_RADIUS_RANGE = (5, 10)        # Tumor ellipsoid semi-axis range (10-20mm with 2mm voxels)
@@ -107,7 +108,7 @@ MAX_ELEMENT_VOLUME_MM3 = 80.0                # Maximum acceptable tetrahedral el
 
 # Surface processing and batch parameters  
 SURFACE_BATCH_SIZE = 1000                    # Batch size for safe center identification
-DEFAULT_RANDOM_SEED = 42                     # Default random seed for reproducibility
+DEFAULT_RANDOM_SEED = 41                     # Default random seed for reproducibility
 
 # Initialize logger for the module using centralized logging system
 logger = get_data_logger(__name__)
@@ -1086,18 +1087,32 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
         phase_dataset.attrs["shape_interpretation"] = "(N_measurements,) - one value per independent source-detector pair"
 
         # SUBSTEP 5.2: Save complete geometric configuration for reconstruction and visualization
-        source_dataset = h5_file.create_dataset("source_positions", data=probe_sources_mm)
+        # CRITICAL FIX: Reorder source-detector pairs to match NIRFASTer measurement ordering
+        # NIRFASTer femdata() returns measurements in the order specified by measurement_links,
+        # so we must save source/detector positions in the same order for physics consistency
+        
+        # Extract source and detector indices from measurement links
+        source_indices = measurement_links[:, 0].astype(int)
+        detector_indices = measurement_links[:, 1].astype(int) 
+        
+        # Reorder positions to match measurement order returned by femdata()
+        ordered_sources_mm = probe_sources_mm[source_indices]  # Sources in measurement order
+        ordered_detectors_mm = probe_detectors_mm[detector_indices]  # Detectors in measurement order
+        
+        source_dataset = h5_file.create_dataset("source_positions", data=ordered_sources_mm)
         source_dataset.attrs["units"] = "mm"
-        source_dataset.attrs["description"] = "NIR source positions in phantom coordinate system"
+        source_dataset.attrs["description"] = "NIR source positions in phantom coordinate system (ordered by measurement_links)"
         source_dataset.attrs["coordinate_system"] = f"Physical coordinates in millimeters (voxel_size={VOXEL_SIZE_MM}mm)"
         source_dataset.attrs["placement_method"] = "Patch-based surface sampling with clinical constraints"
+        source_dataset.attrs["ordering"] = "Positions ordered to match femdata() measurement sequence"
         
-        detector_dataset = h5_file.create_dataset("detector_positions", data=probe_detectors_mm)
+        detector_dataset = h5_file.create_dataset("detector_positions", data=ordered_detectors_mm)
         detector_dataset.attrs["units"] = "mm"
-        detector_dataset.attrs["description"] = "Detector positions for independent measurements (one per measurement)"
+        detector_dataset.attrs["description"] = "Detector positions for independent measurements (ordered by measurement_links)"
         detector_dataset.attrs["coordinate_system"] = f"Physical coordinates in millimeters (voxel_size={VOXEL_SIZE_MM}mm)"
         detector_dataset.attrs["sds_range"] = f"[{DEFAULT_MIN_PROBE_DISTANCE}, {DEFAULT_MAX_PROBE_DISTANCE}]mm"
-        detector_dataset.attrs["grouping"] = "Shape: (N_measurements, 3) for [measurement_idx][x,y,z]"
+        detector_dataset.attrs["grouping"] = "Shape: (N_measurements, 3) for [measurement_idx][x,y,z] ordered by links"
+        detector_dataset.attrs["ordering"] = "Positions ordered to match femdata() measurement sequence"
         
         # SUBSTEP 5.3: Save measurement connectivity matrix for source-detector pairing validation
         links_dataset = h5_file.create_dataset("measurement_links", data=measurement_links)
@@ -1360,7 +1375,7 @@ def main():
 
     # STEP 2: Configure dataset generation parameters for machine learning training requirements
     # Generate multiple phantoms to ensure statistical diversity and prevent overfitting in ML models
-    n_phantoms = 10  # Production dataset size for robust ML training 
+    n_phantoms = DEFAULT_N_PHANTOMS  # Production dataset size for robust ML training 
     expected_measurements = n_phantoms * DEFAULT_N_MEASUREMENTS  # Total measurement count for memory planning
     
     logger.info(f"Generating {n_phantoms} phantom datasets for machine learning training")
