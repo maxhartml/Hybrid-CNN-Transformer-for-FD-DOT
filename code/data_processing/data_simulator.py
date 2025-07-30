@@ -64,8 +64,7 @@ from scipy.ndimage import binary_erosion        # Morphological operation for su
 from scipy.spatial.distance import cdist        # Efficient pairwise distance computation
 
 # Import centralized logging configuration
-sys.path.append(str(project_root / "code"))  # Add code directory to path using absolute path
-from utils.logging_config import get_data_logger, NIRDOTLogger
+from code.utils.logging_config import get_data_logger, NIRDOTLogger
 
 # Constants for phantom generation
 DEFAULT_N_PHANTOMS = 50                      # Number of phantoms to generate for dataset

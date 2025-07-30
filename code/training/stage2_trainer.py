@@ -42,19 +42,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import wandb
+import numpy as np
+from datetime import datetime
 
-# Project imports - Add project root to Python path
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
-
-try:
-    from code.models.hybrid_model import HybridCNNTransformer
-    from code.utils.logging_config import get_training_logger
-except ImportError:
-    # Fallback to relative imports
-    sys.path.insert(0, str(project_root / "code"))
-    from models.hybrid_model import HybridCNNTransformer
-    from utils.logging_config import get_training_logger
+# Project imports
+from code.models.hybrid_model import HybridCNNTransformer
+from code.utils.logging_config import get_training_logger
 
 # =============================================================================
 # HYPERPARAMETERS AND CONSTANTS
@@ -85,6 +79,12 @@ ENHANCED_MODE = "Enhanced"              # Enhanced training mode name
 
 # Parameter Freezing Configuration
 FREEZE_CNN_PARAMS = True                # Whether to freeze all CNN autoencoder parameters
+
+# Weights & Biases Configuration
+WANDB_PROJECT = "nir-dot-reconstruction"     # W&B project name
+LOG_IMAGES_EVERY = 10                        # Log reconstruction images every N epochs
+WANDB_TAGS_STAGE2_BASELINE = ["stage2", "transformer", "baseline", "nir-dot"]
+WANDB_TAGS_STAGE2_ENHANCED = ["stage2", "transformer", "enhanced", "tissue-patches", "nir-dot"]
 
 # Initialize module logger
 logger = get_training_logger(__name__)
@@ -167,7 +167,7 @@ class Stage2Trainer:
     """
     
     def __init__(self, stage1_checkpoint_path, use_tissue_patches=USE_TISSUE_PATCHES, 
-                 learning_rate=LEARNING_RATE, device=DEVICE):
+                 learning_rate=LEARNING_RATE, device=DEVICE, use_wandb=True):
         """
         Initialize the Stage 2 trainer with pre-trained CNN components.
         
@@ -179,10 +179,12 @@ class Stage2Trainer:
             learning_rate (float): Learning rate for transformer optimization.
                                  Typically lower than Stage 1. Default from constants
             device (str): Training device ('cpu' or 'cuda'). Default from constants
+            use_wandb (bool): Whether to use Weights & Biases logging. Default: True
         """
         self.device = torch.device(device)
         self.learning_rate = learning_rate
         self.use_tissue_patches = use_tissue_patches
+        self.use_wandb = use_wandb
         
         # Initialize model
         self.model = HybridCNNTransformer(
@@ -208,6 +210,52 @@ class Stage2Trainer:
         logger.info(f"🏋️  Stage 2 Trainer initialized on {self.device} ({mode})")
         logger.info(f"📈 Learning rate: {learning_rate}")
         logger.info(f"🧬 Use tissue patches: {use_tissue_patches}")
+        
+        # Initialize Weights & Biases
+        if self.use_wandb:
+            self._init_wandb()
+    
+    def _init_wandb(self):
+        """Initialize Weights & Biases experiment tracking for Stage 2."""
+        mode_suffix = "enhanced" if self.use_tissue_patches else "baseline"
+        experiment_name = f"stage2_transformer_{mode_suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        # Choose tags based on mode
+        tags = WANDB_TAGS_STAGE2_ENHANCED if self.use_tissue_patches else WANDB_TAGS_STAGE2_BASELINE
+        
+        wandb.init(
+            project=WANDB_PROJECT,
+            name=experiment_name,
+            tags=tags,
+            config={
+                # Model architecture
+                "stage": "Transformer_Enhancement",
+                "model_type": "Hybrid_CNN_Transformer",
+                "training_stage": TRAINING_STAGE,
+                "mode": ENHANCED_MODE if self.use_tissue_patches else BASELINE_MODE,
+                
+                # Training hyperparameters
+                "learning_rate": self.learning_rate,
+                "device": str(self.device),
+                "optimizer": "Adam",
+                "loss_function": "RMSE",
+                
+                # Model specifications (Stage 2: NIR measurements → transformer → decoder)
+                "input_data": "nir_measurements",
+                "input_measurements": 256,
+                "input_shape": "256_measurements_per_phantom",
+                "target_data": "ground_truth_volumes",
+                "output_voxels": "64x64x64x2_channels",
+                "use_tissue_patches": self.use_tissue_patches,
+                "frozen_cnn_decoder": True,
+                
+                # Architecture details
+                "total_parameters": sum(p.numel() for p in self.model.parameters()),
+                "trainable_parameters": sum(p.numel() for p in self.model.parameters() if p.requires_grad),
+                "frozen_parameters": sum(p.numel() for p in self.model.parameters() if not p.requires_grad),
+            }
+        )
+        logger.info(f"🔬 W&B experiment initialized: {experiment_name}")
     
     def load_stage1_checkpoint(self, checkpoint_path):
         """
@@ -371,6 +419,48 @@ class Stage2Trainer:
         logger.debug(f"✅ Stage 2 training epoch completed. Average loss: {avg_loss:.6f}")
         return avg_loss
     
+    def _log_reconstruction_images(self, predictions, targets, nir_measurements, epoch):
+        """Log 3D reconstruction slices to W&B for Stage 2 visualization."""
+        if not self.use_wandb:
+            return
+            
+        try:
+            # Take middle slices of first batch item for visualization
+            pred_batch = predictions[0].cpu().numpy()  # First item in batch
+            target_batch = targets[0].cpu().numpy()
+            
+            # Log slices from different dimensions (absorption coefficient channel)
+            absorption_channel = 0
+            
+            # XY plane (Z=32)
+            pred_xy = pred_batch[absorption_channel, :, :, pred_batch.shape[-1]//2]
+            target_xy = target_batch[absorption_channel, :, :, target_batch.shape[-1]//2]
+            
+            # XZ plane (Y=32) 
+            pred_xz = pred_batch[absorption_channel, :, pred_batch.shape[-2]//2, :]
+            target_xz = target_batch[absorption_channel, :, target_batch.shape[-2]//2, :]
+            
+            # YZ plane (X=32)
+            pred_yz = pred_batch[absorption_channel, pred_batch.shape[-3]//2, :, :]
+            target_yz = target_batch[absorption_channel, target_batch.shape[-3]//2, :, :]
+            
+            # Calculate reconstruction error map
+            error_xy = np.abs(pred_xy - target_xy)
+            
+            mode = "enhanced" if self.use_tissue_patches else "baseline"
+            wandb.log({
+                f"stage2_{mode}/epoch_{epoch}/predicted_xy_slice": wandb.Image(pred_xy),
+                f"stage2_{mode}/epoch_{epoch}/target_xy_slice": wandb.Image(target_xy),
+                f"stage2_{mode}/epoch_{epoch}/error_xy_slice": wandb.Image(error_xy),
+                f"stage2_{mode}/epoch_{epoch}/predicted_xz_slice": wandb.Image(pred_xz),
+                f"stage2_{mode}/epoch_{epoch}/target_xz_slice": wandb.Image(target_xz),
+                f"stage2_{mode}/epoch_{epoch}/predicted_yz_slice": wandb.Image(pred_yz),
+                f"stage2_{mode}/epoch_{epoch}/target_yz_slice": wandb.Image(target_yz),
+            })
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to log Stage 2 reconstruction images: {e}")
+    
     def validate(self, data_loader):
         """
         Evaluate the hybrid model on the validation dataset.
@@ -469,6 +559,33 @@ class Stage2Trainer:
             val_loss = self.validate(data_loaders['val'])
             logger.info(f"🔍 Stage 2 Validation completed - Average Loss: {val_loss:.6f}")
             
+            # Log to W&B
+            if self.use_wandb:
+                mode = "enhanced" if self.use_tissue_patches else "baseline"
+                wandb.log({
+                    "epoch": epoch + 1,
+                    f"stage2_{mode}/train_loss": train_loss,
+                    f"stage2_{mode}/val_loss": val_loss,
+                    f"stage2_{mode}/learning_rate": self.optimizer.param_groups[0]['lr'],
+                    f"stage2_{mode}/train_val_loss_ratio": train_loss / val_loss if val_loss > 0 else 0,
+                })
+                
+                # Log reconstruction images periodically
+                if epoch % LOG_IMAGES_EVERY == 0:
+                    try:
+                        sample_batch = next(iter(data_loaders['val']))
+                        measurements = sample_batch['measurements'].to(self.device)
+                        targets = sample_batch['volumes'].to(self.device)
+                        tissue_patches = sample_batch.get('tissue_patches', None)
+                        if tissue_patches is not None:
+                            tissue_patches = tissue_patches.to(self.device)
+                        
+                        with torch.no_grad():
+                            outputs = self.model(measurements, tissue_patches)
+                        self._log_reconstruction_images(outputs['reconstructed'], targets, measurements, epoch + 1)
+                    except Exception as e:
+                        logger.warning(f"⚠️ Failed to log Stage 2 images at epoch {epoch + 1}: {e}")
+            
             # Print progress
             if epoch % PROGRESS_LOG_INTERVAL == 0:
                 logger.info(f"📈 Stage 2 Epoch {epoch+1:3d}: Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}")
@@ -488,6 +605,14 @@ class Stage2Trainer:
         
         logger.info(f"✅ Stage 2 training complete! Best val loss: {best_val_loss:.6f}")
         logger.debug(f"🏁 Stage 2 training summary: Total epochs: {epochs}, Final best loss: {best_val_loss:.6f}")
+        
+        # Finish W&B run
+        if self.use_wandb:
+            mode = "enhanced" if self.use_tissue_patches else "baseline"
+            wandb.log({f"stage2_{mode}/final_best_val_loss": best_val_loss})
+            wandb.finish()
+            logger.info("🔬 W&B Stage 2 experiment finished")
+        
         return {'best_val_loss': best_val_loss}
     
     def save_checkpoint(self, path, epoch, val_loss):

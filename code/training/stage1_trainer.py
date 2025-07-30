@@ -41,19 +41,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import wandb
+import numpy as np
+from datetime import datetime
 
-# Project imports - Add project root to Python path
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
-
-try:
-    from code.models.hybrid_model import HybridCNNTransformer
-    from code.utils.logging_config import get_training_logger
-except ImportError:
-    # Fallback to relative imports
-    sys.path.insert(0, str(project_root / "code"))
-    from models.hybrid_model import HybridCNNTransformer
-    from utils.logging_config import get_training_logger
+# Project imports
+from code.models.hybrid_model import HybridCNNTransformer
+from code.utils.logging_config import get_training_logger
 
 # =============================================================================
 # HYPERPARAMETERS AND CONSTANTS
@@ -76,6 +70,11 @@ CHECKPOINT_BASE_DIR = "checkpoints"     # Base checkpoint directory
 # Model Configuration
 USE_TISSUE_PATCHES = False              # Stage 1 doesn't use tissue patches
 TRAINING_STAGE = "stage1"               # Training stage identifier
+
+# Weights & Biases Configuration
+WANDB_PROJECT = "nir-dot-reconstruction"     # W&B project name
+LOG_IMAGES_EVERY = 10                        # Log reconstruction images every N epochs
+WANDB_TAGS_STAGE1 = ["stage1", "cnn-autoencoder", "pretraining", "nir-dot"]
 
 # Initialize module logger
 logger = get_training_logger(__name__)
@@ -147,16 +146,18 @@ class Stage1Trainer:
         >>> print(f"Best validation loss: {results['best_val_loss']:.6f}")
     """
     
-    def __init__(self, learning_rate=LEARNING_RATE, device=DEVICE):
+    def __init__(self, learning_rate=LEARNING_RATE, device=DEVICE, use_wandb=True):
         """
         Initialize the Stage 1 trainer with model and optimization components.
         
         Args:
             learning_rate (float): Learning rate for Adam optimizer. Default: 1e-4
             device (str): Training device ('cpu' or 'cuda'). Default: 'cpu'
+            use_wandb (bool): Whether to use Weights & Biases logging. Default: True
         """
         self.device = torch.device(device)
         self.learning_rate = learning_rate
+        self.use_wandb = use_wandb
         
         # Initialize model (stage 1: CNN autoencoder only, no tissue patches)
         # NOTE: Full hybrid model is initialized (including transformer) because:
@@ -179,6 +180,44 @@ class Stage1Trainer:
         # Log model info
         total_params = sum(p.numel() for p in self.model.parameters())
         logger.info(f"📊 Model parameters: {total_params:,}")
+        
+        # Initialize Weights & Biases
+        if self.use_wandb:
+            self._init_wandb()
+    
+    def _init_wandb(self):
+        """Initialize Weights & Biases experiment tracking."""
+        experiment_name = f"stage1_cnn_autoencoder_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        wandb.init(
+            project=WANDB_PROJECT,
+            name=experiment_name,
+            tags=WANDB_TAGS_STAGE1,
+            config={
+                # Model architecture
+                "stage": "CNN_Autoencoder_Pretraining",
+                "model_type": "3D_CNN_Autoencoder",
+                "training_stage": TRAINING_STAGE,
+                
+                # Training hyperparameters
+                "learning_rate": self.learning_rate,
+                "device": str(self.device),
+                "optimizer": "Adam",
+                "loss_function": "RMSE",
+                
+                # Model specifications (Stage 1: Autoencoder training)
+                "input_data": "ground_truth_volumes",
+                "input_shape": "64x64x64x2_channels",
+                "target_data": "same_ground_truth_volumes", 
+                "reconstruction_task": "autoencoder_identity_mapping",
+                "use_tissue_patches": USE_TISSUE_PATCHES,
+                
+                # Architecture details
+                "total_parameters": sum(p.numel() for p in self.model.parameters()),
+                "trainable_parameters": sum(p.numel() for p in self.model.parameters() if p.requires_grad),
+            }
+        )
+        logger.info(f"🔬 W&B experiment initialized: {experiment_name}")
     
     def train_epoch(self, data_loader):
         """
@@ -240,6 +279,44 @@ class Stage1Trainer:
         avg_loss = total_loss / num_batches
         logger.debug(f"✅ Training epoch completed. Average loss: {avg_loss:.6f}")
         return avg_loss
+    
+    def _log_reconstruction_images(self, predictions, targets, epoch):
+        """Log 3D reconstruction slices to W&B for visualization."""
+        if not self.use_wandb:
+            return
+            
+        try:
+            # Take middle slices of first batch item for visualization
+            # Shape: (batch_size, channels, D, H, W) -> take middle slice in each dimension
+            pred_batch = predictions[0].cpu().numpy()  # First item in batch
+            target_batch = targets[0].cpu().numpy()
+            
+            # Log slices from different dimensions (absorption coefficient channel)
+            absorption_channel = 0
+            
+            # XY plane (Z=32)
+            pred_xy = pred_batch[absorption_channel, :, :, pred_batch.shape[-1]//2]
+            target_xy = target_batch[absorption_channel, :, :, target_batch.shape[-1]//2]
+            
+            # XZ plane (Y=32) 
+            pred_xz = pred_batch[absorption_channel, :, pred_batch.shape[-2]//2, :]
+            target_xz = target_batch[absorption_channel, :, target_batch.shape[-2]//2, :]
+            
+            # YZ plane (X=32)
+            pred_yz = pred_batch[absorption_channel, pred_batch.shape[-3]//2, :, :]
+            target_yz = target_batch[absorption_channel, target_batch.shape[-3]//2, :, :]
+            
+            wandb.log({
+                f"reconstructions/epoch_{epoch}/predicted_xy_slice": wandb.Image(pred_xy),
+                f"reconstructions/epoch_{epoch}/target_xy_slice": wandb.Image(target_xy),
+                f"reconstructions/epoch_{epoch}/predicted_xz_slice": wandb.Image(pred_xz),
+                f"reconstructions/epoch_{epoch}/target_xz_slice": wandb.Image(target_xz),
+                f"reconstructions/epoch_{epoch}/predicted_yz_slice": wandb.Image(pred_yz),
+                f"reconstructions/epoch_{epoch}/target_yz_slice": wandb.Image(target_yz),
+            })
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to log reconstruction images: {e}")
     
     def validate(self, data_loader):
         """
@@ -326,6 +403,28 @@ class Stage1Trainer:
             val_loss = self.validate(data_loaders['val'])
             logger.info(f"🔍 Validation completed - Average Loss: {val_loss:.6f}")
             
+            # Log to W&B
+            if self.use_wandb:
+                wandb.log({
+                    "epoch": epoch + 1,
+                    "train_loss": train_loss,
+                    "val_loss": val_loss,
+                    "learning_rate": self.optimizer.param_groups[0]['lr'],
+                    "train_val_loss_ratio": train_loss / val_loss if val_loss > 0 else 0,
+                })
+                
+                # Log reconstruction images periodically
+                if epoch % LOG_IMAGES_EVERY == 0:
+                    # Get a batch for visualization
+                    try:
+                        sample_batch = next(iter(data_loaders['val']))
+                        ground_truth = sample_batch['ground_truth'].to(self.device)
+                        with torch.no_grad():
+                            outputs = self.model(ground_truth, tissue_patches=None)
+                        self._log_reconstruction_images(outputs['reconstructed'], ground_truth, epoch + 1)
+                    except Exception as e:
+                        logger.warning(f"⚠️ Failed to log images at epoch {epoch + 1}: {e}")
+            
             # Print progress
             if epoch % PROGRESS_LOG_INTERVAL == 0 or epoch == epochs - FINAL_EPOCH_OFFSET:
                 logger.info(f"📈 Epoch {epoch+1:3d}/{epochs}: Train Loss: {train_loss:.6f}, "
@@ -345,6 +444,13 @@ class Stage1Trainer:
         
         logger.info(f"✅ Stage 1 training complete! Best val loss: {best_val_loss:.6f}")
         logger.debug(f"🏁 Training summary: Total epochs: {epochs}, Final best loss: {best_val_loss:.6f}")
+        
+        # Finish W&B run
+        if self.use_wandb:
+            wandb.log({"final_best_val_loss": best_val_loss})
+            wandb.finish()
+            logger.info("🔬 W&B experiment finished")
+        
         return {'best_val_loss': best_val_loss}
     
     def save_checkpoint(self, path, epoch, val_loss):

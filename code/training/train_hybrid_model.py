@@ -50,29 +50,11 @@ from pathlib import Path
 # Third-party imports
 import torch
 
-# Project imports - Add project root to Python path
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
-
-try:
-    from code.data_processing.data_loader import create_nir_dataloaders, create_phantom_dataloaders
-    from code.training.stage1_trainer import Stage1Trainer
-    from code.training.stage2_trainer import Stage2Trainer
-    from code.utils.logging_config import get_training_logger, NIRDOTLogger
-except ImportError as e:
-    # Fallback to relative imports
-    sys.path.insert(0, str(project_root / "code"))
-    try:
-        from data_processing.data_loader import create_nir_dataloaders, create_phantom_dataloaders
-        from training.stage1_trainer import Stage1Trainer
-        from training.stage2_trainer import Stage2Trainer
-        from utils.logging_config import get_training_logger, NIRDOTLogger
-    except ImportError as e:
-        print(f"❌ Import error: {e}")
-        print(f"📁 Current working directory: {os.getcwd()}")
-        print(f"🗂️  Project root: {project_root}")
-        print(f"🐍 Python path: {sys.path[:3]}")
-        sys.exit(1)
+# Project imports
+from code.data_processing.data_loader import create_nir_dataloaders, create_phantom_dataloaders
+from code.training.stage1_trainer import Stage1Trainer
+from code.training.stage2_trainer import Stage2Trainer
+from code.utils.logging_config import get_training_logger, NIRDOTLogger
 
 # =============================================================================
 # HYPERPARAMETERS AND CONSTANTS
@@ -107,6 +89,18 @@ STAGE1_CHECKPOINT_FILE = "stage1_best.pth"  # Default Stage 1 checkpoint filenam
 
 # Logging Configuration
 LOG_LEVEL = "INFO"                      # Default logging level
+
+# =============================================================================
+# EXPERIMENT TRACKING CONFIGURATION  
+# =============================================================================
+
+# Weights & Biases Configuration
+WANDB_PROJECT = "nir-dot-reconstruction"     # Main project name
+WANDB_ENTITY = None                          # Your W&B username (None = personal account)
+USE_WANDB = True                             # Enable/disable W&B logging
+LOG_IMAGES_EVERY = 10                        # Log reconstruction images every N epochs
+LOG_GRADIENTS = False                        # Log gradient histograms (expensive)
+WANDB_TAGS = ["nir-dot", "cnn-autoencoder", "transformer", "medical-imaging"]
 
 # Initialize module logger
 logger = get_training_logger(__name__)
@@ -165,6 +159,8 @@ def main():
                        help='Use tissue patches (only for stage2)')
     parser.add_argument('--stage1_checkpoint', type=str,
                        help='Path to stage1 checkpoint (required for stage2)')
+    parser.add_argument('--no_wandb', action='store_true',
+                       help='Disable Weights & Biases logging')
     args = parser.parse_args()
 
     # Adjust default epochs based on stage
@@ -172,13 +168,15 @@ def main():
         args.epochs = EPOCHS_STAGE2
 
     # Prepare experiment configuration
+    use_wandb = USE_WANDB and not args.no_wandb
     config = {
         'stage': args.stage,
         'epochs': args.epochs,
         'use_tissue_patches': args.use_tissue_patches if args.stage == STAGE2_ID else False,
         'batch_size': BATCH_SIZE_STAGE1 if args.stage == STAGE1_ID else BATCH_SIZE_STAGE2,
         'learning_rate': LEARNING_RATE,
-        'device': DEVICE
+        'device': DEVICE,
+        'use_wandb': use_wandb
     }
     
     experiment_name = EXPERIMENT_BASE + args.stage
@@ -244,10 +242,17 @@ def main():
         logger.debug("🏗️  Initializing Stage 1 trainer...")
         trainer = Stage1Trainer(
             learning_rate=LEARNING_RATE,
-            device=DEVICE
+            device=DEVICE,
+            use_wandb=use_wandb
         )
         logger.debug("✅ Stage 1 trainer initialized successfully")
         logger.info("🚀 Beginning Stage 1 training execution...")
+        
+        # Log experiment configuration for Stage 1
+        if use_wandb:
+            logger.info("🔬 W&B logging enabled for Stage 1")
+        else:
+            logger.info("📝 W&B logging disabled - using local logging only")
         results = trainer.train(data_loaders, epochs=args.epochs)
         logger.info("🎯 Stage 1 training execution completed!")
         
@@ -265,10 +270,19 @@ def main():
             stage1_checkpoint_path=args.stage1_checkpoint,
             use_tissue_patches=args.use_tissue_patches,
             learning_rate=LEARNING_RATE,
-            device=DEVICE
+            device=DEVICE,
+            use_wandb=use_wandb
         )
         logger.debug("✅ Stage 2 trainer initialized successfully")
         logger.info("🚀 Beginning Stage 2 training execution...")
+        
+        # Log experiment configuration for Stage 2
+        if use_wandb:
+            mode = "Enhanced" if args.use_tissue_patches else "Baseline"
+            logger.info(f"🔬 W&B logging enabled for Stage 2 {mode}")
+        else:
+            logger.info("📝 W&B logging disabled - using local logging only")
+            
         results = trainer.train(data_loaders, epochs=args.epochs)
         logger.info("🎯 Stage 2 training execution completed!")
 

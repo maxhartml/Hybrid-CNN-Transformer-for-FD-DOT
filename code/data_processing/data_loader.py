@@ -41,13 +41,8 @@ from typing import Dict, List, Tuple, Optional
 import warnings
 
 # Handle imports for both package and standalone usage
-try:
-    from ..utils.logging_config import get_data_logger
-    logger = get_data_logger(__name__)
-except ImportError:
-    import logging
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
+from code.utils.logging_config import get_data_logger
+logger = get_data_logger(__name__)
 
 # ===============================================================================
 # CONFIGURATION CONSTANTS

@@ -32,27 +32,22 @@ Date: July 2025
 # =============================================================================
 
 # Standard library imports
-import os
-import sys
 from typing import Optional, Tuple, Dict, Any
 
 # Third-party imports
 import torch
 import torch.nn as nn
 
-# Project imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-
-# Local model component imports
-from .cnn_autoencoder import CNNAutoEncoder
-from .tissue_context_encoder import TissueContextEncoder, TissueContextToggle
-from .transformer_encoder import TransformerEncoder
-from ..utils.logging_config import get_model_logger
+# Project imports - Clean absolute imports from project root
+from code.models.cnn_autoencoder import CNNAutoEncoder
+from code.models.tissue_context_encoder import TissueContextEncoder, TissueContextToggle
+from code.models.transformer_encoder import TransformerEncoder
+from code.utils.logging_config import get_model_logger
 
 # Import configuration constants from component modules
-from . import cnn_autoencoder as cnn_config
-from . import transformer_encoder as transformer_config
-from . import tissue_context_encoder as tissue_config
+from code.models import cnn_autoencoder as cnn_config
+from code.models import transformer_encoder as transformer_config
+from code.models import tissue_context_encoder as tissue_config
 
 # =============================================================================
 # HYPERPARAMETERS AND CONSTANTS

@@ -26,9 +26,6 @@ Author: Max Hart - NIR Tomography Research
 Usage: python code/data_processing/data_clean.py
 """
 
-import sys
-sys.path.append('/Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/code')
-
 import h5py
 import numpy as np
 from pathlib import Path
@@ -38,7 +35,7 @@ from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 
 # Import centralized logging
-from utils.logging_config import get_data_logger
+from code.utils.logging_config import get_data_logger
 
 # Initialize logger
 logger = get_data_logger(__name__)

@@ -40,8 +40,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # Project imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from utils.logging_config import get_model_logger
+from code.utils.logging_config import get_model_logger
 
 # =============================================================================
 # HYPERPARAMETERS AND CONSTANTS
