@@ -1,5 +1,6 @@
+#!/usr/bin/env python3
 """
-Tissue Context Encoder for NIR-DOT reconstruction enhancement.
+Tissue Context Encoder for NIR-DOT Reconstruction Enhancement.
 
 This module implements a tissue context encoder that processes anatomical
 information to enhance near-infrared diffuse optical tomography (NIR-DOT) 
@@ -8,20 +9,42 @@ properties and anatomical constraints.
 
 The tissue context encoder provides auxiliary information to improve
 reconstruction accuracy in the hybrid learning approach.
+
+Classes:
+    TissueContextEncoder: Main encoder for processing tissue property patches
+    TissueContextToggle: Utility class for managing tissue context functionality
+
+Features:
+    - Transformer-based tissue patch processing
+    - Learnable positional embeddings for spatial relationships
+    - Context aggregation and projection
+    - Attention weight extraction for analysis
+    - Toggle functionality for ablation studies
+
+Author: Max Hart
+Date: July 2025
 """
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+
+# =============================================================================
+# IMPORTS
+# =============================================================================
+
+# Standard library imports
 import os
 import sys
 from typing import Tuple, Optional
 
-# Add parent directories to path for imports
+# Third-party imports
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+# Project imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utils.logging_config import get_model_logger
 
 # =============================================================================
-# TISSUE CONTEXT ENCODER CONFIGURATION
+# HYPERPARAMETERS AND CONSTANTS
 # =============================================================================
 
 # Model Architecture Parameters
@@ -33,19 +56,23 @@ NUM_HEADS = 8                           # Number of attention heads
 MLP_RATIO = 4                           # MLP expansion ratio
 DROPOUT = 0.1                           # Dropout probability
 
-# Tissue Property Parameters
+# Tissue Property Configuration
 NUM_TISSUE_PROPERTY_CHANNELS = 2        # Number of tissue property channels (mu_a, mu_s)
 TISSUE_PATCH_VOLUME_BASE = 7 ** 3       # Base patch volume for default patch size
 
-# Context Projection Network Parameters
+# Context Projection Configuration
 CONTEXT_PROJECTION_HIDDEN_MULTIPLIER = 2  # Hidden layer size multiplier
 
-# Weight Initialization Parameters
+# Weight Initialization Configuration
 WEIGHT_INIT_STD = 0.02                  # Standard deviation for weight initialization
-POSITIONAL_EMBEDDING_INIT_STD = 0.02    # Standard deviation for positional embedding initialization
+POSITIONAL_EMBEDDING_INIT_STD = 0.02    # Standard deviation for positional embedding
 
-# Initialize logger for this module
+# Initialize module logger
 logger = get_model_logger(__name__)
+
+# =============================================================================
+# TISSUE CONTEXT COMPONENTS
+# =============================================================================
 
 
 class TissueContextEncoder(nn.Module):
@@ -276,6 +303,11 @@ class TissueContextEncoder(nn.Module):
         
         logger.debug("Attention weight extraction requested (placeholder returned)")
         return attention_weights
+
+
+# =============================================================================
+# UTILITY CLASSES
+# =============================================================================
 
 
 class TissueContextToggle:

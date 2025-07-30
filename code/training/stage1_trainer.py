@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Stage 1 Training: CNN Autoencoder Pre-training for NIR-DOT Reconstruction.
 
@@ -20,77 +21,68 @@ Features:
     - Automated checkpoint management
     - Detailed logging and progress tracking
     - Device-agnostic training (CPU/GPU)
+
+Author: Max Hart
+Date: July 2025
 """
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
+
+# =============================================================================
+# IMPORTS
+# =============================================================================
+
+# Standard library imports
 import os
 import sys
 from pathlib import Path
 from typing import Dict
 
-# Add project root to Python path for imports
-project_root = Path(__file__).parent.parent.parent  # Go up 3 levels: stage1_trainer.py -> training -> code -> mah422
-sys.path.insert(0, str(project_root))
-
-try:
-    from code.models.hybrid_model import HybridCNNTransformer
-    from code.config.model_config import TrainingConfig, HybridConfig
-    from code.utils.logging_config import get_training_logger
-except ImportError:
-    # Try relative imports from the current directory structure
-    sys.path.insert(0, str(project_root / "code"))
-    from models.hybrid_model import HybridCNNTransformer
-    from config.model_config import TrainingConfig, HybridConfig
-    from utils.logging_config import get_training_logger
-
+# Third-party imports
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import os
-from typing import Dict
+
+# Project imports - Add project root to Python path
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
+
+try:
+    from code.models.hybrid_model import HybridCNNTransformer
+    from code.utils.logging_config import get_training_logger
+except ImportError:
+    # Fallback to relative imports
+    sys.path.insert(0, str(project_root / "code"))
+    from models.hybrid_model import HybridCNNTransformer
+    from utils.logging_config import get_training_logger
 
 # =============================================================================
 # HYPERPARAMETERS AND CONSTANTS
 # =============================================================================
 
 # Training Configuration
-DEFAULT_LEARNING_RATE = 1e-4            # Default learning rate for Adam optimizer
-DEFAULT_EPOCHS = 50                     # Default number of training epochs
-DEFAULT_DEVICE = "cpu"                  # Default training device
+LEARNING_RATE = 1e-4                    # Adam optimizer learning rate
+EPOCHS = 50                             # Default number of training epochs
+DEVICE = "cpu"                          # Default training device
 
-# Training Progress Logging
+# Training Progress and Logging
 PROGRESS_LOG_INTERVAL = 10              # Log progress every N epochs
 FINAL_EPOCH_OFFSET = 1                  # Offset for final epoch logging
+BATCH_LOG_INTERVAL = 5                  # Detailed logging every N batches
 
 # Checkpoint Configuration
-STAGE1_CHECKPOINT_FILENAME = "stage1_best.pth"  # Default checkpoint filename
+CHECKPOINT_FILENAME = "stage1_best.pth" # Default checkpoint filename
 CHECKPOINT_BASE_DIR = "checkpoints"     # Base checkpoint directory
 
 # Model Configuration
-USE_TISSUE_PATCHES_STAGE1 = False       # Stage 1 doesn't use tissue patches
-TRAINING_STAGE_1 = "stage1"             # Training stage identifier
+USE_TISSUE_PATCHES = False              # Stage 1 doesn't use tissue patches
+TRAINING_STAGE = "stage1"               # Training stage identifier
 
-import sys
-from pathlib import Path
-
-# Add project root to Python path for imports
-project_root = Path(__file__).parent.parent.parent  # Go up 3 levels: stage1_trainer.py -> training -> code -> mah422
-sys.path.insert(0, str(project_root))
-
-try:
-    from code.models.hybrid_model import HybridCNNTransformer
-    from code.utils.logging_config import get_training_logger
-except ImportError:
-    # Try relative imports from the current directory structure
-    sys.path.insert(0, str(project_root / "code"))
-    from models.hybrid_model import HybridCNNTransformer
-    from utils.logging_config import get_training_logger
-
-# Initialize logger for this module
+# Initialize module logger
 logger = get_training_logger(__name__)
+
+# =============================================================================
+# LOSS FUNCTIONS
+# =============================================================================
 
 
 class RMSELoss(nn.Module):
@@ -123,6 +115,11 @@ class RMSELoss(nn.Module):
         return torch.sqrt(mse)
 
 
+# =============================================================================
+# TRAINING CLASSES
+# =============================================================================
+
+
 class Stage1Trainer:
     """
     CNN Autoencoder Pre-training Pipeline for NIR-DOT Reconstruction.
@@ -150,7 +147,7 @@ class Stage1Trainer:
         >>> print(f"Best validation loss: {results['best_val_loss']:.6f}")
     """
     
-    def __init__(self, learning_rate=TrainingConfig.STAGE1_LEARNING_RATE, device=TrainingConfig.DEFAULT_DEVICE):
+    def __init__(self, learning_rate=LEARNING_RATE, device=DEVICE):
         """
         Initialize the Stage 1 trainer with model and optimization components.
         
@@ -167,8 +164,8 @@ class Stage1Trainer:
         # 2. Only CNN parameters receive gradients in Stage 1 (transformer stays frozen)
         # 3. Memory allocation is done once for consistency across stages
         self.model = HybridCNNTransformer(
-            use_tissue_patches=TrainingConfig.STAGE1_USE_TISSUE_PATCHES,
-            training_stage=HybridConfig.STAGE1  # Explicit stage 1 setting
+            use_tissue_patches=USE_TISSUE_PATCHES,
+            training_stage=TRAINING_STAGE  # Explicit stage 1 setting
         )
         self.model.to(self.device)
         
@@ -237,8 +234,8 @@ class Stage1Trainer:
             logger.info(f"📈 Stage 1 Batch {batch_idx + 1}/{len(data_loader)}: Loss = {loss.item():.6f}, Avg = {total_loss/num_batches:.6f}")
             
             # Additional detailed logging at DEBUG level
-            if batch_idx % 5 == 0:  # Log every 5 batches during DEBUG
-                logger.debug(f"� Detailed: Batch {batch_idx}: Loss = {loss.item():.6f}, Running Avg = {total_loss/num_batches:.6f}")
+            if batch_idx % BATCH_LOG_INTERVAL == 0:  # Log every 5 batches during DEBUG
+                logger.debug(f"🔍 Detailed: Batch {batch_idx}: Loss = {loss.item():.6f}, Running Avg = {total_loss/num_batches:.6f}")
         
         avg_loss = total_loss / num_batches
         logger.debug(f"✅ Training epoch completed. Average loss: {avg_loss:.6f}")
@@ -289,7 +286,7 @@ class Stage1Trainer:
         logger.debug(f"✅ Validation completed. Average loss: {avg_loss:.6f}")
         return avg_loss
     
-    def train(self, data_loaders, epochs=DEFAULT_EPOCHS):
+    def train(self, data_loaders, epochs=EPOCHS):
         """
         Execute the complete Stage 1 training pipeline.
         
@@ -338,7 +335,7 @@ class Stage1Trainer:
             if val_loss < best_val_loss:
                 improvement = best_val_loss - val_loss
                 best_val_loss = val_loss
-                checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{STAGE1_CHECKPOINT_FILENAME}"
+                checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_FILENAME}"
                 logger.info(f"🎉 New best model! Improvement: {improvement:.6f} -> Best validation loss: {best_val_loss:.6f}")
                 logger.debug(f"💾 Checkpoint path: {checkpoint_path}")
                 self.save_checkpoint(checkpoint_path, epoch, val_loss)
@@ -370,7 +367,6 @@ class Stage1Trainer:
         """
         logger.debug(f"💾 Saving Stage 1 checkpoint: epoch={epoch}, val_loss={val_loss:.6f}")
         
-        import os
         # Only create directory if path has a directory component
         dir_path = os.path.dirname(path)
         if dir_path:  # Only create directory if it's not empty (i.e., not current directory)

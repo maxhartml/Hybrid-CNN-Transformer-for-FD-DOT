@@ -1,5 +1,6 @@
+#!/usr/bin/env python3
 """
-Transformer Encoder for NIR-DOT sequence modeling.
+Transformer Encoder for NIR-DOT Sequence Modeling.
 
 This module implements a transformer-based encoder for processing sequential data
 in near-infrared diffuse optical tomography (NIR-DOT) applications. The transformer
@@ -7,22 +8,53 @@ uses multi-head self-attention and positional encoding to capture long-range
 dependencies and temporal patterns in the data.
 
 The encoder is designed for stage 2 training in a two-stage hybrid approach,
-focusing on sequence modeling and contextual understanding.
+focusing on sequence modeling and contextual        return encoded_features, attention_weights
+    
+
+# ============= ATTENTION VISUALIZATION ============
+
+    def get_attention_maps(self, cnn_features: torch.Tensor,
+                          tissue_context: Optional[torch.Tensor] = None,
+                          use_tissue_patches: bool = False) -> Optional[torch.Tensor]:rstanding.
+
+Classes:
+    PositionalEncoding: Sinusoidal positional encoding for sequences
+    MultiHeadAttention: Multi-head self-attention mechanism
+    TransformerLayer: Single transformer encoder layer
+    TransformerEncoder: Complete transformer encoder stack
+
+Features:
+    - Multi-head self-attention with configurable heads
+    - Sinusoidal positional encoding
+    - Layer normalization and residual connections
+    - Configurable MLP expansion ratio
+    - Support for attention mask and visualization
+
+Author: Max Hart
+Date: July 2025
 """
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+
+# =============================================================================
+# IMPORTS
+# =============================================================================
+
+# Standard library imports
 import math
 import os
 import sys
 from typing import Optional, Tuple
 
-# Add parent directories to path for imports
+# Third-party imports
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+# Project imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utils.logging_config import get_model_logger
 
 # =============================================================================
-# TRANSFORMER ENCODER CONFIGURATION
+# HYPERPARAMETERS AND CONSTANTS
 # =============================================================================
 
 # Model Architecture Parameters
@@ -33,24 +65,28 @@ MLP_RATIO = 4                           # MLP expansion ratio
 DROPOUT = 0.1                           # Dropout probability
 MAX_SEQ_LEN = 1000                      # Maximum sequence length
 
-# Positional Encoding Parameters
+# Positional Encoding Configuration
 POSITIONAL_ENCODING_MAX_LEN = 5000      # Maximum sequence length for positional encoding
 POSITIONAL_ENCODING_BASE = 10000.0      # Base for positional encoding calculation
 
-# Attention Mechanism Parameters
-ATTENTION_SCALE_FACTOR_BASE = 1.0       # Base for attention scaling (will be divided by sqrt(head_dim))
+# Attention Mechanism Configuration
+ATTENTION_SCALE_BASE = 1.0              # Base for attention scaling (divided by sqrt(head_dim))
 
-# Weight Initialization Parameters
+# Weight Initialization Configuration
 WEIGHT_INIT_STD = 0.02                  # Standard deviation for weight initialization
-POSITIONAL_EMBEDDING_INIT_STD = 0.02    # Standard deviation for positional embedding initialization
+POSITIONAL_EMBEDDING_INIT_STD = 0.02    # Standard deviation for positional embedding
 
-# Token Type Parameters
+# Token Type Configuration
 NUM_TOKEN_TYPES = 2                     # Number of token types (CNN, tissue)
 CNN_TOKEN_TYPE = 0                      # Token type ID for CNN features
 TISSUE_TOKEN_TYPE = 1                   # Token type ID for tissue features
 
-# Initialize logger for this module
+# Initialize module logger
 logger = get_model_logger(__name__)
+
+# =============================================================================
+# TRANSFORMER COMPONENTS
+# =============================================================================
 
 
 class PositionalEncoding(nn.Module):
@@ -125,7 +161,7 @@ class MultiHeadAttention(nn.Module):
         self.out_proj = nn.Linear(embed_dim, embed_dim)
         
         self.dropout = nn.Dropout(dropout)
-        self.scale = ATTENTION_SCALE_FACTOR_BASE / math.sqrt(self.head_dim)  # Scaling factor for dot-product attention
+        self.scale = ATTENTION_SCALE_BASE / math.sqrt(self.head_dim)  # Scaling factor for dot-product attention
         
         logger.debug(f"🔧 MultiHeadAttention initialized: embed_dim={embed_dim}, num_heads={num_heads}, head_dim={self.head_dim}")
     
@@ -178,6 +214,11 @@ class MultiHeadAttention(nn.Module):
         logger.debug(f"📦 MultiHeadAttention output shape: {output.shape}")
         
         return output, attention_weights
+
+
+# =============================================================================
+# TRANSFORMER LAYERS
+# =============================================================================
 
 
 class TransformerLayer(nn.Module):
@@ -248,6 +289,8 @@ class TransformerLayer(nn.Module):
         
         return x, attn_weights
 
+
+# ============= TRANSFORMER ENCODER ================
 
 class TransformerEncoder(nn.Module):
     """

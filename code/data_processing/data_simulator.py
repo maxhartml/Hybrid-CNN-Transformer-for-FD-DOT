@@ -25,10 +25,10 @@ Advanced phantom data generation for NIR tomography training datasets:
 • Binary morphological operations for surface extraction
 • Efficient spatial computations with scipy
 • Controlled randomization for reproducible datasets
-• 2mm voxel size for clinically realistic phantom dimensions (128×128×128mm)
+• 2mm voxel size for optimal phantom dimensions (128×128×128mm physical)
 
 Author: Max Hart - NIR Tomography Research
-Version: 2.1 - Clinical Scale Phantom Generation (2mm voxels)
+Version: 2.2 - High-Resolution Phantom Generation (2mm voxels optimized)
 """
 
 # System path configuration for NIRFASTer-FF library access
@@ -68,19 +68,19 @@ sys.path.append(str(project_root / "code"))  # Add code directory to path using 
 from utils.logging_config import get_data_logger, NIRDOTLogger
 
 # Constants for phantom generation
-DEFAULT_N_PHANTOMS = 200                      # Number of phantoms to generate for dataset
+DEFAULT_N_PHANTOMS = 50                      # Number of phantoms to generate for dataset
 DEFAULT_PHANTOM_SHAPE = (64, 64, 64)        # Default cubic phantom dimensions in voxels (power of 2)
-DEFAULT_TISSUE_RADIUS_RANGE = (26, 30)      # Healthy tissue ellipsoid semi-axis range (52-60mm with 2mm voxels)
+DEFAULT_TISSUE_RADIUS_RANGE = (25, 30)      # Healthy tissue ellipsoid semi-axis range (50-60mm with 2mm voxels)
 DEFAULT_TUMOR_RADIUS_RANGE = (5, 10)        # Tumor ellipsoid semi-axis range (10-20mm with 2mm voxels)
 DEFAULT_MAX_TUMORS = 5                       # Maximum number of tumors per phantom
 DEFAULT_N_MEASUREMENTS = 256                # Number of independent source-detector pairs per phantom
 DEFAULT_MIN_PROBE_DISTANCE = 10              # Minimum source-detector separation [mm] for diffusive regime validity
-DEFAULT_MAX_PROBE_DISTANCE = 40              # Maximum source-detector separation [mm] for clinical realism
-DEFAULT_PATCH_RADIUS = 40                    # Patch radius [mm] for surface probe placement (clinical probe array size)
-DEFAULT_MIN_PATCH_VOXELS = 500               # Minimum surface voxels for valid patch placement
+DEFAULT_MAX_PROBE_DISTANCE = 40              # Maximum source-detector separation [mm] for clinical signal detectability
+DEFAULT_PATCH_RADIUS = 30                    # Patch radius [mm] for surface probe placement (clinical probe array size)
+DEFAULT_MIN_PATCH_VOXELS = 400               # Minimum surface voxels for valid patch placement (reduced for better success)
 DEFAULT_FD_FREQUENCY = 140e6                 # Frequency-domain modulation frequency [Hz]
-DEFAULT_MESH_CELL_SIZE = 1.65                # CGAL mesh characteristic cell size [mm] (maintained for high accuracy)
-VOXEL_SIZE_MM = 2.0                          # Voxel size in millimeters for spatial calibration (doubled for clinical realism)
+DEFAULT_MESH_CELL_SIZE = 1.65                 # CGAL mesh characteristic cell size [mm] (high-resolution for physics accuracy)
+VOXEL_SIZE_MM = 2.0                          # Voxel size in millimeters for spatial calibration
 
 # Tissue label constants for clarity and consistency
 AIR_LABEL = 0                                # Background air regions
@@ -102,12 +102,12 @@ PHASE_NOISE_STD_DEGREES = 0.1               # ±0.1° phase noise (precision res
 MAX_TUMOR_PLACEMENT_ATTEMPTS = 50            # Maximum iterations for tumor placement rejection sampling
 TUMOR_TISSUE_EMBEDDING_THRESHOLD = 0.80      # Required fraction of tumor volume inside tissue (80%)
 
-# Mesh validation parameters
-MIN_ELEMENT_VOLUME_MM3 = 0.8                 # Minimum acceptable tetrahedral element volume [mm³] (scaled for 2mm voxels)
-MAX_ELEMENT_VOLUME_MM3 = 80.0                # Maximum acceptable tetrahedral element volume [mm³] (scaled for 2mm voxels)
+# Mesh validation parameters (scaled for 2mm voxels)
+MIN_ELEMENT_VOLUME_MM3 = 3.0                 # Minimum acceptable tetrahedral element volume [mm³] (scaled for 2mm)
+MAX_ELEMENT_VOLUME_MM3 = 200.0               # Maximum acceptable tetrahedral element volume [mm³] (scaled for 2mm)
 
 # Surface processing and batch parameters  
-SURFACE_BATCH_SIZE = 1000                    # Batch size for safe center identification
+SURFACE_BATCH_SIZE = 1500                     # Batch size for safe center identification (increased for 2mm voxels)
 DEFAULT_RANDOM_SEED = 41                     # Default random seed for reproducibility
 
 # Initialize logger for the module using centralized logging system
@@ -410,8 +410,9 @@ def mesh_volume(volume):
     # Configure meshing parameters for optimal FEM performance
     mesh_params = ff.utils.MeshingParams()
     # Set characteristic cell size balancing accuracy and computational cost
-    # Smaller values increase mesh resolution but exponentially increase solve time
-    mesh_params.general_cell_size = DEFAULT_MESH_CELL_SIZE  # Empirically optimized for NIR wavelengths (λ ≈ 800nm)
+    # For 2mm voxels (128x128x128mm domain), use slightly larger cells than 1mm case
+    # This maintains good mesh quality while managing computational requirements
+    mesh_params.general_cell_size = DEFAULT_MESH_CELL_SIZE  # 2.5mm optimized for 2mm voxel grids
     
     logger.info(f"Starting CGAL-based tetrahedral mesh generation (cell_size={mesh_params.general_cell_size})")
     logger.debug(f"Input volume shape: {volume.shape}, unique labels: {np.unique(volume)}")
@@ -472,7 +473,13 @@ def create_stndmesh(mesh_elements, mesh_nodes):
     # - Element volumes via determinant of Jacobian matrix
     # - Surface face identification through adjacency analysis  
     # - Boundary node marking for Dirichlet/Robin boundary conditions
-    phantom_mesh.from_solid(mesh_elements, mesh_nodes)
+    
+    # CRITICAL FIX: Scale mesh nodes from voxel coordinates to physical millimeter coordinates
+    # NIRFASTer mesh generation produces nodes in voxel units, but physics simulation requires mm units
+    mesh_nodes_mm = mesh_nodes * VOXEL_SIZE_MM
+    logger.debug(f"Scaling mesh nodes from voxel coordinates to physical coordinates (×{VOXEL_SIZE_MM}mm)")
+    
+    phantom_mesh.from_solid(mesh_elements, mesh_nodes_mm)
     
     # Extract and display mesh quality statistics for validation
     mean_element_volume = phantom_mesh.element_area.mean()  # Note: 'element_area' actually stores volumes for 3D elements
@@ -681,7 +688,7 @@ def find_safe_patch_centers(surface_coordinates, patch_radius=DEFAULT_PATCH_RADI
     Identifies surface voxels that can support full-radius patches for robust probe placement.
     
     This function implements safe center placement by pre-filtering surface positions to ensure
-    each potential patch center can accommodate the full 40mm radius patch without extending
+    each potential patch center can accommodate the full 30mm radius patch without extending
     beyond the tissue boundary. This prevents edge effects and ensures consistent patch sizes.
     
     Clinical Motivation:
@@ -758,7 +765,7 @@ def build_patch_based_probe_layout(surface_coordinates, n_measurements=DEFAULT_N
     Generates realistic probe configurations using independent source-detector pairs for optimal ML training.
     
     This function implements pure random source-detector pairing strategy:
-    1. Identifies safe patch centers that can support full 40mm radius patches
+    1. Identifies safe patch centers that can support full 30mm radius patches
     2. Randomly selects one patch center per phantom for spatial diversity
     3. Creates localized surface patch within specified radius
     4. Places 256 independent source-detector pairs randomly within the patch region
@@ -772,15 +779,15 @@ def build_patch_based_probe_layout(surface_coordinates, n_measurements=DEFAULT_N
     - Enforces clinical SDS constraints for physiological measurement realism
     
     Clinical Realism Features:
-    - Patch size (80mm diameter) matches typical clinical probe array footprints for larger phantoms
-    - SDS range (10-40mm) reflects real NIR measurement capabilities for 2mm voxel phantoms
+    - Patch size (60mm diameter) matches typical clinical probe array footprints
+    - SDS range (10-40mm) reflects real NIR measurement capabilities
     - Single patch placement simulates realistic partial tissue coverage scenarios
     - Surface-only placement prevents non-physical floating probe positions
     
     Args:
         surface_coordinates (numpy.ndarray): Surface voxel positions from binary erosion, shape (N_surface, 3)
         n_measurements (int): Number of independent source-detector pairs to place (256 for optimal training)
-        patch_radius (float): Patch radius in mm defining local probe placement region (40mm clinical size)
+        patch_radius (float): Patch radius in mm defining local probe placement region (30mm clinical size)
         min_source_detector_distance (float): Minimum SDS in mm for diffusive regime validity (10mm)
         max_source_detector_distance (float): Maximum SDS in mm for clinical realism (40mm) 
         min_patch_voxels (int): Minimum surface voxels required for valid patch (500 for adequate sampling)
@@ -874,8 +881,11 @@ def build_patch_based_probe_layout(surface_coordinates, n_measurements=DEFAULT_N
             all_probe_sources.append(current_source_position)
             all_probe_detectors.append(selected_detector_position)
             
-            # STEP 5.4.6: Generate measurement connectivity link
-            measurement_links.append([measurement_idx, measurement_idx, 1])  # One-to-one source-detector mapping
+            # STEP 5.4.6: Generate measurement connectivity link with proper NIRFASTer indexing
+            # NIRFASTer format: [source_index, detector_index, active_flag] 
+            # For independent source-detector pairs: source index = measurement index, detector index = measurement index
+            # This creates a 1:1 mapping where measurement i uses source[i] and detector[i]
+            measurement_links.append([measurement_idx, measurement_idx, 1])
             pair_placed = True
     
     # STEP 5.5: Validate and report placement results
@@ -954,7 +964,14 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
     phantom_mesh.link = measurement_links  # Connectivity matrix defining active source-detector pairs
     
     logger.debug(f"Optode configuration: {len(probe_sources)} sources, {len(probe_detectors)} detectors")
-    logger.debug(f"Active measurements: {np.sum(measurement_links[:, 2])} of {len(measurement_links)} total pairs")
+    
+    # Check if measurement_links is valid before accessing
+    if len(measurement_links) > 0 and measurement_links.ndim == 2:
+        active_measurements = np.sum(measurement_links[:, 2])
+        logger.debug(f"Active measurements: {active_measurements} of {len(measurement_links)} total pairs")
+    else:
+        logger.error(f"Invalid measurement_links array: shape={measurement_links.shape if hasattr(measurement_links, 'shape') else 'unknown'}")
+        return  # Exit early if no valid measurements
     
     # Project optodes onto mesh surface with geometric consistency validation
     # Critical for accurate boundary condition application and prevents non-physical floating optodes
@@ -1182,7 +1199,7 @@ def visualize_probe_on_mesh(phantom_volume, phantom_mesh, source_position, detec
     ax.zaxis.set_pane_color((0, 0, 0, 0))
 
     # STEP 1: Show phantom boundary box
-    phantom_size_mm = phantom_volume.shape[0] * VOXEL_SIZE_MM  # 128mm total size
+    phantom_size_mm = phantom_volume.shape[0] * VOXEL_SIZE_MM  # 64mm total size
     
     # Draw boundary box edges
     box_coords = [

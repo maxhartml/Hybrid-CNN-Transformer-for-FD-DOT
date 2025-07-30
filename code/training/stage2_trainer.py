@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Stage 2 Training: Transformer Enhancement with Frozen CNN Decoder.
 
@@ -7,18 +8,7 @@ CNN decoder frozen. This approach leverages the robust feature representations
 learned in Stage 1 while adding sophisticated spatial modeling capabilities.
 
 The training process supports both baseline and enhanced modes:
-- Baseline:             # Save best model
-            if val_loss < best_val_loss:
-                improvement = best_val_loss - val_loss
-                best_val_loss = val_loss
-                checkpoint_filename = STAGE2_ENHANCED_CHECKPOINT if self.use_tissue_patches else STAGE2_BASELINE_CHECKPOINT
-                checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{checkpoint_filename}"
-                logger.info(f"🎉 New best Stage 2 model! Improvement: {improvement:.6f} -> Best validation loss: {best_val_loss:.6f}")
-                logger.debug(f"💾 Stage 2 checkpoint path: {checkpoint_path}")
-                self.save_checkpoint(checkpoint_path, epoch, val_loss)
-                logger.debug(f"💾 New best Stage 2 model saved at epoch {epoch+1}")
-            else:
-                logger.debug(f"📊 No improvement. Current: {val_loss:.6f}, Best: {best_val_loss:.6f}")nsformer training without tissue context
+- Baseline: Transformer training without tissue context
 - Enhanced: Transformer training with tissue patch integration for improved
   spatial awareness and context-sensitive reconstruction
 
@@ -32,62 +22,76 @@ Features:
     - Progressive learning with reduced learning rates
     - Comprehensive checkpoint management and experiment tracking
     - Support for both baseline and enhanced training modes
+
+Author: Max Hart
+Date: July 2025
 """
 
+# =============================================================================
+# IMPORTS
+# =============================================================================
+
+# Standard library imports
+import os
+import sys
+from pathlib import Path
+from typing import Dict
+
+# Third-party imports
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import os
-from typing import Dict
 
-# =============================================================================
-# HYPERPARAMETERS AND CONSTANTS
-# =============================================================================
-
-# Training Configuration
-DEFAULT_LEARNING_RATE = 5e-5            # Lower learning rate for Stage 2 (transformer training)
-DEFAULT_EPOCHS = 100                    # Default number of training epochs for Stage 2
-DEFAULT_DEVICE = "cpu"                  # Default training device
-DEFAULT_USE_TISSUE_PATCHES = True       # Default tissue patch usage
-
-# Training Progress Logging
-PROGRESS_LOG_INTERVAL = 10              # Log progress every N epochs
-FINAL_EPOCH_OFFSET = 1                  # Offset for final epoch logging
-
-# Checkpoint Configuration
-STAGE2_BASELINE_CHECKPOINT = "stage2_baseline_best.pth"    # Baseline checkpoint filename
-STAGE2_ENHANCED_CHECKPOINT = "stage2_enhanced_best.pth"    # Enhanced checkpoint filename
-CHECKPOINT_BASE_DIR = "checkpoints"     # Base checkpoint directory
-
-# Model Configuration
-TRAINING_STAGE_2 = "stage2"             # Training stage identifier
-
-# Mode Configuration
-BASELINE_MODE = "Baseline"              # Baseline training mode name
-ENHANCED_MODE = "Enhanced"              # Enhanced training mode name
-
-# Parameter Freezing Configuration
-CNN_FREEZE_ALL_PARAMS = True            # Whether to freeze all CNN autoencoder parameters
-
-import sys
-from pathlib import Path
-
-# Add project root to Python path for imports
-project_root = Path(__file__).parent.parent.parent  # Go up 3 levels: stage2_trainer.py -> training -> code -> mah422
+# Project imports - Add project root to Python path
+project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 try:
     from code.models.hybrid_model import HybridCNNTransformer
     from code.utils.logging_config import get_training_logger
 except ImportError:
-    # Try relative imports from the current directory structure
+    # Fallback to relative imports
     sys.path.insert(0, str(project_root / "code"))
     from models.hybrid_model import HybridCNNTransformer
     from utils.logging_config import get_training_logger
 
-# Initialize logger for this module
+# =============================================================================
+# HYPERPARAMETERS AND CONSTANTS
+# =============================================================================
+
+# Training Configuration
+LEARNING_RATE = 5e-5                    # Lower learning rate for transformer training
+EPOCHS = 100                            # Default number of training epochs
+DEVICE = "cpu"                          # Default training device
+USE_TISSUE_PATCHES = True               # Default tissue patch usage
+
+# Training Progress and Logging
+PROGRESS_LOG_INTERVAL = 10              # Log progress every N epochs
+FINAL_EPOCH_OFFSET = 1                  # Offset for final epoch logging
+BATCH_LOG_INTERVAL = 5                  # Detailed logging every N batches
+
+# Checkpoint Configuration
+BASELINE_CHECKPOINT = "stage2_baseline_best.pth"  # Baseline checkpoint filename
+ENHANCED_CHECKPOINT = "stage2_enhanced_best.pth"  # Enhanced checkpoint filename
+CHECKPOINT_BASE_DIR = "checkpoints"     # Base checkpoint directory
+
+# Model Configuration
+TRAINING_STAGE = "stage2"               # Training stage identifier
+
+# Mode Configuration
+BASELINE_MODE = "Baseline"              # Baseline training mode name
+ENHANCED_MODE = "Enhanced"              # Enhanced training mode name
+
+# Parameter Freezing Configuration
+FREEZE_CNN_PARAMS = True                # Whether to freeze all CNN autoencoder parameters
+
+# Initialize module logger
 logger = get_training_logger(__name__)
+
+# =============================================================================
+# LOSS FUNCTIONS
+# =============================================================================
 
 
 class RMSELoss(nn.Module):
@@ -118,6 +122,11 @@ class RMSELoss(nn.Module):
         """
         mse = F.mse_loss(input, target)
         return torch.sqrt(mse)
+
+
+# =============================================================================
+# TRAINING CLASSES
+# =============================================================================
 
 
 class Stage2Trainer:
@@ -157,8 +166,8 @@ class Stage2Trainer:
         >>> trainer.train(data_loaders, epochs=100)
     """
     
-    def __init__(self, stage1_checkpoint_path, use_tissue_patches=DEFAULT_USE_TISSUE_PATCHES, 
-                 learning_rate=DEFAULT_LEARNING_RATE, device=DEFAULT_DEVICE):
+    def __init__(self, stage1_checkpoint_path, use_tissue_patches=USE_TISSUE_PATCHES, 
+                 learning_rate=LEARNING_RATE, device=DEVICE):
         """
         Initialize the Stage 2 trainer with pre-trained CNN components.
         
@@ -178,7 +187,7 @@ class Stage2Trainer:
         # Initialize model
         self.model = HybridCNNTransformer(
             use_tissue_patches=use_tissue_patches,
-            training_stage=TRAINING_STAGE_2  # IMPORTANT: Set to stage 2 for correct forward pass
+            training_stage=TRAINING_STAGE  # IMPORTANT: Set to stage 2 for correct forward pass
         )
         self.model.to(self.device)
         
@@ -417,7 +426,7 @@ class Stage2Trainer:
         logger.debug(f"✅ Stage 2 validation completed. Average loss: {avg_loss:.6f}")
         return avg_loss
     
-    def train(self, data_loaders, epochs=DEFAULT_EPOCHS):
+    def train(self, data_loaders, epochs=EPOCHS):
         """
         Execute the complete Stage 2 training pipeline.
         
@@ -468,7 +477,7 @@ class Stage2Trainer:
             if val_loss < best_val_loss:
                 improvement = best_val_loss - val_loss
                 best_val_loss = val_loss
-                checkpoint_filename = STAGE2_ENHANCED_CHECKPOINT if self.use_tissue_patches else STAGE2_BASELINE_CHECKPOINT
+                checkpoint_filename = ENHANCED_CHECKPOINT if self.use_tissue_patches else BASELINE_CHECKPOINT
                 checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{checkpoint_filename}"
                 logger.info(f"🎉 New best Stage 2 model! Improvement: {improvement:.6f} -> Saving checkpoint")
                 logger.debug(f"💾 Stage 2 checkpoint path: {checkpoint_path}")

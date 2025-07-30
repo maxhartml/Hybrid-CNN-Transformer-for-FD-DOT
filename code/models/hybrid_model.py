@@ -1,5 +1,6 @@
+#!/usr/bin/env python3
 """
-Hybrid CNN-Transformer Model for NIR-DOT reconstruction.
+Hybrid CNN-Transformer Model for NIR-DOT Reconstruction.
 
 This module implements the complete hybrid architecture that combines 
 convolutional neural networks (CNN) with transformer encoders for 
@@ -11,17 +12,35 @@ The hybrid approach uses a two-stage learning strategy:
 
 The model includes optional tissue context integration for improved
 reconstruction accuracy through anatomical constraints.
+
+Classes:
+    HybridCNNTransformer: Complete hybrid model combining CNN and Transformer components
+
+Features:
+    - Two-stage training pipeline support
+    - Optional tissue context integration
+    - Configurable architecture parameters
+    - Stage-specific parameter freezing
+    - Comprehensive logging and monitoring
+
+Author: Max Hart
+Date: July 2025
 """
+
+# =============================================================================
+# IMPORTS
+# =============================================================================
+
 # Standard library imports
 import os
 import sys
 from typing import Optional, Tuple, Dict, Any
 
-# PyTorch imports
+# Third-party imports
 import torch
 import torch.nn as nn
 
-# Add parent directories to path for imports
+# Project imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # Local model component imports
@@ -30,29 +49,33 @@ from .tissue_context_encoder import TissueContextEncoder, TissueContextToggle
 from .transformer_encoder import TransformerEncoder
 from ..utils.logging_config import get_model_logger
 
-# Import configuration constants from their respective modules
+# Import configuration constants from component modules
 from . import cnn_autoencoder as cnn_config
 from . import transformer_encoder as transformer_config
 from . import tissue_context_encoder as tissue_config
 
 # =============================================================================
-# HYBRID MODEL SPECIFIC CONFIGURATION
+# HYPERPARAMETERS AND CONSTANTS
 # =============================================================================
 
-# NIR Measurement Configuration (specific to hybrid model)
+# NIR Measurement Configuration
 NIR_INPUT_DIM = 8                       # 8D NIR feature vectors (log_amp, phase, source_xyz, det_xyz)
 N_MEASUREMENTS = 256                    # Number of independent source-detector pairs per phantom
 
-# Model Behavior Configuration (specific to hybrid model)
-USE_TISSUE_PATCHES = True               # Whether to use tissue context
+# Model Behavior Configuration
+USE_TISSUE_PATCHES = True               # Whether to use tissue context by default
 TRAINING_STAGE = "stage1"               # Default training stage
 
-# Training Stages (specific to hybrid model)
+# Training Stage Identifiers
 STAGE1 = "stage1"                       # CNN autoencoder pre-training
 STAGE2 = "stage2"                       # Transformer training stage
 
-# Initialize logger for this module
+# Initialize module logger
 logger = get_model_logger(__name__)
+
+# =============================================================================
+# HYBRID MODEL ARCHITECTURE
+# =============================================================================
 
 
 class HybridCNNTransformer(nn.Module):

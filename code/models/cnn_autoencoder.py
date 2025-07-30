@@ -1,5 +1,6 @@
+#!/usr/bin/env python3
 """
-CNN Autoencoder for NIR-DOT reconstruction.
+CNN Autoencoder for NIR-DOT Reconstruction.
 
 This module implements a 3D convolutional autoencoder for near-infrared diffuse optical 
 tomography (NIR-DOT) volume reconstruction. The architecture uses residual blocks for 
@@ -8,26 +9,43 @@ improved gradient flow and progressive downsampling/upsampling for spatial featu
 The autoencoder is designed for stage 1 pre-training in a two-stage hybrid approach,
 focusing on learning low-level spatial features from DOT measurements.
 
-ARCHITECTURE OPTIMIZATION:
+Architecture Optimization:
 - Base channels: 16 (optimized from 32/64 to reduce parameters)
 - Target parameters: ~7M total (down from 26.9M)
 - Feature dimension: 256 (maintained as required by supervisor)
 - Channel progression: 16→32→64→128→256 (efficient scaling)
+
+Classes:
+    ResidualBlock: 3D residual block with skip connections
+    CNNEncoder: Progressive downsampling encoder for feature extraction
+    CNNDecoder: Progressive upsampling decoder for volume reconstruction
+    CNNAutoEncoder: Complete autoencoder combining encoder and decoder
+
+Author: Max Hart
+Date: July 2025
 """
+
+# =============================================================================
+# IMPORTS
+# =============================================================================
+
+# Standard library imports
+import math
 import os
 import sys
+from typing import Tuple
+
+# Third-party imports
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import math
-from typing import Tuple
 
-# Add parent directories to path for imports
+# Project imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utils.logging_config import get_model_logger
 
 # =============================================================================
-# CNN AUTOENCODER CONFIGURATION
+# HYPERPARAMETERS AND CONSTANTS
 # =============================================================================
 
 # Model Architecture Parameters
@@ -36,8 +54,8 @@ OUTPUT_SIZE = (64, 64, 64)              # Target volume dimensions (power of 2)
 BASE_CHANNELS = 16                      # Base number of CNN channels (optimized for ~7M params)
 FEATURE_DIM = 256                       # Encoder output feature dimension (required by supervisor)
 
-# Encoder Architecture
-ENCODER_KERNEL_SIZE_INITIAL = 7         # Initial convolution kernel size
+# Encoder Architecture Configuration
+ENCODER_KERNEL_INITIAL = 7              # Initial convolution kernel size
 ENCODER_STRIDE_INITIAL = 2              # Initial convolution stride
 ENCODER_PADDING_INITIAL = 3             # Initial convolution padding
 ENCODER_MAXPOOL_KERNEL = 3              # Max pooling kernel size
@@ -48,9 +66,9 @@ ENCODER_MAXPOOL_PADDING = 1             # Max pooling padding
 RESIDUAL_CONV_KERNEL = 3                # Residual block convolution kernel size
 RESIDUAL_CONV_PADDING = 1               # Residual block convolution padding
 RESIDUAL_SHORTCUT_KERNEL = 1            # Shortcut connection kernel size
-NUM_RESIDUAL_BLOCKS_PER_LAYER = 1       # Number of residual blocks per layer (reduced from 2)
+RESIDUAL_BLOCKS_PER_LAYER = 1           # Number of residual blocks per layer (optimized)
 
-# Decoder Architecture
+# Decoder Architecture Configuration
 DECODER_INIT_SIZE = 2                   # Initial spatial size for decoder
 DECODER_TRANSCONV_KERNEL = 4            # Transposed convolution kernel size
 DECODER_TRANSCONV_STRIDE = 2            # Transposed convolution stride
@@ -59,14 +77,18 @@ DECODER_FINAL_CONV_KERNEL = 3           # Final convolution kernel size
 DECODER_FINAL_CONV_PADDING = 1          # Final convolution padding
 
 # Channel Progression (optimized for parameter efficiency)
-ENCODER_CHANNEL_MULTIPLIERS = [1, 2, 4, 8, 16]    # Progressive channel increase: 16→32→64→128→256
-DECODER_CHANNEL_DIVISORS = [16, 8, 4, 2, 1]       # Progressive channel decrease: 256→128→64→32→16
+ENCODER_CHANNEL_MULTIPLIERS = [1, 2, 4, 8, 16]    # Progressive increase: 16→32→64→128→256
+DECODER_CHANNEL_DIVISORS = [16, 8, 4, 2, 1]       # Progressive decrease: 256→128→64→32→16
 
 # Weight Initialization
 WEIGHT_INIT_STD = 0.02                  # Standard deviation for weight initialization
 
-# Initialize logger for this module
+# Initialize module logger
 logger = get_model_logger(__name__)
+
+# =============================================================================
+# NETWORK COMPONENTS
+# =============================================================================
 
 
 class ResidualBlock(nn.Module):
@@ -156,7 +178,7 @@ class CNNEncoder(nn.Module):
         
         # Initial feature extraction with aggressive downsampling
         self.initial_conv = nn.Sequential(
-            nn.Conv3d(input_channels, base_channels, kernel_size=ENCODER_KERNEL_SIZE_INITIAL, 
+            nn.Conv3d(input_channels, base_channels, kernel_size=ENCODER_KERNEL_INITIAL, 
                       stride=ENCODER_STRIDE_INITIAL, padding=ENCODER_PADDING_INITIAL, bias=False),
             nn.BatchNorm3d(base_channels),
             nn.ReLU(inplace=True),
@@ -166,16 +188,16 @@ class CNNEncoder(nn.Module):
         
         # Progressive feature extraction with residual blocks
         self.layer1 = self._make_layer(base_channels, base_channels * ENCODER_CHANNEL_MULTIPLIERS[1], 
-                                     NUM_RESIDUAL_BLOCKS_PER_LAYER, stride=1)
+                                     RESIDUAL_BLOCKS_PER_LAYER, stride=1)
         self.layer2 = self._make_layer(base_channels * ENCODER_CHANNEL_MULTIPLIERS[1], 
                                      base_channels * ENCODER_CHANNEL_MULTIPLIERS[2], 
-                                     NUM_RESIDUAL_BLOCKS_PER_LAYER, stride=2)
+                                     RESIDUAL_BLOCKS_PER_LAYER, stride=2)
         self.layer3 = self._make_layer(base_channels * ENCODER_CHANNEL_MULTIPLIERS[2], 
                                      base_channels * ENCODER_CHANNEL_MULTIPLIERS[3], 
-                                     NUM_RESIDUAL_BLOCKS_PER_LAYER, stride=2)
+                                     RESIDUAL_BLOCKS_PER_LAYER, stride=2)
         self.layer4 = self._make_layer(base_channels * ENCODER_CHANNEL_MULTIPLIERS[3], 
                                      base_channels * ENCODER_CHANNEL_MULTIPLIERS[4], 
-                                     NUM_RESIDUAL_BLOCKS_PER_LAYER, stride=2)
+                                     RESIDUAL_BLOCKS_PER_LAYER, stride=2)
         
         # Spatial dimension reduction to fixed-size feature vector
         self.global_avg_pool = nn.AdaptiveAvgPool3d((1, 1, 1))
