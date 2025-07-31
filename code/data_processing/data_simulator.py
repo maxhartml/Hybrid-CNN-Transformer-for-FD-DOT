@@ -25,10 +25,16 @@ Advanced phantom data generation for NIR tomography training datasets:
 • Binary morphological operations for surface extraction
 • Efficient spatial computations with scipy
 • Controlled randomization for reproducible datasets
-• 2mm voxel size for optimal phantom dimensions (128×128×128mm physical)
+• 1mm voxel size for optimal phantom dimensions (64×64×64mm physical)
+
+⚠️ CRITICAL BUG FIX (v2.3):
+• Fixed NIRFASTer indexing bug: source-detector links now use 1-based indexing
+• This was causing 21% of phantoms to have violated physics (wrong SDS relationships)
+• Problem: NIRFASTer expects 1-based indexing but Python uses 0-based indexing
+• Solution: measurement_links now store [idx+1, idx+1, 1] for proper NIRFASTer compatibility
 
 Author: Max Hart - NIR Tomography Research
-Version: 2.2 - High-Resolution Phantom Generation (2mm voxels optimized)
+Version: 2.3 - CRITICAL INDEXING BUG FIX (1-based vs 0-based indexing)
 """
 
 # System path configuration for NIRFASTer-FF library access
@@ -67,19 +73,19 @@ from scipy.spatial.distance import cdist        # Efficient pairwise distance co
 from code.utils.logging_config import get_data_logger, NIRDOTLogger
 
 # Constants for phantom generation
-DEFAULT_N_PHANTOMS = 150                      # Number of phantoms to generate for dataset
+DEFAULT_N_PHANTOMS = 10                      # Number of phantoms to generate for dataset
 DEFAULT_PHANTOM_SHAPE = (64, 64, 64)        # Default cubic phantom dimensions in voxels (power of 2)
-DEFAULT_TISSUE_RADIUS_RANGE = (25, 30)      # Healthy tissue ellipsoid semi-axis range (50-60mm with 2mm voxels)
-DEFAULT_TUMOR_RADIUS_RANGE = (5, 10)        # Tumor ellipsoid semi-axis range (10-20mm with 2mm voxels)
+DEFAULT_TISSUE_RADIUS_RANGE = (25, 30)      # Healthy tissue ellipsoid semi-axis range (25-30mm with 1mm voxels)
+DEFAULT_TUMOR_RADIUS_RANGE = (5, 10)        # Tumor ellipsoid semi-axis range (5-10mm with 1mm voxels)
 DEFAULT_MAX_TUMORS = 5                       # Maximum number of tumors per phantom
 DEFAULT_N_MEASUREMENTS = 256                # Number of independent source-detector pairs per phantom
 DEFAULT_MIN_PROBE_DISTANCE = 10              # Minimum source-detector separation [mm] for diffusive regime validity
 DEFAULT_MAX_PROBE_DISTANCE = 40              # Maximum source-detector separation [mm] for clinical signal detectability
 DEFAULT_PATCH_RADIUS = 30                    # Patch radius [mm] for surface probe placement (clinical probe array size)
-DEFAULT_MIN_PATCH_VOXELS = 400               # Minimum surface voxels for valid patch placement (reduced for better success)
+DEFAULT_MIN_PATCH_VOXELS = 400               # Minimum surface voxels for valid patch placement (for 1mm voxels)
 DEFAULT_FD_FREQUENCY = 140e6                 # Frequency-domain modulation frequency [Hz]
-DEFAULT_MESH_CELL_SIZE = 1.65                 # CGAL mesh characteristic cell size [mm] (high-resolution for physics accuracy)
-VOXEL_SIZE_MM = 2.0                          # Voxel size in millimeters for spatial calibration
+DEFAULT_MESH_CELL_SIZE = 1.65                # CGAL mesh characteristic cell size [mm] 
+VOXEL_SIZE_MM = 1.0                          # Voxel size in millimeters for spatial calibration
 
 # Tissue label constants for clarity and consistency
 AIR_LABEL = 0                                # Background air regions
@@ -101,12 +107,12 @@ PHASE_NOISE_STD_DEGREES = 0.1               # ±0.1° phase noise (precision res
 MAX_TUMOR_PLACEMENT_ATTEMPTS = 50            # Maximum iterations for tumor placement rejection sampling
 TUMOR_TISSUE_EMBEDDING_THRESHOLD = 0.80      # Required fraction of tumor volume inside tissue (80%)
 
-# Mesh validation parameters (scaled for 2mm voxels)
-MIN_ELEMENT_VOLUME_MM3 = 3.0                 # Minimum acceptable tetrahedral element volume [mm³] (scaled for 2mm)
-MAX_ELEMENT_VOLUME_MM3 = 200.0               # Maximum acceptable tetrahedral element volume [mm³] (scaled for 2mm)
+# Mesh validation parameters (targeting 1mm³ elements with 1mm voxels)
+MIN_ELEMENT_VOLUME_MM3 = 0.5                 # Minimum acceptable tetrahedral element volume [mm³] (targeting 1mm³)
+MAX_ELEMENT_VOLUME_MM3 = 3.0                 # Maximum acceptable tetrahedral element volume [mm³] (targeting 1mm³)
 
 # Surface processing and batch parameters  
-SURFACE_BATCH_SIZE = 1500                     # Batch size for safe center identification (increased for 2mm voxels)
+SURFACE_BATCH_SIZE = 1500                     # Batch size for safe center identification (for 1mm voxels)
 DEFAULT_RANDOM_SEED = 41                     # Default random seed for reproducibility
 
 # Phantom generation retry logic parameters
@@ -413,16 +419,17 @@ def mesh_volume(volume):
     # Configure meshing parameters for optimal FEM performance
     mesh_params = ff.utils.MeshingParams()
     # Set characteristic cell size balancing accuracy and computational cost
-    # For 2mm voxels (128x128x128mm domain), use slightly larger cells than 1mm case
-    # This maintains good mesh quality while managing computational requirements
-    mesh_params.general_cell_size = DEFAULT_MESH_CELL_SIZE  # 2.5mm optimized for 2mm voxel grids
+    # Using 1.65mm as specified by supervisor for consistent element quality with 1mm voxels
+    mesh_params.general_cell_size = DEFAULT_MESH_CELL_SIZE  # 1.65mm for optimal FEM accuracy
     
-    logger.info(f"Starting CGAL-based tetrahedral mesh generation (cell_size={mesh_params.general_cell_size})")
+    logger.info(f"Starting CGAL-based tetrahedral mesh generation")
+    logger.info(f"Mesh parameters: cell_size={mesh_params.general_cell_size}mm, voxel_spacing={VOXEL_SIZE_MM}mm")
     logger.debug(f"Input volume shape: {volume.shape}, unique labels: {np.unique(volume)}")
+    logger.debug(f"Expected element volume: ~{(mesh_params.general_cell_size/2)**3:.2f} mm³ (target: ~1mm³)")
     
     # Execute CGAL-based tetrahedral mesh generation
-    # This calls external C++ CGAL library for robust geometric mesh generation
-    logger.debug("Invoking CGAL mesh generator...")
+    # Using standard 1mm voxel approach - no special scaling needed
+    logger.debug("Invoking CGAL mesh generator with 1mm voxel spacing...")
     mesh_elements, mesh_nodes = ff.meshing.RunCGALMeshGenerator(volume, opt=mesh_params)
     
     # Perform comprehensive mesh quality validation
@@ -430,14 +437,19 @@ def mesh_volume(volume):
     logger.debug("Validating mesh quality and topology...")
     ff.meshing.CheckMesh3D(mesh_elements, mesh_nodes)
     
-    # Calculate mesh statistics
+    # Calculate mesh statistics and coverage analysis
     num_elements = mesh_elements.shape[0]
     num_nodes = mesh_nodes.shape[0]
     mesh_density = num_elements / np.prod(volume.shape)
     
+    # Calculate tissue coverage for validation
+    tissue_voxels = np.sum(volume >= 1)  # Count all tissue voxels (healthy + tumors)
+    tissue_volume_mm3 = tissue_voxels * (VOXEL_SIZE_MM ** 3)  # Convert to mm³ (1mm³ per voxel)
+    
     logger.info(f"✓ Mesh generation completed - {num_elements:,} tetrahedra, {num_nodes:,} nodes")
     logger.debug(f"Mesh density: {mesh_density:.3f} elements/voxel")
     logger.debug(f"Average nodes per element: {num_nodes/num_elements:.1f}")
+    logger.info(f"Tissue volume analysis: {tissue_voxels:,} voxels = {tissue_volume_mm3:,.0f} mm³")
     logger.debug("Mesh quality validation passed successfully")
     
     return mesh_elements, mesh_nodes
@@ -477,18 +489,18 @@ def create_stndmesh(mesh_elements, mesh_nodes):
     # - Surface face identification through adjacency analysis  
     # - Boundary node marking for Dirichlet/Robin boundary conditions
     
-    # CRITICAL FIX: Scale mesh nodes from voxel coordinates to physical millimeter coordinates
-    # NIRFASTer mesh generation produces nodes in voxel units, but physics simulation requires mm units
-    mesh_nodes_mm = mesh_nodes * VOXEL_SIZE_MM
-    logger.debug(f"Scaling mesh nodes from voxel coordinates to physical coordinates (×{VOXEL_SIZE_MM}mm)")
-    
-    phantom_mesh.from_solid(mesh_elements, mesh_nodes_mm)
+    # Using standard 1mm voxel approach - mesh nodes are already in correct physical coordinates
+    logger.debug("Using standard 1mm voxel mesh coordinates")
+    phantom_mesh.from_solid(mesh_elements, mesh_nodes)  # Direct usage for 1mm voxels
     
     # Extract and display mesh quality statistics for validation
     mean_element_volume = phantom_mesh.element_area.mean()  # Note: 'element_area' actually stores volumes for 3D elements
     std_element_volume = phantom_mesh.element_area.std()
+    total_mesh_volume = phantom_mesh.element_area.sum()  # Total meshed volume
+    
     logger.info(f"Mesh statistics: {mesh_elements.shape[0]} tetrahedra, {mesh_nodes.shape[0]} nodes")
     logger.info(f"Element volume statistics: {mean_element_volume:.3f} ± {std_element_volume:.3f} mm³")
+    logger.info(f"Total meshed volume: {total_mesh_volume:,.0f} mm³")
     
     # Validate mesh quality metrics are within acceptable bounds
     if mean_element_volume < MIN_ELEMENT_VOLUME_MM3 or mean_element_volume > MAX_ELEMENT_VOLUME_MM3:
@@ -886,9 +898,10 @@ def build_patch_based_probe_layout(surface_coordinates, n_measurements=DEFAULT_N
             
             # STEP 5.4.6: Generate measurement connectivity link with proper NIRFASTer indexing
             # NIRFASTer format: [source_index, detector_index, active_flag] 
-            # For independent source-detector pairs: source index = measurement index, detector index = measurement index
-            # This creates a 1:1 mapping where measurement i uses source[i] and detector[i]
-            measurement_links.append([measurement_idx, measurement_idx, 1])
+            # CRITICAL FIX: NIRFASTer uses 1-BASED indexing, not 0-based!
+            # For independent source-detector pairs: source index = measurement index + 1, detector index = measurement index + 1
+            # This creates a 1:1 mapping where measurement i uses source[i+1] and detector[i+1] in NIRFASTer convention
+            measurement_links.append([measurement_idx + 1, measurement_idx + 1, 1])
             pair_placed = True
     
     # STEP 5.5: Validate and report placement results
@@ -1122,13 +1135,13 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
         phase_dataset.attrs["shape_interpretation"] = "(N_measurements,) - one value per independent source-detector pair"
 
         # SUBSTEP 5.2: Save complete geometric configuration for reconstruction and visualization
-        # CRITICAL FIX: Reorder source-detector pairs to match NIRFASTer measurement ordering
+        # CRITICAL FIX: Handle NIRFASTer 1-based indexing correctly
         # NIRFASTer femdata() returns measurements in the order specified by measurement_links,
-        # so we must save source/detector positions in the same order for physics consistency
+        # but measurement_links uses 1-based indexing while Python arrays use 0-based indexing
         
-        # Extract source and detector indices from measurement links
-        source_indices = measurement_links[:, 0].astype(int)
-        detector_indices = measurement_links[:, 1].astype(int) 
+        # Extract source and detector indices from measurement links (convert from 1-based to 0-based for Python arrays)
+        source_indices = (measurement_links[:, 0] - 1).astype(int)  # Convert from 1-based to 0-based
+        detector_indices = (measurement_links[:, 1] - 1).astype(int)  # Convert from 1-based to 0-based
         
         # Reorder positions to match measurement order returned by femdata()
         ordered_sources_mm = probe_sources_mm[source_indices]  # Sources in measurement order
@@ -1136,14 +1149,14 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
         
         source_dataset = h5_file.create_dataset("source_positions", data=ordered_sources_mm)
         source_dataset.attrs["units"] = "mm"
-        source_dataset.attrs["description"] = "NIR source positions in phantom coordinate system (ordered by measurement_links)"
+        source_dataset.attrs["description"] = "NIR source positions in phantom coordinate system (ordered by measurement_links with 1-based indexing)"
         source_dataset.attrs["coordinate_system"] = f"Physical coordinates in millimeters (voxel_size={VOXEL_SIZE_MM}mm)"
         source_dataset.attrs["placement_method"] = "Patch-based surface sampling with clinical constraints"
         source_dataset.attrs["ordering"] = "Positions ordered to match femdata() measurement sequence"
         
         detector_dataset = h5_file.create_dataset("detector_positions", data=ordered_detectors_mm)
         detector_dataset.attrs["units"] = "mm"
-        detector_dataset.attrs["description"] = "Detector positions for independent measurements (ordered by measurement_links)"
+        detector_dataset.attrs["description"] = "Detector positions for independent measurements (ordered by measurement_links with 1-based indexing)"
         detector_dataset.attrs["coordinate_system"] = f"Physical coordinates in millimeters (voxel_size={VOXEL_SIZE_MM}mm)"
         detector_dataset.attrs["sds_range"] = f"[{DEFAULT_MIN_PROBE_DISTANCE}, {DEFAULT_MAX_PROBE_DISTANCE}]mm"
         detector_dataset.attrs["grouping"] = "Shape: (N_measurements, 3) for [measurement_idx][x,y,z] ordered by links"
@@ -1151,8 +1164,8 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
         
         # SUBSTEP 5.3: Save measurement connectivity matrix for source-detector pairing validation
         links_dataset = h5_file.create_dataset("measurement_links", data=measurement_links)
-        links_dataset.attrs["description"] = "Source-detector connectivity matrix defining measurement pairs"
-        links_dataset.attrs["columns"] = "[source_index, detector_index, active_flag]"
+        links_dataset.attrs["description"] = "Source-detector connectivity matrix defining measurement pairs (1-based indexing for NIRFASTer compatibility)"
+        links_dataset.attrs["columns"] = "[source_index, detector_index, active_flag] where indices are 1-based (NIRFASTer convention)"
         links_dataset.attrs["active_measurements"] = f"{np.sum(measurement_links[:, 2])}/{len(measurement_links)}"
         links_dataset.attrs["usage"] = "Identifies which source-detector pairs contribute to measurement vector"
 

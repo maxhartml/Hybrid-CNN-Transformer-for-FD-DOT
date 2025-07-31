@@ -259,16 +259,16 @@ class HybridCNNTransformer(nn.Module):
                 logger.debug(f"📦 Reshaped NIR features: {nir_features.shape}")
                 
                 # Project all measurements to CNN feature space  
-                projected_features = self.nir_projection(nir_features)  # (batch_size * 256, 512)
+                projected_features = self.nir_projection(nir_features)  # (batch_size * 256, 256)
                 logger.debug(f"📦 Projected features: {projected_features.shape}")
                 
                 # Reshape back to batch format and aggregate measurements per phantom
-                projected_features = projected_features.view(batch_size, n_measurements, 512)  # (batch_size, 256, 512)
+                projected_features = projected_features.view(batch_size, n_measurements, cnn_config.FEATURE_DIM)  # (batch_size, 256, 256)
                 logger.debug(f"📦 Reshaped projected features: {projected_features.shape}")
                 
                 # Aggregate measurements to single feature vector per phantom
                 # Using mean pooling across all measurements - could also use attention pooling
-                cnn_features = projected_features.mean(dim=1)  # (batch_size, 512)
+                cnn_features = projected_features.mean(dim=1)  # (batch_size, 256)
                 logger.debug(f"📦 Aggregated CNN features: {cnn_features.shape}")
                 
             elif len(dot_measurements.shape) == 2 and dot_measurements.shape[1] == self.nir_input_dim:
@@ -277,14 +277,14 @@ class HybridCNNTransformer(nn.Module):
                 nir_features = dot_measurements  # Shape: (batch_size, nir_input_dim)
                 
                 # Project NIR measurements to CNN feature space  
-                cnn_features = self.nir_projection(nir_features)  # Shape: (batch_size, 512)
+                cnn_features = self.nir_projection(nir_features)  # Shape: (batch_size, 256)
                 logger.debug(f"📦 Individual NIR features projected: {cnn_features.shape}")
                 
             else:
                 logger.debug(f"🔍 Processing ground truth volumes: {dot_measurements.shape}")
                 # Ground truth volumes input (for compatibility): extract CNN features
                 with torch.no_grad() if self.training else torch.enable_grad():
-                    cnn_features = self.cnn_autoencoder.encode(dot_measurements)  # (batch, 512)
+                    cnn_features = self.cnn_autoencoder.encode(dot_measurements)  # (batch, 256)
             
             # Process tissue patches based on toggle
             processed_tissue_patches = self.toggle_utils.process_tissue_patches(
@@ -297,7 +297,7 @@ class HybridCNNTransformer(nn.Module):
                 if processed_tissue_patches is not None:
                     tissue_context = self.tissue_encoder(processed_tissue_patches)
             
-            # Transform features using transformer (expecting 512D CNN features)
+            # Transform features using transformer (expecting 256D CNN features)
             # Ensure CNN features require gradients for backpropagation
             if not cnn_features.requires_grad:
                 cnn_features = cnn_features.detach().requires_grad_(True)

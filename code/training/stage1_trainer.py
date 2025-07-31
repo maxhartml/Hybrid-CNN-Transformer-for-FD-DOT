@@ -72,9 +72,14 @@ USE_TISSUE_PATCHES = False              # Stage 1 doesn't use tissue patches
 TRAINING_STAGE = "stage1"               # Training stage identifier
 
 # Weights & Biases Configuration
-WANDB_PROJECT = "nir-dot-reconstruction"     # W&B project name
+WANDB_PROJECT = "nir-dot-stage1"     # W&B project name for Stage 1
 LOG_IMAGES_EVERY = 5                         # Log reconstruction images every N epochs (reduced for debugging)
 WANDB_TAGS_STAGE1 = ["stage1", "cnn-autoencoder", "pretraining", "nir-dot"]
+
+# W&B Organization Structure for Stage 1:
+# - Charts/: Training metrics (train_loss, val_loss, learning_rate, train_val_loss_ratio)
+# - Reconstructions/: Image reconstructions by epoch (predicted vs target slices)
+# - System/: System metrics (final_best_val_loss)
 
 # Initialize module logger
 logger = get_training_logger(__name__)
@@ -328,12 +333,12 @@ class Stage1Trainer:
             target_yz_norm = normalize_for_display(target_yz)
             
             wandb.log({
-                f"reconstructions/epoch_{epoch}/predicted_xy_slice": wandb.Image(pred_xy_norm),
-                f"reconstructions/epoch_{epoch}/target_xy_slice": wandb.Image(target_xy_norm),
-                f"reconstructions/epoch_{epoch}/predicted_xz_slice": wandb.Image(pred_xz_norm),
-                f"reconstructions/epoch_{epoch}/target_xz_slice": wandb.Image(target_xz_norm),
-                f"reconstructions/epoch_{epoch}/predicted_yz_slice": wandb.Image(pred_yz_norm),
-                f"reconstructions/epoch_{epoch}/target_yz_slice": wandb.Image(target_yz_norm),
+                f"Reconstructions/epoch_{epoch}/predicted_xy_slice": wandb.Image(pred_xy_norm),
+                f"Reconstructions/epoch_{epoch}/target_xy_slice": wandb.Image(target_xy_norm),
+                f"Reconstructions/epoch_{epoch}/predicted_xz_slice": wandb.Image(pred_xz_norm),
+                f"Reconstructions/epoch_{epoch}/target_xz_slice": wandb.Image(target_xz_norm),
+                f"Reconstructions/epoch_{epoch}/predicted_yz_slice": wandb.Image(pred_yz_norm),
+                f"Reconstructions/epoch_{epoch}/target_yz_slice": wandb.Image(target_yz_norm),
             })
             
             logger.debug(f"✅ Successfully logged reconstruction images for epoch {epoch}")
@@ -427,14 +432,14 @@ class Stage1Trainer:
             val_loss = self.validate(data_loaders['val'])
             logger.info(f"🔍 Validation completed - Average Loss: {val_loss:.6f}")
             
-            # Log to W&B
+            # Log to W&B with organized structure
             if self.use_wandb:
                 wandb.log({
                     "epoch": epoch + 1,
-                    "train_loss": train_loss,
-                    "val_loss": val_loss,
-                    "learning_rate": self.optimizer.param_groups[0]['lr'],
-                    "train_val_loss_ratio": train_loss / val_loss if val_loss > 0 else 0,
+                    "Charts/train_loss": train_loss,
+                    "Charts/val_loss": val_loss,
+                    "Charts/learning_rate": self.optimizer.param_groups[0]['lr'],
+                    "Charts/train_val_loss_ratio": train_loss / val_loss if val_loss > 0 else 0,
                 })
                 
                 # Log reconstruction images periodically (and always on first/last epoch)
@@ -472,7 +477,7 @@ class Stage1Trainer:
         
         # Finish W&B run
         if self.use_wandb:
-            wandb.log({"final_best_val_loss": best_val_loss})
+            wandb.log({"System/final_best_val_loss": best_val_loss})
             wandb.finish()
             logger.info("🔬 W&B experiment finished")
         

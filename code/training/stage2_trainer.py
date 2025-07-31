@@ -81,10 +81,16 @@ ENHANCED_MODE = "Enhanced"              # Enhanced training mode name
 FREEZE_CNN_PARAMS = True                # Whether to freeze all CNN autoencoder parameters
 
 # Weights & Biases Configuration
-WANDB_PROJECT = "nir-dot-reconstruction"     # W&B project name
-LOG_IMAGES_EVERY = 10                        # Log reconstruction images every N epochs
+WANDB_PROJECT = "nir-dot-stage2"     # W&B project name for Stage 2
+LOG_IMAGES_EVERY = 5                         # Log reconstruction images every N epochs (consistent with Stage 1)
 WANDB_TAGS_STAGE2_BASELINE = ["stage2", "transformer", "baseline", "nir-dot"]
 WANDB_TAGS_STAGE2_ENHANCED = ["stage2", "transformer", "enhanced", "tissue-patches", "nir-dot"]
+
+# W&B Organization Structure for Stage 2:
+# - Charts/: Training metrics (train_loss, val_loss, learning_rate, train_val_loss_ratio)
+# - Reconstructions/: Image reconstructions by epoch (predicted vs target vs error slices)
+# - Transformer/: Transformer-specific metrics (feature magnitudes, attention entropy, enhancement ratios)
+# - System/: System metrics (mode, use_tissue_patches, final_best_val_loss, final_mode)
 
 # Initialize module logger
 logger = get_training_logger(__name__)
@@ -429,37 +435,68 @@ class Stage2Trainer:
             pred_batch = predictions[0].cpu().numpy()  # First item in batch
             target_batch = targets[0].cpu().numpy()
             
+            logger.debug(f"Logging Stage 2 images - Pred shape: {pred_batch.shape}, Target shape: {target_batch.shape}")
+            
+            # Function to normalize data to 0-255 range for W&B visualization
+            def normalize_for_display(data):
+                """Normalize data to 0-255 range for W&B visualization."""
+                data_min = data.min()
+                data_max = data.max()
+                if data_max > data_min:
+                    normalized = ((data - data_min) / (data_max - data_min)) * 255.0
+                else:
+                    normalized = np.zeros_like(data)
+                return normalized.astype(np.uint8)
+            
             # Log slices from different dimensions (absorption coefficient channel)
             absorption_channel = 0
             
-            # XY plane (Z=32)
+            # XY plane (Z=32) - middle slice in Z dimension
             pred_xy = pred_batch[absorption_channel, :, :, pred_batch.shape[-1]//2]
             target_xy = target_batch[absorption_channel, :, :, target_batch.shape[-1]//2]
             
-            # XZ plane (Y=32) 
+            # XZ plane (Y=32) - middle slice in Y dimension
             pred_xz = pred_batch[absorption_channel, :, pred_batch.shape[-2]//2, :]
             target_xz = target_batch[absorption_channel, :, target_batch.shape[-2]//2, :]
             
-            # YZ plane (X=32)
+            # YZ plane (X=32) - middle slice in X dimension
             pred_yz = pred_batch[absorption_channel, pred_batch.shape[-3]//2, :, :]
             target_yz = target_batch[absorption_channel, target_batch.shape[-3]//2, :, :]
             
-            # Calculate reconstruction error map
+            # Calculate reconstruction error map for analysis
             error_xy = np.abs(pred_xy - target_xy)
+            error_xz = np.abs(pred_xz - target_xz) 
+            error_yz = np.abs(pred_yz - target_yz)
             
-            mode = "enhanced" if self.use_tissue_patches else "baseline"
+            # Normalize all images for proper W&B display
+            pred_xy_norm = normalize_for_display(pred_xy)
+            target_xy_norm = normalize_for_display(target_xy)
+            error_xy_norm = normalize_for_display(error_xy)
+            pred_xz_norm = normalize_for_display(pred_xz)
+            target_xz_norm = normalize_for_display(target_xz)
+            error_xz_norm = normalize_for_display(error_xz)
+            pred_yz_norm = normalize_for_display(pred_yz)
+            target_yz_norm = normalize_for_display(target_yz)
+            error_yz_norm = normalize_for_display(error_yz)
+            
+            mode = "Enhanced" if self.use_tissue_patches else "Baseline"
             wandb.log({
-                f"stage2_{mode}/epoch_{epoch}/predicted_xy_slice": wandb.Image(pred_xy),
-                f"stage2_{mode}/epoch_{epoch}/target_xy_slice": wandb.Image(target_xy),
-                f"stage2_{mode}/epoch_{epoch}/error_xy_slice": wandb.Image(error_xy),
-                f"stage2_{mode}/epoch_{epoch}/predicted_xz_slice": wandb.Image(pred_xz),
-                f"stage2_{mode}/epoch_{epoch}/target_xz_slice": wandb.Image(target_xz),
-                f"stage2_{mode}/epoch_{epoch}/predicted_yz_slice": wandb.Image(pred_yz),
-                f"stage2_{mode}/epoch_{epoch}/target_yz_slice": wandb.Image(target_yz),
+                f"Reconstructions/epoch_{epoch}/predicted_xy_slice": wandb.Image(pred_xy_norm),
+                f"Reconstructions/epoch_{epoch}/target_xy_slice": wandb.Image(target_xy_norm),
+                f"Reconstructions/epoch_{epoch}/error_xy_slice": wandb.Image(error_xy_norm),
+                f"Reconstructions/epoch_{epoch}/predicted_xz_slice": wandb.Image(pred_xz_norm),
+                f"Reconstructions/epoch_{epoch}/target_xz_slice": wandb.Image(target_xz_norm),
+                f"Reconstructions/epoch_{epoch}/error_xz_slice": wandb.Image(error_xz_norm),
+                f"Reconstructions/epoch_{epoch}/predicted_yz_slice": wandb.Image(pred_yz_norm),
+                f"Reconstructions/epoch_{epoch}/target_yz_slice": wandb.Image(target_yz_norm),
+                f"Reconstructions/epoch_{epoch}/error_yz_slice": wandb.Image(error_yz_norm),
             })
+            
+            logger.debug(f"✅ Successfully logged Stage 2 reconstruction images for epoch {epoch}")
             
         except Exception as e:
             logger.warning(f"⚠️ Failed to log Stage 2 reconstruction images: {e}")
+            logger.debug(f"Error details: {str(e)}")
     
     def validate(self, data_loader):
         """
@@ -467,14 +504,20 @@ class Stage2Trainer:
         
         This method performs forward propagation without gradient computation
         to assess the performance of the enhanced model on unseen data.
-        Includes tissue patch processing when enabled.
+        Includes tissue patch processing when enabled and collects transformer-specific metrics.
         
         Args:
             data_loader: DataLoader containing validation batches with
-                        'measurements', 'volumes', and optionally 'tissue_patches'
+                        'nir_measurements', 'ground_truth', and optionally 'tissue_patches'
         
         Returns:
-            float: Average validation loss across all validation batches
+            tuple: (average_validation_loss, transformer_metrics_dict)
+                - average_validation_loss (float): Average validation loss across all batches
+                - transformer_metrics_dict (dict): Dictionary containing transformer analysis metrics:
+                    - avg_cnn_feature_magnitude: Average magnitude of CNN features
+                    - avg_enhanced_feature_magnitude: Average magnitude of transformer-enhanced features  
+                    - avg_attention_entropy: Average entropy of attention distributions
+                    - feature_enhancement_ratio: Ratio of enhanced to original feature magnitudes
         """
         logger.debug("🔍 Starting Stage 2 validation epoch...")
         self.model.eval()
@@ -484,6 +527,11 @@ class Stage2Trainer:
         logger.debug(f"📊 Processing {len(data_loader)} Stage 2 validation batches")
         
         with torch.no_grad():
+            # Track transformer-specific metrics
+            cnn_feature_magnitudes = []
+            enhanced_feature_magnitudes = []
+            attention_entropies = []
+            
             for batch_idx, batch in enumerate(data_loader):
                 logger.debug(f"🔍 Validating Stage 2 batch {batch_idx + 1}/{len(data_loader)}")
                 
@@ -508,13 +556,43 @@ class Stage2Trainer:
                 total_loss += loss.item()
                 num_batches += 1
                 
+                # Collect transformer metrics for analysis
+                if 'cnn_features' in outputs and 'enhanced_features' in outputs:
+                    cnn_mag = torch.norm(outputs['cnn_features'], dim=1).mean().item()
+                    enhanced_mag = torch.norm(outputs['enhanced_features'], dim=1).mean().item()
+                    cnn_feature_magnitudes.append(cnn_mag)
+                    enhanced_feature_magnitudes.append(enhanced_mag)
+                
+                # Attention entropy analysis (if available)
+                if 'attention_weights' in outputs and outputs['attention_weights'] is not None:
+                    attention = outputs['attention_weights']
+                    # Calculate entropy of attention distribution (higher = more uniform, lower = more focused)
+                    entropy = -torch.sum(attention * torch.log(attention + 1e-8), dim=-1).mean().item()
+                    attention_entropies.append(entropy)
+                
                 # Show validation batch progress at INFO level (every batch)
                 mode = "Enhanced" if self.use_tissue_patches else "Baseline"
                 logger.info(f"🔍 Stage 2 {mode} Val Batch {batch_idx + 1}/{len(data_loader)}: Loss = {loss.item():.6f}, Avg = {total_loss/num_batches:.6f}")
         
         avg_loss = total_loss / num_batches
+        
+        # Calculate average transformer metrics
+        transformer_metrics = {}
+        if cnn_feature_magnitudes:
+            transformer_metrics['avg_cnn_feature_magnitude'] = sum(cnn_feature_magnitudes) / len(cnn_feature_magnitudes)
+        if enhanced_feature_magnitudes:
+            transformer_metrics['avg_enhanced_feature_magnitude'] = sum(enhanced_feature_magnitudes) / len(enhanced_feature_magnitudes)
+        if attention_entropies:
+            transformer_metrics['avg_attention_entropy'] = sum(attention_entropies) / len(attention_entropies)
+        
+        # Calculate feature enhancement ratio
+        if cnn_feature_magnitudes and enhanced_feature_magnitudes:
+            avg_cnn = transformer_metrics['avg_cnn_feature_magnitude']
+            avg_enhanced = transformer_metrics['avg_enhanced_feature_magnitude']
+            transformer_metrics['feature_enhancement_ratio'] = avg_enhanced / avg_cnn if avg_cnn > 0 else 1.0
+        
         logger.debug(f"✅ Stage 2 validation completed. Average loss: {avg_loss:.6f}")
-        return avg_loss
+        return avg_loss, transformer_metrics
     
     def train(self, data_loaders, epochs=EPOCHS):
         """
@@ -556,26 +634,36 @@ class Stage2Trainer:
             
             # Validate: Evaluate hybrid model on unseen data (no parameter updates)
             logger.debug(f"🔍 Beginning Stage 2 validation phase for epoch {epoch+1}")
-            val_loss = self.validate(data_loaders['val'])
+            val_loss, transformer_metrics = self.validate(data_loaders['val'])
             logger.info(f"🔍 Stage 2 Validation completed - Average Loss: {val_loss:.6f}")
             
-            # Log to W&B
+            # Log to W&B with organized structure
             if self.use_wandb:
-                mode = "enhanced" if self.use_tissue_patches else "baseline"
-                wandb.log({
+                mode = "Enhanced" if self.use_tissue_patches else "Baseline"
+                log_dict = {
                     "epoch": epoch + 1,
-                    f"stage2_{mode}/train_loss": train_loss,
-                    f"stage2_{mode}/val_loss": val_loss,
-                    f"stage2_{mode}/learning_rate": self.optimizer.param_groups[0]['lr'],
-                    f"stage2_{mode}/train_val_loss_ratio": train_loss / val_loss if val_loss > 0 else 0,
-                })
+                    f"Charts/train_loss": train_loss,
+                    f"Charts/val_loss": val_loss,
+                    f"Charts/learning_rate": self.optimizer.param_groups[0]['lr'],
+                    f"Charts/train_val_loss_ratio": train_loss / val_loss if val_loss > 0 else 0,
+                    f"System/mode": mode,
+                    f"System/use_tissue_patches": self.use_tissue_patches,
+                }
                 
-                # Log reconstruction images periodically
-                if epoch % LOG_IMAGES_EVERY == 0:
+                # Add transformer-specific metrics
+                for metric_name, metric_value in transformer_metrics.items():
+                    log_dict[f"Transformer/{metric_name}"] = metric_value
+                
+                wandb.log(log_dict)
+                
+                # Log reconstruction images periodically (and always on first/last epoch)
+                should_log_images = (epoch % LOG_IMAGES_EVERY == 0) or (epoch == 0) or (epoch == epochs - 1)
+                if should_log_images:
                     try:
                         sample_batch = next(iter(data_loaders['val']))
-                        measurements = sample_batch['measurements'].to(self.device)
-                        targets = sample_batch['volumes'].to(self.device)
+                        # Stage 2 uses NIR measurements as input and ground truth as target
+                        measurements = sample_batch['nir_measurements'].to(self.device)  # Fixed key
+                        targets = sample_batch['ground_truth'].to(self.device)          # Fixed key
                         tissue_patches = sample_batch.get('tissue_patches', None)
                         if tissue_patches is not None:
                             tissue_patches = tissue_patches.to(self.device)
@@ -587,8 +675,8 @@ class Stage2Trainer:
                         logger.warning(f"⚠️ Failed to log Stage 2 images at epoch {epoch + 1}: {e}")
             
             # Print progress
-            if epoch % PROGRESS_LOG_INTERVAL == 0:
-                logger.info(f"📈 Stage 2 Epoch {epoch+1:3d}: Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}")
+            if epoch % PROGRESS_LOG_INTERVAL == 0 or epoch == epochs - 1:
+                logger.info(f"📈 Stage 2 Epoch {epoch+1:3d}/{epochs}: Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}")
             
             # Save best model
             if val_loss < best_val_loss:
@@ -609,7 +697,8 @@ class Stage2Trainer:
         # Finish W&B run
         if self.use_wandb:
             mode = "enhanced" if self.use_tissue_patches else "baseline"
-            wandb.log({f"stage2_{mode}/final_best_val_loss": best_val_loss})
+            mode = "Enhanced" if self.use_tissue_patches else "Baseline"
+            wandb.log({f"System/final_best_val_loss": best_val_loss, f"System/final_mode": mode})
             wandb.finish()
             logger.info("🔬 W&B Stage 2 experiment finished")
         
