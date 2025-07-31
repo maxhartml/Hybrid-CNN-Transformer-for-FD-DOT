@@ -73,7 +73,7 @@ TRAINING_STAGE = "stage1"               # Training stage identifier
 
 # Weights & Biases Configuration
 WANDB_PROJECT = "nir-dot-reconstruction"     # W&B project name
-LOG_IMAGES_EVERY = 10                        # Log reconstruction images every N epochs
+LOG_IMAGES_EVERY = 5                         # Log reconstruction images every N epochs (reduced for debugging)
 WANDB_TAGS_STAGE1 = ["stage1", "cnn-autoencoder", "pretraining", "nir-dot"]
 
 # Initialize module logger
@@ -291,32 +291,56 @@ class Stage1Trainer:
             pred_batch = predictions[0].cpu().numpy()  # First item in batch
             target_batch = targets[0].cpu().numpy()
             
+            logger.debug(f"Logging images - Pred shape: {pred_batch.shape}, Target shape: {target_batch.shape}")
+            
+            # Function to normalize data to 0-255 range for W&B visualization
+            def normalize_for_display(data):
+                """Normalize data to 0-255 range for W&B visualization."""
+                data_min = data.min()
+                data_max = data.max()
+                if data_max > data_min:
+                    normalized = ((data - data_min) / (data_max - data_min)) * 255.0
+                else:
+                    normalized = np.zeros_like(data)
+                return normalized.astype(np.uint8)
+            
             # Log slices from different dimensions (absorption coefficient channel)
             absorption_channel = 0
             
-            # XY plane (Z=32)
+            # XY plane (Z=32) - middle slice in Z dimension
             pred_xy = pred_batch[absorption_channel, :, :, pred_batch.shape[-1]//2]
             target_xy = target_batch[absorption_channel, :, :, target_batch.shape[-1]//2]
             
-            # XZ plane (Y=32) 
+            # XZ plane (Y=32) - middle slice in Y dimension
             pred_xz = pred_batch[absorption_channel, :, pred_batch.shape[-2]//2, :]
             target_xz = target_batch[absorption_channel, :, target_batch.shape[-2]//2, :]
             
-            # YZ plane (X=32)
+            # YZ plane (X=32) - middle slice in X dimension
             pred_yz = pred_batch[absorption_channel, pred_batch.shape[-3]//2, :, :]
             target_yz = target_batch[absorption_channel, target_batch.shape[-3]//2, :, :]
             
+            # Normalize all images for proper W&B display
+            pred_xy_norm = normalize_for_display(pred_xy)
+            target_xy_norm = normalize_for_display(target_xy)
+            pred_xz_norm = normalize_for_display(pred_xz)
+            target_xz_norm = normalize_for_display(target_xz)
+            pred_yz_norm = normalize_for_display(pred_yz)
+            target_yz_norm = normalize_for_display(target_yz)
+            
             wandb.log({
-                f"reconstructions/epoch_{epoch}/predicted_xy_slice": wandb.Image(pred_xy),
-                f"reconstructions/epoch_{epoch}/target_xy_slice": wandb.Image(target_xy),
-                f"reconstructions/epoch_{epoch}/predicted_xz_slice": wandb.Image(pred_xz),
-                f"reconstructions/epoch_{epoch}/target_xz_slice": wandb.Image(target_xz),
-                f"reconstructions/epoch_{epoch}/predicted_yz_slice": wandb.Image(pred_yz),
-                f"reconstructions/epoch_{epoch}/target_yz_slice": wandb.Image(target_yz),
+                f"reconstructions/epoch_{epoch}/predicted_xy_slice": wandb.Image(pred_xy_norm),
+                f"reconstructions/epoch_{epoch}/target_xy_slice": wandb.Image(target_xy_norm),
+                f"reconstructions/epoch_{epoch}/predicted_xz_slice": wandb.Image(pred_xz_norm),
+                f"reconstructions/epoch_{epoch}/target_xz_slice": wandb.Image(target_xz_norm),
+                f"reconstructions/epoch_{epoch}/predicted_yz_slice": wandb.Image(pred_yz_norm),
+                f"reconstructions/epoch_{epoch}/target_yz_slice": wandb.Image(target_yz_norm),
             })
+            
+            logger.debug(f"✅ Successfully logged reconstruction images for epoch {epoch}")
             
         except Exception as e:
             logger.warning(f"⚠️ Failed to log reconstruction images: {e}")
+            logger.debug(f"Error details: {str(e)}")
     
     def validate(self, data_loader):
         """
@@ -413,8 +437,9 @@ class Stage1Trainer:
                     "train_val_loss_ratio": train_loss / val_loss if val_loss > 0 else 0,
                 })
                 
-                # Log reconstruction images periodically
-                if epoch % LOG_IMAGES_EVERY == 0:
+                # Log reconstruction images periodically (and always on first/last epoch)
+                should_log_images = (epoch % LOG_IMAGES_EVERY == 0) or (epoch == 0) or (epoch == epochs - 1)
+                if should_log_images:
                     # Get a batch for visualization
                     try:
                         sample_batch = next(iter(data_loaders['val']))

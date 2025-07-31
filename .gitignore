@@ -90,6 +90,21 @@ plots/
 figures/
 visualizations/
 
+# =============================================================================
+# Machine Learning & Experiment Tracking
+# =============================================================================
+# Weights & Biases experiment tracking - contains runs, artifacts, and personal data
+wandb/
+.wandb/
+wandb-metadata.json
+
+# TensorBoard logs (if used)
+runs/
+tensorboard_logs/
+
+# MLflow tracking (if used)
+mlruns/
+
 # Model checkpoints and training artifacts
 checkpoints/
 models/*.pth

@@ -109,6 +109,10 @@ MAX_ELEMENT_VOLUME_MM3 = 200.0               # Maximum acceptable tetrahedral el
 SURFACE_BATCH_SIZE = 1500                     # Batch size for safe center identification (increased for 2mm voxels)
 DEFAULT_RANDOM_SEED = 41                     # Default random seed for reproducibility
 
+# Phantom generation retry logic parameters
+MAX_PHANTOM_RETRY_ATTEMPTS = 3               # Maximum retry attempts per phantom when NaN values detected
+RETRY_SEED_OFFSET = 1000                     # Seed offset for retries to ensure different geometry
+
 # Initialize logger for the module using centralized logging system
 logger = get_data_logger(__name__)
 
@@ -934,6 +938,7 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
     4. Adds realistic amplitude and phase noise.
     5. Applies log-amplitude transformation and reshapes data for ML.
     6. Saves all results, geometry, and ground truth to HDF5 with metadata.
+    7. Validates measurement quality and detects NaN values.
 
     Args:
         phantom_mesh: NIRFASTer mesh with assigned optical properties.
@@ -946,7 +951,8 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
         output_h5_filename: Output HDF5 file path.
 
     Returns:
-        None. Writes HDF5 file and logs progress.
+        bool: True if simulation succeeded without NaN values, False if NaN detected.
+              Used for retry logic to prevent saving corrupted phantoms.
     """
     
     # STEP 1: Configure mesh with comprehensive optode integration and geometric validation
@@ -1073,10 +1079,23 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
     logger.debug(f"                          phase=[{phase_range[0]:.1f}°, {phase_range[1]:.1f}°]")
     
     # Validate measurement quality and detect potential numerical issues
+    has_nan_values = False
     if log_amp_range[0] < -50 or log_amp_range[1] > 50:
         logger.warning(f"Log-amplitude range may be outside optimal bounds for neural networks")
     if np.any(np.isnan(log_amplitude_processed)) or np.any(np.isnan(phase_processed)):
         logger.error("NaN values detected in processed measurements - check phantom geometry")
+        has_nan_values = True
+        
+        # Count and report NaN statistics for debugging
+        n_nan_amplitude = np.sum(np.isnan(log_amplitude_processed))
+        n_nan_phase = np.sum(np.isnan(phase_processed))
+        total_measurements = len(log_amplitude_processed)
+        logger.error(f"NaN Statistics: {n_nan_amplitude}/{total_measurements} amplitude NaNs ({n_nan_amplitude/total_measurements*100:.1f}%), "
+                    f"{n_nan_phase}/{total_measurements} phase NaNs ({n_nan_phase/total_measurements*100:.1f}%)")
+        
+        # Return early if NaN values detected - don't save corrupted data
+        logger.error("Phantom generation failed due to NaN values - returning False for retry")
+        return False
 
     # STEP 5: Save complete dataset to hierarchical HDF5 format with comprehensive metadata
     # HDF5 provides efficient storage, compression, and self-describing metadata for large datasets
@@ -1170,6 +1189,9 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
     logger.info(f"✓ Dataset saved successfully - {output_h5_filename} ({file_size_mb:.1f} MB)")
     logger.info(f"Final dataset: {log_amplitude_processed.shape[0]} independent source-detector measurements")
     logger.debug(f"Ground truth shape: {ground_truth_maps.shape[0]}×{ground_truth_maps.shape[1]}×{ground_truth_maps.shape[2]}×{ground_truth_maps.shape[3]} voxels")
+    
+    # Return success - no NaN values detected
+    return True
 
 # --------------------------------------------------------------
 # VISUALIZATION: 3D PROBE-MESH RENDERING FOR GEOMETRIC VALIDATION
@@ -1415,73 +1437,121 @@ def main():
         phantom_dir.mkdir(exist_ok=True)  # Create directory with error handling
         logger.debug(f"Created phantom directory: {phantom_dir.absolute()}")
 
-        # SUBSTEP 3.2: Construct phantom geometry with controlled randomization and biological realism
-        # Uses unique random seed per phantom to ensure statistical independence between phantoms
-        # Prevents correlation artifacts that could bias machine learning model training
-        logger.info("Step 1/6: Constructing randomized phantom geometry with tissue and tumor embedding")
-        phantom_volume = build_phantom_with_tissue_and_tumours(rng_seed=44+phantom_idx)  # Offset seed for uniqueness
+        # RETRY LOOP: Attempt phantom generation with different seeds until success or max attempts reached
+        # This prevents NaN failures from corrupting the dataset and ensures all phantoms are valid
+        phantom_success = False
+        retry_attempt = 0
         
-        # SUBSTEP 3.3: Generate high-quality finite element mesh for accurate numerical simulation
-        # CGAL-based tetrahedral mesh generation ensures robust light transport modeling
-        # Mesh quality directly impacts forward modeling accuracy and reconstruction performance
-        logger.info("Step 2/6: Generating CGAL-based tetrahedral finite element mesh")
+        while not phantom_success and retry_attempt < MAX_PHANTOM_RETRY_ATTEMPTS:
+            if retry_attempt > 0:
+                logger.warning(f"Retrying phantom {phantom_idx+1} generation (attempt {retry_attempt+1}/{MAX_PHANTOM_RETRY_ATTEMPTS})")
+                
+            try:
+                # Use different seeds for retries to ensure completely different geometry
+                base_seed_offset = phantom_idx + (retry_attempt * RETRY_SEED_OFFSET)
+                
+                # SUBSTEP 3.2: Construct phantom geometry with controlled randomization and biological realism
+                # Uses unique random seed per phantom to ensure statistical independence between phantoms
+                # Prevents correlation artifacts that could bias machine learning model training
+                logger.info("Step 1/6: Constructing randomized phantom geometry with tissue and tumor embedding")
+                phantom_volume = build_phantom_with_tissue_and_tumours(rng_seed=44+base_seed_offset)  # Offset seed for uniqueness
         
-        # Temporarily suppress NIRFASTer warnings during mesh creation (they're harmless but noisy)
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")  # Suppress all warnings during mesh creation
-            mesh_elements, mesh_nodes = mesh_volume(phantom_volume)  # Raw mesh generation
-            phantom_mesh = create_stndmesh(mesh_elements, mesh_nodes)  # NIRFASTer standardization
-        
-        # SUBSTEP 3.4: Assign physiologically realistic optical properties with controlled randomization
-        # Uses literature-based optical coefficient ranges to ensure clinical relevance
-        # Ground truth maps provide pixel-perfect reference for supervised learning validation
-        logger.info("Step 3/6: Assigning physiological optical properties and generating ground truth maps")
-        phantom_mesh, ground_truth_maps = assign_optical_properties(phantom_mesh, phantom_volume, rng_seed=42+phantom_idx)
-        
-        # SUBSTEP 3.5: Extract tissue surface and generate clinically realistic probe configurations
-        # Patch-based placement simulates real clinical constraints and eliminates spatial bias
-        # Surface extraction ensures probes are positioned only on accessible tissue boundaries
-        logger.info("Step 4/6: Extracting tissue surface and generating patch-based probe layout")
-        surface_coordinates = extract_surface_voxels(phantom_volume)  # Morphological surface extraction
-        probe_sources, probe_detectors, measurement_links, patch_info = build_patch_based_probe_layout(
-            surface_coordinates, n_measurements=DEFAULT_N_MEASUREMENTS, rng_seed=123+phantom_idx)  # Unique seed per phantom
+                # SUBSTEP 3.3: Generate high-quality finite element mesh for accurate numerical simulation
+                # CGAL-based tetrahedral mesh generation ensures robust light transport modeling
+                # Mesh quality directly impacts forward modeling accuracy and reconstruction performance
+                logger.info("Step 2/6: Generating CGAL-based tetrahedral finite element mesh")
+                
+                # Temporarily suppress NIRFASTer warnings during mesh creation (they're harmless but noisy)
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")  # Suppress all warnings during mesh creation
+                    mesh_elements, mesh_nodes = mesh_volume(phantom_volume)  # Raw mesh generation
+                    phantom_mesh = create_stndmesh(mesh_elements, mesh_nodes)  # NIRFASTer standardization
+                
+                # SUBSTEP 3.4: Assign physiologically realistic optical properties with controlled randomization
+                # Uses literature-based optical coefficient ranges to ensure clinical relevance
+                # Ground truth maps provide pixel-perfect reference for supervised learning validation
+                logger.info("Step 3/6: Assigning physiological optical properties and generating ground truth maps")
+                phantom_mesh, ground_truth_maps = assign_optical_properties(phantom_mesh, phantom_volume, rng_seed=42+base_seed_offset)
+                
+                # SUBSTEP 3.5: Extract tissue surface and generate clinically realistic probe configurations
+                # Patch-based placement simulates real clinical constraints and eliminates spatial bias
+                # Surface extraction ensures probes are positioned only on accessible tissue boundaries
+                logger.info("Step 4/6: Extracting tissue surface and generating patch-based probe layout")
+                surface_coordinates = extract_surface_voxels(phantom_volume)  # Morphological surface extraction
+                probe_sources, probe_detectors, measurement_links, patch_info = build_patch_based_probe_layout(
+                    surface_coordinates, n_measurements=DEFAULT_N_MEASUREMENTS, rng_seed=123+base_seed_offset)  # Unique seed per phantom
 
-        # SUBSTEP 3.6: Generate probe visualizations for quality assurance and validation
-        # Visualization enables geometric validation and provides educational materials
-        logger.info("Step 5/6: Generating probe visualization for quality assurance")
-        vis_start_time = time.time()  # Track visualization generation time
+                # SUBSTEP 3.6: Generate probe visualizations for quality assurance and validation
+                # Visualization enables geometric validation and provides educational materials
+                logger.info("Step 5/6: Generating probe visualization for quality assurance")
+                vis_start_time = time.time()  # Track visualization generation time
+                
+                # Generate detailed visualization for the first probe of each phantom
+                if len(probe_sources) > 0:  # Ensure probes were successfully placed
+                    first_source = probe_sources[0]  # Select first source for visualization
+                    first_detectors = probe_detectors[0:1]  # First detector associated with first measurement
+                    
+                    # Generate 3D visualization with surface boundaries and probe positioning
+                    # Note: show_interactive=False to avoid popup windows
+                    visualize_probe_on_mesh(phantom_volume, phantom_mesh, first_source, first_detectors, 0, str(phantom_dir), 
+                                           patch_info=patch_info, show_interactive=False)
+                    
+                    logger.info(f"Generated static PNG visualization for phantom {phantom_idx+1}")
         
-        # Generate detailed visualization for the first probe of each phantom
-        if len(probe_sources) > 0:  # Ensure probes were successfully placed
-            first_source = probe_sources[0]  # Select first source for visualization
-            first_detectors = probe_detectors[0:1]  # First detector associated with first measurement
-            
-            # Generate 3D visualization with surface boundaries and probe positioning
-            # Note: show_interactive=False to avoid popup windows
-            visualize_probe_on_mesh(phantom_volume, phantom_mesh, first_source, first_detectors, 0, str(phantom_dir), 
-                                   patch_info=patch_info, show_interactive=False)
-            
-            logger.info(f"Generated static PNG visualization for phantom {phantom_idx+1}")
-        
-        vis_time = time.time() - vis_start_time  # Calculate visualization generation time
-        logger.debug(f"Visualization generation completed in {vis_time:.1f}s")
+                vis_time = time.time() - vis_start_time  # Calculate visualization generation time
+                logger.debug(f"Visualization generation completed in {vis_time:.1f}s")
 
-        # SUBSTEP 3.7: Execute frequency-domain finite element simulation and save complete dataset
-        # This is the core physics simulation that generates realistic NIR measurement data
-        # Solves complex-valued diffusion equation and processes results for machine learning
-        logger.info("Step 6/6: Executing frequency-domain diffusion equation simulation and dataset generation")
-        h5_output_path = phantom_dir / f"phantom_{phantom_idx+1:03d}_scan.h5"  # Use pathlib for systematic HDF5 naming
-        
-        # Execute complete forward modeling pipeline with noise simulation and data processing
-        run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, probe_detectors, measurement_links, 
-                                   phantom_volume=phantom_volume, output_h5_filename=str(h5_output_path))
+                # SUBSTEP 3.7: Execute frequency-domain finite element simulation and save complete dataset
+                # This is the core physics simulation that generates realistic NIR measurement data
+                # Solves complex-valued diffusion equation and processes results for machine learning
+                logger.info("Step 6/6: Executing frequency-domain diffusion equation simulation and dataset generation")
+                h5_output_path = phantom_dir / f"phantom_{phantom_idx+1:03d}_scan.h5"  # Use pathlib for systematic HDF5 naming
+                
+                # Execute complete forward modeling pipeline with noise simulation and data processing
+                # This now returns True/False based on NaN detection
+                simulation_success = run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, probe_detectors, measurement_links, 
+                                       phantom_volume=phantom_volume, output_h5_filename=str(h5_output_path))
+                
+                if simulation_success:
+                    # Success! Break out of retry loop
+                    phantom_success = True
+                    logger.info(f"✓ PHANTOM {phantom_idx+1:02d} COMPLETED SUCCESSFULLY")
+                else:
+                    # NaN values detected - increment retry counter and try again
+                    retry_attempt += 1
+                    if retry_attempt < MAX_PHANTOM_RETRY_ATTEMPTS:
+                        logger.warning(f"Phantom {phantom_idx+1} failed due to NaN values, retrying with different seed...")
+                        # Clean up failed H5 file if it exists
+                        if h5_output_path.exists():
+                            h5_output_path.unlink()
+                            logger.debug(f"Removed corrupted H5 file: {h5_output_path}")
+                    else:
+                        logger.error(f"Phantom {phantom_idx+1} failed after {MAX_PHANTOM_RETRY_ATTEMPTS} attempts - giving up")
+                        phantom_success = True  # Exit retry loop (will be handled by data cleaning later)
+                        
+            except Exception as e:
+                # Handle any other errors during phantom generation
+                retry_attempt += 1
+                logger.error(f"Phantom {phantom_idx+1} generation failed with error: {e}")
+                if retry_attempt < MAX_PHANTOM_RETRY_ATTEMPTS:
+                    logger.warning(f"Retrying phantom {phantom_idx+1} with different seed...")
+                    # Clean up any partial files
+                    if 'h5_output_path' in locals() and h5_output_path.exists():
+                        h5_output_path.unlink()
+                        logger.debug(f"Removed partial H5 file: {h5_output_path}")
+                else:
+                    logger.error(f"Phantom {phantom_idx+1} failed after {MAX_PHANTOM_RETRY_ATTEMPTS} attempts with error: {e}")
+                    phantom_success = True  # Exit retry loop
         
         # Calculate and log per-phantom generation performance metrics
         phantom_time = time.time() - phantom_start_time
-        logger.info(f"✓ PHANTOM {phantom_idx+1:02d} COMPLETED in {phantom_time:.1f}s")
-        logger.debug(f"Complete dataset saved: {h5_output_path}")
-        logger.debug(f"PNG visualization saved: {phantom_dir}/probe_001.png")
+        if phantom_success and 'simulation_success' in locals() and simulation_success:
+            logger.info(f"✓ PHANTOM {phantom_idx+1:02d} COMPLETED in {phantom_time:.1f}s")
+            logger.debug(f"Complete dataset saved: {h5_output_path}")
+            logger.debug(f"PNG visualization saved: {phantom_dir}/probe_001.png")
+        else:
+            logger.warning(f"⚠️  PHANTOM {phantom_idx+1:02d} GENERATION ISSUES - check data cleaning logs")
 
     # STEP 4: Generate comprehensive pipeline completion summary and validation report
     # Provides complete performance metrics and dataset validation for quality assurance
