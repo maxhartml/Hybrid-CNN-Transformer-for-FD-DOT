@@ -72,7 +72,7 @@ USE_TISSUE_PATCHES = False              # Stage 1 doesn't use tissue patches
 TRAINING_STAGE = "stage1"               # Training stage identifier
 
 # Weights & Biases Configuration
-WANDB_PROJECT = "nir-dot-stage1"     # W&B project name for Stage 1
+WANDB_PROJECT = "nir-dot-reconstruction"     # Unified project name
 LOG_IMAGES_EVERY = 5                         # Log reconstruction images every N epochs (reduced for debugging)
 WANDB_TAGS_STAGE1 = ["stage1", "cnn-autoencoder", "pretraining", "nir-dot"]
 
@@ -333,13 +333,13 @@ class Stage1Trainer:
             target_yz_norm = normalize_for_display(target_yz)
             
             wandb.log({
-                f"Reconstructions/epoch_{epoch}/predicted_xy_slice": wandb.Image(pred_xy_norm),
-                f"Reconstructions/epoch_{epoch}/target_xy_slice": wandb.Image(target_xy_norm),
-                f"Reconstructions/epoch_{epoch}/predicted_xz_slice": wandb.Image(pred_xz_norm),
-                f"Reconstructions/epoch_{epoch}/target_xz_slice": wandb.Image(target_xz_norm),
-                f"Reconstructions/epoch_{epoch}/predicted_yz_slice": wandb.Image(pred_yz_norm),
-                f"Reconstructions/epoch_{epoch}/target_yz_slice": wandb.Image(target_yz_norm),
-            })
+                f"Reconstructions/predicted_xy_slice": wandb.Image(pred_xy_norm, caption=f"Epoch {epoch} - Predicted XY slice (phantom_idx=0, z=32)"),
+                f"Reconstructions/target_xy_slice": wandb.Image(target_xy_norm, caption=f"Epoch {epoch} - Ground Truth XY slice (phantom_idx=0, z=32)"),
+                f"Reconstructions/predicted_xz_slice": wandb.Image(pred_xz_norm, caption=f"Epoch {epoch} - Predicted XZ slice (phantom_idx=0, y=32)"),
+                f"Reconstructions/target_xz_slice": wandb.Image(target_xz_norm, caption=f"Epoch {epoch} - Ground Truth XZ slice (phantom_idx=0, y=32)"),
+                f"Reconstructions/predicted_yz_slice": wandb.Image(pred_yz_norm, caption=f"Epoch {epoch} - Predicted YZ slice (phantom_idx=0, x=32)"),
+                f"Reconstructions/target_yz_slice": wandb.Image(target_yz_norm, caption=f"Epoch {epoch} - Ground Truth YZ slice (phantom_idx=0, x=32)"),
+            }, step=epoch)
             
             logger.debug(f"✅ Successfully logged reconstruction images for epoch {epoch}")
             
@@ -435,12 +435,11 @@ class Stage1Trainer:
             # Log to W&B with organized structure
             if self.use_wandb:
                 wandb.log({
-                    "epoch": epoch + 1,
                     "Charts/train_loss": train_loss,
                     "Charts/val_loss": val_loss,
                     "Charts/learning_rate": self.optimizer.param_groups[0]['lr'],
                     "Charts/train_val_loss_ratio": train_loss / val_loss if val_loss > 0 else 0,
-                })
+                }, step=epoch + 1)  # Use step parameter instead of logging epoch as data
                 
                 # Log reconstruction images periodically (and always on first/last epoch)
                 should_log_images = (epoch % LOG_IMAGES_EVERY == 0) or (epoch == 0) or (epoch == epochs - 1)

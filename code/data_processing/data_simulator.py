@@ -37,11 +37,26 @@ Author: Max Hart - NIR Tomography Research
 Version: 2.3 - CRITICAL INDEXING BUG FIX (1-based vs 0-based indexing)
 """
 
-# System path configuration for NIRFASTer-FF library access
-import sys
+# =============================================================================
+# IMPORTS
+# =============================================================================
+
+# Standard library imports
+import logging
 import os
+import sys
+import time
 from pathlib import Path
 
+# Third-party imports
+import h5py
+import matplotlib.pyplot as plt
+import numpy as np
+from mpl_toolkits.mplot3d import Axes3D
+from scipy.ndimage import binary_erosion
+from scipy.spatial.distance import cdist
+
+# System path configuration for NIRFASTer-FF library access
 # Get the project root directory (mah422) - works regardless of where script is run from
 project_root = Path(__file__).parent.parent.parent  # Go up to mah422 directory
 
@@ -53,27 +68,14 @@ else:
     # Fallback for development environment
     sys.path.append("/Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/nirfaster-FF")
 
-# Core libraries for numerical computing and visualization
-import numpy as np                               # Primary array operations and linear algebra
-import nirfasterff as ff                        # type: ignore # NIR light transport modeling via finite elements
-import matplotlib.pyplot as plt                 # 2D/3D visualization and plotting
-from mpl_toolkits.mplot3d import Axes3D         # 3D scatter plot capabilities
+# NIRFASTer-FF imports (after path configuration)
+import nirfasterff as ff  # type: ignore
 
-# Data storage and system operations
-import h5py                                      # HDF5 hierarchical data format for large datasets
-import os                                        # Operating system interface for directory management
-import logging                                   # Professional logging system for pipeline monitoring
-import time                                      # Time utilities for performance monitoring
-
-# Specialized scipy modules for morphological and spatial operations
-from scipy.ndimage import binary_erosion        # Morphological operation for surface extraction
-from scipy.spatial.distance import cdist        # Efficient pairwise distance computation
-
-# Import centralized logging configuration
+# Project imports
 from code.utils.logging_config import get_data_logger, NIRDOTLogger
 
 # Constants for phantom generation
-DEFAULT_N_PHANTOMS = 10                      # Number of phantoms to generate for dataset
+DEFAULT_N_PHANTOMS = 300                    # Number of phantoms to generate for dataset
 DEFAULT_PHANTOM_SHAPE = (64, 64, 64)        # Default cubic phantom dimensions in voxels (power of 2)
 DEFAULT_TISSUE_RADIUS_RANGE = (25, 30)      # Healthy tissue ellipsoid semi-axis range (25-30mm with 1mm voxels)
 DEFAULT_TUMOR_RADIUS_RANGE = (5, 10)        # Tumor ellipsoid semi-axis range (5-10mm with 1mm voxels)
@@ -1213,49 +1215,49 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
 def visualize_probe_on_mesh(phantom_volume, phantom_mesh, source_position, detector_positions, probe_index, save_directory, patch_info=None, show_interactive=False):
     """
     Create clean 3D visualization showing key tissue regions and single source-detector pair.
-
-    Simple, focused visualization highlighting:
-    • Healthy tissue boundary
-    • Tumor regions 
-    • Patch region (if provided)
-    • Single source-detector measurement pair
-    • Phantom boundary box
+    
+    Features:
+    • Surface nodes: Full size markers for tissue boundaries
+    • Internal nodes: 50% size markers for internal tissue structure  
+    • Color coding: Lime=healthy tissue, Red=tumors, Light blue=patch region
+    • Black background for better contrast and visual appeal
+    • Performance optimized with intelligent downsampling
     """
     from scipy.ndimage import binary_erosion  # Import for morphological operations
-    logger.debug(f"Creating clean visualization for probe {probe_index+1}")
+    logger.debug(f"Creating visualization for probe {probe_index+1}")
 
-    # Initialize clean figure
+    # Initialize figure with black background
     fig = plt.figure(figsize=(12, 10), facecolor='black')
     ax = fig.add_subplot(111, projection='3d', facecolor='black')
-    ax.grid(False)
-    ax.xaxis.set_pane_color((0, 0, 0, 0))
-    ax.yaxis.set_pane_color((0, 0, 0, 0))
-    ax.zaxis.set_pane_color((0, 0, 0, 0))
-
-    # STEP 1: Show phantom boundary box
-    phantom_size_mm = phantom_volume.shape[0] * VOXEL_SIZE_MM  # 64mm total size
     
-    # Draw boundary box edges
-    box_coords = [
-        [0, 0, 0], [phantom_size_mm, 0, 0], [phantom_size_mm, phantom_size_mm, 0], [0, phantom_size_mm, 0], [0, 0, 0],  # bottom face
-        [0, 0, phantom_size_mm], [phantom_size_mm, 0, phantom_size_mm], [phantom_size_mm, phantom_size_mm, phantom_size_mm], [0, phantom_size_mm, phantom_size_mm], [0, 0, phantom_size_mm]  # top face
-    ]
-    box_coords = np.array(box_coords)
-    ax.plot(box_coords[:5, 0], box_coords[:5, 1], box_coords[:5, 2], 'white', linewidth=1, alpha=0.3)  # bottom edges
-    ax.plot(box_coords[5:, 0], box_coords[5:, 1], box_coords[5:, 2], 'white', linewidth=1, alpha=0.3)  # top edges
-    # Vertical edges
-    for i in range(4):
-        ax.plot([box_coords[i, 0], box_coords[i+5, 0]], 
-                [box_coords[i, 1], box_coords[i+5, 1]], 
-                [box_coords[i, 2], box_coords[i+5, 2]], 'white', linewidth=1, alpha=0.3)
+    # Set black background and remove grid lines but keep axis lines visible
+    ax.xaxis.set_pane_color((0, 0, 0, 1))  # Black panes
+    ax.yaxis.set_pane_color((0, 0, 0, 1))
+    ax.zaxis.set_pane_color((0, 0, 0, 1))
+    
+    # Enable grid with white color and thin lines for axis visibility
+    ax.grid(True, color='white', alpha=0.3, linewidth=0.5)
+    
+    # Make axes spines and ticks white and visible
+    ax.xaxis.line.set_color('white')
+    ax.yaxis.line.set_color('white')
+    ax.zaxis.line.set_color('white')
+    ax.tick_params(axis='x', colors='white', which='major')
+    ax.tick_params(axis='y', colors='white', which='major')
+    ax.tick_params(axis='z', colors='white', which='major')
 
-    # STEP 2: Extract and show healthy tissue surface
+    # Get phantom size
+    phantom_size_mm = phantom_volume.shape[0] * VOXEL_SIZE_MM  # 64mm total size 
+
+    # STEP 1: Extract and show healthy tissue surface and internal nodes
     healthy_tissue_mask = (phantom_volume == HEALTHY_TISSUE_LABEL)
     if np.any(healthy_tissue_mask):
         # Use morphological edge detection to find tissue boundary
         healthy_surface = healthy_tissue_mask & (~binary_erosion(healthy_tissue_mask, iterations=1))
-        healthy_surface_coords = np.argwhere(healthy_surface)
+        healthy_internal = healthy_tissue_mask & binary_erosion(healthy_tissue_mask, iterations=1)
         
+        # Show surface nodes (add to legend)
+        healthy_surface_coords = np.argwhere(healthy_surface)
         if len(healthy_surface_coords) > 0:
             # Convert to physical coordinates
             healthy_surface_coords_mm = convert_voxel_to_physical_coordinates(healthy_surface_coords)
@@ -1264,18 +1266,32 @@ def visualize_probe_on_mesh(phantom_volume, phantom_mesh, source_position, detec
             ax.scatter(healthy_surface_coords_mm[::downsample_factor, 0], 
                       healthy_surface_coords_mm[::downsample_factor, 1], 
                       healthy_surface_coords_mm[::downsample_factor, 2],
-                      color='lime', s=4, alpha=0.6, label='Healthy tissue', marker='o')
+                      color='lime', s=4, alpha=0.8, label='Healthy tissue', marker='o')
+        
+        # Show internal nodes at 50% size (no legend entry)
+        healthy_internal_coords = np.argwhere(healthy_internal)
+        if len(healthy_internal_coords) > 0:
+            # Convert to physical coordinates
+            healthy_internal_coords_mm = convert_voxel_to_physical_coordinates(healthy_internal_coords)
+            # Downsample for performance - target ~500 points
+            internal_downsample_factor = max(1, len(healthy_internal_coords_mm) // 500)
+            ax.scatter(healthy_internal_coords_mm[::internal_downsample_factor, 0], 
+                      healthy_internal_coords_mm[::internal_downsample_factor, 1], 
+                      healthy_internal_coords_mm[::internal_downsample_factor, 2],
+                      color='lime', s=2, alpha=0.4, marker='o')
 
-    # STEP 3: Extract and show tumor regions
+    # STEP 2: Extract and show tumor regions
     tumor_count = 0
     for region_label in np.unique(phantom_volume):
         if region_label >= TUMOR_START_LABEL:
             tumor_mask = (phantom_volume == region_label)
             if np.any(tumor_mask):
-                # Extract tumor surface
+                # Extract tumor surface and internal
                 tumor_surface = tumor_mask & (~binary_erosion(tumor_mask, iterations=1))
-                tumor_surface_coords = np.argwhere(tumor_surface)
+                tumor_internal = tumor_mask & binary_erosion(tumor_mask, iterations=1)
                 
+                # Show surface nodes (add to legend only for first tumor)
+                tumor_surface_coords = np.argwhere(tumor_surface)
                 if len(tumor_surface_coords) > 0:
                     tumor_count += 1
                     # Convert to physical coordinates
@@ -1285,10 +1301,22 @@ def visualize_probe_on_mesh(phantom_volume, phantom_mesh, source_position, detec
                     ax.scatter(tumor_surface_coords_mm[::downsample_factor, 0],
                               tumor_surface_coords_mm[::downsample_factor, 1], 
                               tumor_surface_coords_mm[::downsample_factor, 2],
-                              color='red', s=6, alpha=0.8, 
-                              label=f'Tumor {tumor_count}' if tumor_count == 1 else '', marker='o')
+                              color='red', s=6, alpha=0.9, 
+                              label='Tumor' if tumor_count == 1 else '', marker='o')
+                
+                # Show internal nodes at 50% size (no legend entry)
+                tumor_internal_coords = np.argwhere(tumor_internal)
+                if len(tumor_internal_coords) > 0:
+                    # Convert to physical coordinates
+                    tumor_internal_coords_mm = convert_voxel_to_physical_coordinates(tumor_internal_coords)
+                    # Downsample for performance
+                    internal_downsample_factor = max(1, len(tumor_internal_coords_mm) // 150)
+                    ax.scatter(tumor_internal_coords_mm[::internal_downsample_factor, 0],
+                              tumor_internal_coords_mm[::internal_downsample_factor, 1], 
+                              tumor_internal_coords_mm[::internal_downsample_factor, 2],
+                              color='red', s=3, alpha=0.5, marker='o')
 
-    # STEP 4: Show patch region if provided
+    # STEP 3: Show patch region if provided (purple looks much better!)
     if patch_info is not None and 'patch_surface_coordinates' in patch_info:
         patch_surface_coords = patch_info['patch_surface_coordinates']
         if len(patch_surface_coords) > 0:
@@ -1299,66 +1327,62 @@ def visualize_probe_on_mesh(phantom_volume, phantom_mesh, source_position, detec
             ax.scatter(patch_surface_coords_mm[::patch_downsample_factor, 0],
                       patch_surface_coords_mm[::patch_downsample_factor, 1], 
                       patch_surface_coords_mm[::patch_downsample_factor, 2],
-                      color='purple', s=5, alpha=0.7, 
+                      color='purple', s=5, alpha=0.8, 
                       label=f'Patch region (r={patch_info["radius"]}mm)', marker='o')
 
-    # STEP 5: Show source and ONE detector (first detector)
+    # STEP 4: Show source and detector
     # Convert probe positions to physical coordinates
     source_position_mm = convert_voxel_to_physical_coordinates([source_position])[0]
     detector_positions_mm = convert_voxel_to_physical_coordinates(detector_positions)
     
     # Show source
     ax.scatter(source_position_mm[0], source_position_mm[1], source_position_mm[2], 
-               c='yellow', s=120, edgecolor='black', linewidth=2, 
+               c='yellow', s=120, edgecolor='white', linewidth=2, 
                label='NIR Source', marker='o')
     
     # Show only the first detector
     if len(detector_positions_mm) > 0:
         first_detector = detector_positions_mm[0]
         ax.scatter(first_detector[0], first_detector[1], first_detector[2], 
-                   c='cyan', s=90, edgecolor='black', linewidth=1.5, 
+                   c='cyan', s=90, edgecolor='white', linewidth=1.5, 
                    label='NIR Detector', marker='o')
         
-        # Draw measurement line between source and detector
+        # Draw source-detector separation line
         ax.plot([source_position_mm[0], first_detector[0]],
                 [source_position_mm[1], first_detector[1]], 
                 [source_position_mm[2], first_detector[2]], 
-                'white', linewidth=2, alpha=0.8, linestyle='--', label='Measurement path')
+                'white', linewidth=2, alpha=0.8, linestyle='--', label='Source-detector separation')
 
-    # STEP 6: Configure plot appearance
-    ax.set_title(f"Probe {probe_index+1:03d} - Tissue Structure Overview", 
-                 color='white', fontsize=16, fontweight='bold', pad=20)
-                 
-    ax.set_xlabel('X-axis (mm)', color='white', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Y-axis (mm)', color='white', fontsize=12, fontweight='bold')
-    ax.set_zlabel('Z-axis (mm)', color='white', fontsize=12, fontweight='bold')
-
-    ax.tick_params(colors='white', labelsize=10)
-    ax.legend(facecolor='black', edgecolor='white', fontsize=10, labelcolor='white',
-              loc='upper left', bbox_to_anchor=(0.02, 0.98), framealpha=0.8)
-
-    # Set axis limits and proper aspect ratio
+    # Configure appearance for professional academic presentation
+    ax.set_title(f"3D Phantom Geometry: Tissue Distribution & NIR Probe Configuration", 
+                 color='white', fontsize=13, fontweight='normal', pad=20)
+    ax.set_xlabel('X (mm)', color='white', fontsize=11, fontweight='normal')
+    ax.set_ylabel('Y (mm)', color='white', fontsize=11, fontweight='normal')
+    ax.set_zlabel('Z (mm)', color='white', fontsize=11, fontweight='normal')
+    ax.tick_params(colors='white', labelsize=9)
+    ax.legend(facecolor='black', edgecolor='white', fontsize=8, labelcolor='white',
+              loc='upper right', bbox_to_anchor=(0.98, 0.98), framealpha=0.9,
+              markerscale=0.8, handletextpad=0.3, columnspacing=0.5)
     ax.set_xlim(0, phantom_size_mm)
     ax.set_ylim(0, phantom_size_mm)
     ax.set_zlim(0, phantom_size_mm)
-    ax.set_box_aspect([1, 1, 1])  # Equal aspect ratio
-    
-    # Set optimal viewing angle
+    ax.set_box_aspect([1, 1, 1])
     ax.view_init(elev=20, azim=45)
-    plt.tight_layout()
 
     # Save the visualization
     output_image_path = os.path.join(save_directory, f"probe_{probe_index+1:03d}.png")
     plt.savefig(output_image_path, dpi=300, 
-                facecolor=fig.get_facecolor(), 
+                facecolor='black',  # Black background
                 bbox_inches='tight', 
                 edgecolor='none')
-    logger.debug(f"Saved clean probe visualization: {output_image_path}")
+    logger.debug(f"Saved visualization: {output_image_path}")
 
     if show_interactive:
         plt.show()
     else:
         plt.close()
+
+    return output_image_path
 
 
 # --------------------------------------------------------------

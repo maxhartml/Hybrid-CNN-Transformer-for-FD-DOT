@@ -81,7 +81,7 @@ ENHANCED_MODE = "Enhanced"              # Enhanced training mode name
 FREEZE_CNN_PARAMS = True                # Whether to freeze all CNN autoencoder parameters
 
 # Weights & Biases Configuration
-WANDB_PROJECT = "nir-dot-stage2"     # W&B project name for Stage 2
+WANDB_PROJECT = "nir-dot-reconstruction"     # Unified project name (same as Stage 1)
 LOG_IMAGES_EVERY = 5                         # Log reconstruction images every N epochs (consistent with Stage 1)
 WANDB_TAGS_STAGE2_BASELINE = ["stage2", "transformer", "baseline", "nir-dot"]
 WANDB_TAGS_STAGE2_ENHANCED = ["stage2", "transformer", "enhanced", "tissue-patches", "nir-dot"]
@@ -592,7 +592,7 @@ class Stage2Trainer:
             transformer_metrics['feature_enhancement_ratio'] = avg_enhanced / avg_cnn if avg_cnn > 0 else 1.0
         
         logger.debug(f"✅ Stage 2 validation completed. Average loss: {avg_loss:.6f}")
-        return avg_loss, transformer_metrics
+        return avg_loss
     
     def train(self, data_loaders, epochs=EPOCHS):
         """
@@ -634,27 +634,19 @@ class Stage2Trainer:
             
             # Validate: Evaluate hybrid model on unseen data (no parameter updates)
             logger.debug(f"🔍 Beginning Stage 2 validation phase for epoch {epoch+1}")
-            val_loss, transformer_metrics = self.validate(data_loaders['val'])
+            val_loss = self.validate(data_loaders['val'])
             logger.info(f"🔍 Stage 2 Validation completed - Average Loss: {val_loss:.6f}")
             
-            # Log to W&B with organized structure
+            # Log to W&B with organized structure (simplified - no transformer complexity)
             if self.use_wandb:
                 mode = "Enhanced" if self.use_tissue_patches else "Baseline"
-                log_dict = {
-                    "epoch": epoch + 1,
-                    f"Charts/train_loss": train_loss,
-                    f"Charts/val_loss": val_loss,
-                    f"Charts/learning_rate": self.optimizer.param_groups[0]['lr'],
-                    f"Charts/train_val_loss_ratio": train_loss / val_loss if val_loss > 0 else 0,
-                    f"System/mode": mode,
-                    f"System/use_tissue_patches": self.use_tissue_patches,
-                }
-                
-                # Add transformer-specific metrics
-                for metric_name, metric_value in transformer_metrics.items():
-                    log_dict[f"Transformer/{metric_name}"] = metric_value
-                
-                wandb.log(log_dict)
+                wandb.log({
+                    "Charts/train_loss": train_loss,
+                    "Charts/val_loss": val_loss,
+                    "Charts/learning_rate": self.optimizer.param_groups[0]['lr'],
+                    "Charts/train_val_loss_ratio": train_loss / val_loss if val_loss > 0 else 0,
+                    "System/mode": mode,
+                }, step=epoch + 1)  # Use step parameter for proper epoch axis
                 
                 # Log reconstruction images periodically (and always on first/last epoch)
                 should_log_images = (epoch % LOG_IMAGES_EVERY == 0) or (epoch == 0) or (epoch == epochs - 1)
