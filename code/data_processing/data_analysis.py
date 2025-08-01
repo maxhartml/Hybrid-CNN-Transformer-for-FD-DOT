@@ -333,6 +333,15 @@ class NIRDatasetAnalyzer:
         print(f"   Phase shape: {phase.shape}")
         print(f"   Total measurements: {log_amp.size}")
         
+        # Check if this is the new optimized format
+        if log_amp.size == 1000:
+            print(f"   📈 Optimized probe placement detected: 1000 measurements (50 sources × 20 detectors)")
+            print(f"   📊 Data augmentation available: subsample 256 for training (3.9x combinations)")
+        elif log_amp.size == 256:
+            print(f"   📊 Legacy format detected: 256 independent measurements")
+        else:
+            print(f"   ⚠️  Unexpected measurement count: {log_amp.size}")
+        
         # Calculate statistics
         log_amp_stats = {
             'min': float(np.min(log_amp)),
@@ -741,31 +750,84 @@ class NIRDatasetAnalyzer:
             ax5.set_ylabel('Y [voxels]')
             plt.colorbar(im5, ax=ax5, label='μ′s [mm⁻¹]', shrink=0.8)
             
-            # 6. 3D Source-Detector Geometry
+            # 6. 3D Source Geometry Layout (Sources Only)
             ax6 = plt.subplot(3, 3, 6, projection='3d')
-            ax6.scatter(source_pos[:, 0], source_pos[:, 1], source_pos[:, 2], 
-                       c=COLORS['source'], s=30, alpha=0.7, label='Sources')
-            ax6.scatter(det_pos[:, 0], det_pos[:, 1], det_pos[:, 2], 
-                       c=COLORS['detector'], s=30, alpha=0.7, label='Detectors')
+            
+            # Only plot sources, color-coded by measurement signal strength
+            source_colors = log_amp  # Color sources by their signal strength
+            scatter = ax6.scatter(source_pos[:, 0], source_pos[:, 1], source_pos[:, 2], 
+                                c=source_colors, s=50, alpha=0.8, cmap='viridis',
+                                edgecolors='black', linewidth=0.5)
+            
+            # Add colorbar to show signal strength mapping
+            cbar = plt.colorbar(scatter, ax=ax6, shrink=0.6, pad=0.1)
+            cbar.set_label('Log-Amplitude', fontsize=8)
+            
             ax6.set_xlabel('X [mm]')
             ax6.set_ylabel('Y [mm]')
             ax6.set_zlabel('Z [mm]')
-            ax6.set_title('3D Geometry Layout')
-            ax6.legend(fontsize=8)
+            ax6.set_title('3D Source Layout\n(colored by signal strength)')
             
-            # 7. Measurement Distributions
+            # Set equal aspect ratio for better 3D visualization
+            ax6.set_box_aspect([1,1,1])
+            
+            # 7. Tissue Property Contrast Analysis
             ax7 = plt.subplot(3, 3, 7)
-            ax7.hist(log_amp, bins=40, alpha=0.7, color=COLORS['primary'], 
-                    density=True, label='Log-Amplitude')
-            ax7_twin = ax7.twinx()
-            ax7_twin.hist(phase, bins=40, alpha=0.7, color=COLORS['secondary'],
-                         density=True, label='Phase')
-            ax7.set_xlabel('Log-Amplitude')
-            ax7.set_ylabel('Density (Log-Amp)', color=COLORS['primary'])
-            ax7_twin.set_ylabel('Density (Phase)', color=COLORS['secondary'])
-            ax7.set_title('Measurement Distributions')
-            ax7.tick_params(axis='y', labelcolor=COLORS['primary'])
-            ax7_twin.tick_params(axis='y', labelcolor=COLORS['secondary'])
+            
+            # Extract unique tissue types from ground truth
+            unique_mua = np.unique(mua_map)
+            unique_musp = np.unique(musp_map)
+            
+            # Create tissue property scatter plot
+            tissue_combinations = []
+            tissue_volumes = []
+            tissue_labels = []
+            
+            for mua_val in unique_mua:
+                for musp_val in unique_musp:
+                    mask = (mua_map == mua_val) & (musp_map == musp_val)
+                    volume = np.sum(mask)
+                    if volume > 0:  # Only include combinations that exist
+                        tissue_combinations.append([mua_val, musp_val])
+                        tissue_volumes.append(volume)
+                        
+                        if mua_val == 0 and musp_val == 0:
+                            tissue_labels.append('Air')
+                        elif len(tissue_combinations) == 2:  # First tissue type (usually healthy)
+                            tissue_labels.append('Healthy')
+                        else:
+                            tissue_labels.append(f'Tumor {len(tissue_combinations)-2}')
+            
+            tissue_combinations = np.array(tissue_combinations)
+            tissue_volumes = np.array(tissue_volumes)
+            
+            # Create scatter plot with bubble sizes proportional to volume
+            for i, (combo, volume, label) in enumerate(zip(tissue_combinations, tissue_volumes, tissue_labels)):
+                mua_val, musp_val = combo
+                size = np.sqrt(volume) / 20  # Scale bubble size
+                if label == 'Air':
+                    color = COLORS['air']
+                elif label == 'Healthy':
+                    color = COLORS['tissue'] 
+                else:
+                    color = COLORS['tumor']
+                
+                ax7.scatter(mua_val, musp_val, s=size, c=color, alpha=0.7, 
+                           edgecolors='black', linewidth=1, label=f'{label} ({volume:,} voxels)')
+            
+            ax7.set_xlabel('Absorption μₐ [mm⁻¹]')
+            ax7.set_ylabel('Scattering μ′s [mm⁻¹]')
+            ax7.set_title('Tissue Property Contrast\n(bubble size = volume)')
+            ax7.legend(fontsize=7, loc='upper right')
+            ax7.grid(True, alpha=0.3)
+            
+            # Add contrast lines for reference
+            if len(tissue_combinations) > 1:
+                healthy_idx = 1 if tissue_labels[0] == 'Air' else 0
+                if healthy_idx < len(tissue_combinations):
+                    healthy_mua, healthy_musp = tissue_combinations[healthy_idx]
+                    ax7.axhline(healthy_musp, color='gray', linestyle='--', alpha=0.5)
+                    ax7.axvline(healthy_mua, color='gray', linestyle='--', alpha=0.5)
             
             # 8. Distance Distribution Analysis
             ax8 = plt.subplot(3, 3, 8)

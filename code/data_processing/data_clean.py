@@ -55,9 +55,10 @@ class QualityThresholds:
     MIN_TISSUE_COVERAGE = 0.15      # Minimum 15% tissue coverage
     MAX_TISSUE_COVERAGE = 0.60      # Maximum 60% tissue coverage
     
-    # Phantom geometry
-    MIN_MEASUREMENTS = 100          # Minimum measurement count
-    MAX_MEASUREMENTS = 5000         # Maximum measurement count
+    # Phantom geometry (updated for optimized probe placement)
+    MIN_MEASUREMENTS = 800          # Minimum measurement count (expecting ~1000)
+    MAX_MEASUREMENTS = 1200         # Maximum measurement count (expecting ~1000)
+    EXPECTED_MEASUREMENTS = 1000    # Expected measurement count (50 sources × 20 detectors)
     
     # File integrity
     MIN_FILE_SIZE_MB = 0.1          # Minimum file size (MB)
@@ -279,9 +280,13 @@ class DatasetCleaner:
         assessment.add_metric("measurement_count", measurement_count)
         
         if measurement_count < self.thresholds.MIN_MEASUREMENTS:
-            assessment.add_issue(f"Too few measurements: {measurement_count}")
+            assessment.add_issue(f"Too few measurements: {measurement_count}, expected ~{self.thresholds.EXPECTED_MEASUREMENTS}")
         elif measurement_count > self.thresholds.MAX_MEASUREMENTS:
-            assessment.add_warning(f"Many measurements: {measurement_count}")
+            assessment.add_warning(f"Many measurements: {measurement_count}, expected ~{self.thresholds.EXPECTED_MEASUREMENTS}")
+        elif abs(measurement_count - self.thresholds.EXPECTED_MEASUREMENTS) > 50:
+            assessment.add_warning(f"Unexpected measurement count: {measurement_count}, expected ~{self.thresholds.EXPECTED_MEASUREMENTS}")
+        else:
+            assessment.add_metric("measurement_count_status", "optimal")
     
     def _validate_ground_truth(self, h5_file, assessment: PhantomQualityAssessment):
         """Validate ground truth data quality and coverage"""

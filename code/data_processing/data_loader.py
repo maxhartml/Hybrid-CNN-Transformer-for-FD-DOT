@@ -9,12 +9,14 @@ Streamlined PyTorch DataLoader for NIR phantom datasets featuring:
 • Lazy loading from distributed HDF5 phantom files (efficient memory usage)
 • Automatic tissue patch extraction around source/detector positions
 • Cross-phantom shuffling for robust training
-• 8/1/1 train/validation/test splits at phant                Returns:
-                Dict[str, torch.Tensor]: Complete phantom data containing:
-                    - 'nir_measurements': All NIR measurements (256, DEFAULT_NIR_FEATURE_DIMENSION) - features per measurement
-                    - 'ground_truth': Target volume (DEFAULT_OPTICAL_CHANNELS, 64, 64, 64) - same for all measurements
-                    - 'phantom_id': Phantom identifier for trackingevel
+• 90/5/5 train/validation/test splits at phantom level
 • Toggle functionality for two-stage training approach
+
+🎯 DATA AUGMENTATION VIA MEASUREMENT SUBSAMPLING:
+• Phantoms contain 1000 measurements (50 sources × 20 detectors - optimized probe placement)
+• Randomly subsample 256 measurements per training batch for data augmentation
+• Provides 3.9x more training combinations while maintaining pipeline compatibility
+• Different subsets each epoch enhance model generalization
 
 🎯 TWO-STAGE TRAINING SUPPORT:
 • Stage 1: Full ground truth volumes for CNN autoencoder training
@@ -27,7 +29,7 @@ Streamlined PyTorch DataLoader for NIR phantom datasets featuring:
 • Phantom-level train/val/test splits to prevent data leakage
 
 Author: Max Hart - NIR Tomography Research
-Version: 2.0 - Two-Stage Training Integration
+Version: 2.1 - Optimized Probe Placement & Data Augmentation Integration
 """
 
 import os
@@ -50,7 +52,9 @@ logger = get_data_logger(__name__)
 
 # Phantom data structure parameters
 DEFAULT_PHANTOM_SHAPE = (64, 64, 64)             # Standard phantom dimensions (Nx, Ny, Nz)
-DEFAULT_N_MEASUREMENTS = 256                      # Number of independent source-detector pairs per phantom
+DEFAULT_N_MEASUREMENTS = 256                      # Number of measurements for training (subsampled from generated data)
+DEFAULT_N_GENERATED_MEASUREMENTS = 1000          # Number of measurements generated per phantom (50 sources × 20 detectors)
+DEFAULT_N_TRAINING_MEASUREMENTS = 256            # Number of measurements subsampled for training (data augmentation)
 DEFAULT_NIR_FEATURE_DIMENSION = 8                # Features per NIR measurement (log_amp + phase + 6 coords)
 DEFAULT_OPTICAL_CHANNELS = 2                     # Optical property channels (absorption + scattering)
 
@@ -462,17 +466,23 @@ class NIRPhantomDataset(Dataset):
     
     def get_complete_phantom(self, phantom_idx: int) -> Dict[str, torch.Tensor]:
         """
-        Load complete phantom data with all 256 measurements for batch training.
+        Load complete phantom data with subsampled measurements for training.
         
-        This method loads the entire phantom dataset (DEFAULT_N_MEASUREMENTS independent source-detector pairs = 256 measurements)
-        which is the correct format for our hybrid CNN-Transformer architecture.
+        This method loads phantom data (1000 generated measurements from optimized probe placement)
+        and randomly subsamples 256 measurements for training to enable data augmentation.
+        
+        🎯 **Data Augmentation Strategy:**
+        • Generate 1000 measurements per phantom (50 sources × 20 detectors)
+        • Randomly subsample 256 measurements for each training batch
+        • Different subsets provide 3.9x more training combinations
+        • Maintains consistent training pipeline dimensions
         
         Args:
             phantom_idx (int): Index of phantom to load (0 to len(phantom_files)-1)
             
         Returns:
             Dict[str, torch.Tensor]: Complete phantom data containing:
-                - 'nir_measurements': All NIR measurements (256, 8) - 8D features per measurement
+                - 'nir_measurements': Subsampled NIR measurements (256, 8) - 8D features per measurement
                 - 'ground_truth': Target volume (2, 64, 64, 64) - same for all measurements
                 - 'phantom_id': Phantom identifier for tracking
         """
@@ -483,25 +493,25 @@ class NIRPhantomDataset(Dataset):
         
         try:
             with h5py.File(phantom_file, 'r') as f:
-                # Load all NIR measurement data (new 1:1 system)
-                log_amplitude = f[H5_KEYS['log_amplitude']][:]  # Shape: (DEFAULT_N_MEASUREMENTS,) 
-                phase = f[H5_KEYS['phase']][:]                   # Shape: (DEFAULT_N_MEASUREMENTS,)
+                # Load all NIR measurement data (expects 1000 measurements from optimized probe placement)
+                log_amplitude = f[H5_KEYS['log_amplitude']][:]  # Shape: (1000,) - generated measurements
+                phase = f[H5_KEYS['phase']][:]                   # Shape: (1000,) - generated measurements
                 
-                # Load geometry data (new 1:1 system)
-                source_pos = f[H5_KEYS['source_pos']][:]         # Shape: (DEFAULT_N_MEASUREMENTS, 3) for [x, y, z] in mm
-                detector_pos = f[H5_KEYS['det_pos']][:]          # Shape: (DEFAULT_N_MEASUREMENTS, 3) for [x, y, z] in mm
+                # Load geometry data (1000 source-detector pairs)
+                source_pos = f[H5_KEYS['source_pos']][:]         # Shape: (1000, 3) for [x, y, z] in mm
+                detector_pos = f[H5_KEYS['det_pos']][:]          # Shape: (1000, 3) for [x, y, z] in mm
                 
                 # Load ground truth volume (same for all measurements in phantom)
                 ground_truth = f[H5_KEYS['ground_truth']][:]     # Shape: (2, 64, 64, 64) - already channels-first
                 # No transpose needed since data is already in channels-first format!
                 
-                # Build complete measurement array (DEFAULT_N_MEASUREMENTS, DEFAULT_NIR_FEATURE_DIMENSION)
+                # Build complete measurement array (1000 measurements initially)
                 n_measurements = log_amplitude.shape[0]
                 
-                nir_measurements = np.zeros((n_measurements, DEFAULT_NIR_FEATURE_DIMENSION), dtype=np.float32)
+                all_measurements = np.zeros((n_measurements, DEFAULT_NIR_FEATURE_DIMENSION), dtype=np.float32)
                 
                 for measurement_idx in range(n_measurements):
-                    nir_measurements[measurement_idx] = np.array([
+                    all_measurements[measurement_idx] = np.array([
                         float(log_amplitude[measurement_idx]),      # log amplitude
                         float(phase[measurement_idx]),              # phase
                         source_pos[measurement_idx, 0],             # source x
@@ -512,20 +522,37 @@ class NIRPhantomDataset(Dataset):
                         detector_pos[measurement_idx, 2]            # detector z
                     ])
                 
+                # 🎯 CRITICAL: Subsample from 1000 to 256 measurements for training
+                # This enables data augmentation - different random subsets each epoch
+                if n_measurements > DEFAULT_N_TRAINING_MEASUREMENTS:
+                    # Use phantom-specific random state for consistent subsampling per phantom per epoch
+                    # But allow different subsets across epochs via global random state
+                    subsample_indices = np.random.choice(
+                        n_measurements, 
+                        size=DEFAULT_N_TRAINING_MEASUREMENTS, 
+                        replace=False
+                    )
+                    nir_measurements = all_measurements[subsample_indices]
+                    logger.debug(f"Subsampled {DEFAULT_N_TRAINING_MEASUREMENTS} from {n_measurements} measurements for phantom {phantom_file.stem}")
+                else:
+                    nir_measurements = all_measurements
+                    logger.warning(f"Phantom has only {n_measurements} measurements, expected {DEFAULT_N_GENERATED_MEASUREMENTS}")
+                
+                
                 # Extract phantom ID
                 phantom_id = int(phantom_file.stem.split('_')[1])
                 
         except Exception as e:
             logger.error(f"Error loading complete phantom {phantom_idx} from {phantom_file}: {e}")
-            # Return zero-filled phantom
+            # Return zero-filled phantom with training dimensions
             return {
-                'nir_measurements': torch.zeros(DEFAULT_N_MEASUREMENTS, DEFAULT_NIR_FEATURE_DIMENSION, dtype=torch.float32),
+                'nir_measurements': torch.zeros(DEFAULT_N_TRAINING_MEASUREMENTS, DEFAULT_NIR_FEATURE_DIMENSION, dtype=torch.float32),
                 'ground_truth': torch.zeros(DEFAULT_OPTICAL_CHANNELS, *DEFAULT_PHANTOM_SHAPE, dtype=torch.float32),
                 'phantom_id': torch.tensor(0, dtype=torch.long)
             }
         
         return {
-            'nir_measurements': torch.tensor(nir_measurements, dtype=torch.float32),  # (256, DEFAULT_NIR_FEATURE_DIMENSION)
+            'nir_measurements': torch.tensor(nir_measurements, dtype=torch.float32),  # (256, DEFAULT_NIR_FEATURE_DIMENSION) - subsampled
             'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),          # (DEFAULT_OPTICAL_CHANNELS, 64, 64, 64)
             'phantom_id': torch.tensor(phantom_id, dtype=torch.long)
         }
@@ -646,8 +673,8 @@ def create_phantom_dataloaders(data_dir: str = "../data",
     Create DataLoaders for complete phantom batching (batches of complete phantoms).
     
     This creates a custom DataLoader that returns batches of complete phantoms,
-    where each phantom contains all 256 measurements. This is the correct format
-    for our hybrid CNN-Transformer architecture.
+    where each phantom contains 256 subsampled measurements from the generated 1000.
+    Enables data augmentation through different random subsets each epoch.
     
     Args:
         data_dir (str): Path to phantom data directory

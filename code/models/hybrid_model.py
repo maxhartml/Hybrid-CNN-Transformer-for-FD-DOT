@@ -55,7 +55,8 @@ from code.models import tissue_context_encoder as tissue_config
 
 # NIR Measurement Configuration
 NIR_INPUT_DIM = 8                       # 8D NIR feature vectors (log_amp, phase, source_xyz, det_xyz)
-N_MEASUREMENTS = 256                    # Number of independent source-detector pairs per phantom
+N_MEASUREMENTS = 256                    # Number of measurements for training (subsampled from 1000 generated)
+N_GENERATED_MEASUREMENTS = 1000         # Number of measurements generated per phantom (50 sources × 20 detectors)
 
 # Model Behavior Configuration
 USE_TISSUE_PATCHES = True               # Whether to use tissue context by default
@@ -231,7 +232,12 @@ class HybridCNNTransformer(nn.Module):
         
         outputs = {}
         
-        if self.training_stage == STAGE1:
+        # Smart input detection: NIR measurements vs ground truth volumes
+        is_nir_measurements = (len(dot_measurements.shape) == 3 and 
+                              dot_measurements.shape[2] == self.nir_input_dim)
+        is_ground_truth = (len(dot_measurements.shape) == 4 or len(dot_measurements.shape) == 5)
+        
+        if self.training_stage == STAGE1 and is_ground_truth:
             logger.debug("📍 Stage 1: CNN autoencoder only mode")
             # Stage 1: CNN autoencoder only
             reconstructed = self.cnn_autoencoder(dot_measurements)
@@ -241,29 +247,40 @@ class HybridCNNTransformer(nn.Module):
                 'stage': STAGE1
             })
             
-        elif self.training_stage == STAGE2:
-            logger.debug("📍 Stage 2: Transformer enhancement mode")
+        elif self.training_stage == STAGE2 or is_nir_measurements:
+            logger.debug("📍 Stage 2: Transformer enhancement mode (or NIR measurements auto-detected)")
             # Stage 2: Handle NIR measurements → Transformer → CNN decoder
+            # Also handles NIR measurements regardless of training stage setting
             
             # Check input type: NIR measurements vs ground truth volumes
-            # NEW FORMAT: NIR measurements are (batch_size, 256, 8) for complete phantoms
-            # OLD FORMAT: Individual measurements were (batch_size, 8)
+            # NEW FORMAT: NIR measurements are (batch_size, 256, 8) for training (subsampled from 1000)
+            # GENERATION: Phantoms contain 1000 measurements (50 sources × 20 detectors)
+            # TRAINING: DataLoader subsamples 256 measurements for consistency + data augmentation
             if len(dot_measurements.shape) == 3 and dot_measurements.shape[2] == self.nir_input_dim:
                 logger.debug(f"🔍 Processing NIR measurements: {dot_measurements.shape}")
-                # Complete phantom NIR measurements: (batch_size, 256, nir_input_dim)
+                # Complete phantom NIR measurements: (batch_size, 256_subsampled, nir_input_dim)
+                # Note: Input measurements are subsampled from 1000 generated measurements for data augmentation
                 batch_size, n_measurements, n_features = dot_measurements.shape
                 logger.debug(f"📦 NIR measurements breakdown: batch_size={batch_size}, n_measurements={n_measurements}, n_features={n_features}")
                 
+                # Validate measurement count and provide informative logging
+                if n_measurements == N_MEASUREMENTS:
+                    logger.debug(f"✅ Standard training format: {n_measurements} measurements (subsampled from generated data)")
+                elif n_measurements == N_GENERATED_MEASUREMENTS:
+                    logger.debug(f"📊 Full generated format: {n_measurements} measurements (before subsampling)")
+                else:
+                    logger.debug(f"ℹ️  Custom measurement count: {n_measurements} measurements")
+                
                 # Reshape to process all measurements in batch
-                nir_features = dot_measurements.view(-1, n_features)  # (batch_size * 256, nir_input_dim)
+                nir_features = dot_measurements.view(-1, n_features)  # (batch_size * n_measurements, nir_input_dim)
                 logger.debug(f"📦 Reshaped NIR features: {nir_features.shape}")
                 
                 # Project all measurements to CNN feature space  
-                projected_features = self.nir_projection(nir_features)  # (batch_size * 256, 256)
+                projected_features = self.nir_projection(nir_features)  # (batch_size * n_measurements, 256)
                 logger.debug(f"📦 Projected features: {projected_features.shape}")
                 
                 # Reshape back to batch format and aggregate measurements per phantom
-                projected_features = projected_features.view(batch_size, n_measurements, cnn_config.FEATURE_DIM)  # (batch_size, 256, 256)
+                projected_features = projected_features.view(batch_size, n_measurements, cnn_config.FEATURE_DIM)  # (batch_size, n_measurements, 256)
                 logger.debug(f"📦 Reshaped projected features: {projected_features.shape}")
                 
                 # Aggregate measurements to single feature vector per phantom
@@ -323,8 +340,18 @@ class HybridCNNTransformer(nn.Module):
                 outputs['attention_weights'] = attention_weights
         
         else:
-            raise ValueError(f"Invalid training stage: {self.training_stage}. "
-                           f"Expected 'stage1' or 'stage2'")
+            # Enhanced error handling with input shape information
+            input_shape = dot_measurements.shape
+            expected_nir = f"NIR measurements: (batch_size, n_measurements, {self.nir_input_dim})"
+            expected_gt = "Ground truth: (batch_size, channels, H, W, D) or (batch_size, H, W, D)"
+            
+            raise ValueError(
+                f"Input shape {input_shape} not compatible with training stage '{self.training_stage}'.\n"
+                f"Expected formats:\n"
+                f"  - {expected_nir}\n"
+                f"  - {expected_gt}\n"
+                f"Auto-detection: is_nir_measurements={is_nir_measurements}, is_ground_truth={is_ground_truth}"
+            )
         
         return outputs
     
