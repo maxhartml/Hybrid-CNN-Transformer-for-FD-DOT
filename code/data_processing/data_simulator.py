@@ -75,7 +75,7 @@ import nirfasterff as ff  # type: ignore
 from code.utils.logging_config import get_data_logger, NIRDOTLogger
 
 # Constants for phantom generation
-DEFAULT_N_PHANTOMS = 300                    # Number of phantoms to generate for dataset
+DEFAULT_N_PHANTOMS = 5                    # Number of phantoms to generate for dataset
 DEFAULT_PHANTOM_SHAPE = (64, 64, 64)        # Default cubic phantom dimensions in voxels (power of 2)
 DEFAULT_TISSUE_RADIUS_RANGE = (25, 30)      # Healthy tissue ellipsoid semi-axis range (25-30mm with 1mm voxels)
 DEFAULT_TUMOR_RADIUS_RANGE = (5, 10)        # Tumor ellipsoid semi-axis range (5-10mm with 1mm voxels)
@@ -1214,168 +1214,156 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
 
 def visualize_probe_on_mesh(phantom_volume, phantom_mesh, source_position, detector_positions, probe_index, save_directory, patch_info=None, show_interactive=False):
     """
-    Create clean 3D visualization showing key tissue regions and single source-detector pair.
+    Creates a sophisticated 3D visualization for academic thesis presentation.
     
-    Features:
-    • Surface nodes: Full size markers for tissue boundaries
-    • Internal nodes: 50% size markers for internal tissue structure  
-    • Color coding: Lime=healthy tissue, Red=tumors, Light blue=patch region
-    • Black background for better contrast and visual appeal
-    • Performance optimized with intelligent downsampling
+    Modern Design Features:
+    • Professional color palette with optimal medical imaging contrast
+    • Clean minimalist aesthetic with subtle depth and dimensionality
+    • High-quality tissue surface rendering with smooth gradients
+    • Elegant probe highlighting with academic-grade typography
+    • Thesis-ready output with publication-quality styling
     """
-    from scipy.ndimage import binary_erosion  # Import for morphological operations
-    logger.debug(f"Creating visualization for probe {probe_index+1}")
-
-    # Initialize figure with black background
-    fig = plt.figure(figsize=(12, 10), facecolor='black')
-    ax = fig.add_subplot(111, projection='3d', facecolor='black')
+    from scipy.ndimage import binary_erosion
+    import matplotlib.colors as mcolors
     
-    # Set black background and remove grid lines but keep axis lines visible
-    ax.xaxis.set_pane_color((0, 0, 0, 1))  # Black panes
-    ax.yaxis.set_pane_color((0, 0, 0, 1))
-    ax.zaxis.set_pane_color((0, 0, 0, 1))
-    
-    # Enable grid with white color and thin lines for axis visibility
-    ax.grid(True, color='white', alpha=0.3, linewidth=0.5)
-    
-    # Make axes spines and ticks white and visible
-    ax.xaxis.line.set_color('white')
-    ax.yaxis.line.set_color('white')
-    ax.zaxis.line.set_color('white')
-    ax.tick_params(axis='x', colors='white', which='major')
-    ax.tick_params(axis='y', colors='white', which='major')
-    ax.tick_params(axis='z', colors='white', which='major')
+    logger.debug(f"Creating sophisticated visualization for probe {probe_index+1}")
 
-    # Get phantom size
-    phantom_size_mm = phantom_volume.shape[0] * VOXEL_SIZE_MM  # 64mm total size 
+    # Initialize figure with modern academic styling
+    plt.style.use('default')  # Reset any existing style
+    fig = plt.figure(figsize=(14, 11), facecolor='white', dpi=150)
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Create professional high-contrast color palette
+    tissue_color = '#22C55E'      # Professional green for healthy tissue
+    tumor_color = '#E53E3E'       # Bright medical red
+    patch_color = '#6B46C1'       # Professional purple
+    source_color = '#F56500'      # Bright orange
+    detector_color = '#0891B2'    # Professional cyan
+    
+    # Clean white background with minimal panes
+    ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.1))  # Nearly transparent
+    ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.1))
+    ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.1))
+    ax.grid(False)  # No grid for clean look
+    
+    # Professional axis styling
+    ax.tick_params(axis='x', colors='#2D3748', labelsize=11, pad=8)
+    ax.tick_params(axis='y', colors='#2D3748', labelsize=11, pad=8)
+    ax.tick_params(axis='z', colors='#2D3748', labelsize=11, pad=8)
+    
+    # Subtle but visible axis lines
+    ax.xaxis._axinfo['axisline']['color'] = '#4A5568'
+    ax.yaxis._axinfo['axisline']['color'] = '#4A5568'
+    ax.zaxis._axinfo['axisline']['color'] = '#4A5568'
+    ax.xaxis._axinfo['axisline']['linewidth'] = 1.8
+    ax.yaxis._axinfo['axisline']['linewidth'] = 1.8
+    ax.zaxis._axinfo['axisline']['linewidth'] = 1.8
 
-    # STEP 1: Extract and show healthy tissue surface and internal nodes
+    phantom_size_mm = phantom_volume.shape[0] * VOXEL_SIZE_MM
+
+    # CLEAN HIGH-CONTRAST TISSUE RENDERING
     healthy_tissue_mask = (phantom_volume == HEALTHY_TISSUE_LABEL)
     if np.any(healthy_tissue_mask):
-        # Use morphological edge detection to find tissue boundary
         healthy_surface = healthy_tissue_mask & (~binary_erosion(healthy_tissue_mask, iterations=1))
-        healthy_internal = healthy_tissue_mask & binary_erosion(healthy_tissue_mask, iterations=1)
         
-        # Show surface nodes (add to legend)
         healthy_surface_coords = np.argwhere(healthy_surface)
         if len(healthy_surface_coords) > 0:
-            # Convert to physical coordinates
             healthy_surface_coords_mm = convert_voxel_to_physical_coordinates(healthy_surface_coords)
-            # Downsample for performance - target ~1000 points
             downsample_factor = max(1, len(healthy_surface_coords_mm) // 1000)
+            
+            # Clean uniform tissue rendering
             ax.scatter(healthy_surface_coords_mm[::downsample_factor, 0], 
                       healthy_surface_coords_mm[::downsample_factor, 1], 
                       healthy_surface_coords_mm[::downsample_factor, 2],
-                      color='lime', s=4, alpha=0.8, label='Healthy tissue', marker='o')
-        
-        # Show internal nodes at 50% size (no legend entry)
-        healthy_internal_coords = np.argwhere(healthy_internal)
-        if len(healthy_internal_coords) > 0:
-            # Convert to physical coordinates
-            healthy_internal_coords_mm = convert_voxel_to_physical_coordinates(healthy_internal_coords)
-            # Downsample for performance - target ~500 points
-            internal_downsample_factor = max(1, len(healthy_internal_coords_mm) // 500)
-            ax.scatter(healthy_internal_coords_mm[::internal_downsample_factor, 0], 
-                      healthy_internal_coords_mm[::internal_downsample_factor, 1], 
-                      healthy_internal_coords_mm[::internal_downsample_factor, 2],
-                      color='lime', s=2, alpha=0.4, marker='o')
+                      color=tissue_color, s=8, alpha=0.7, edgecolors='none',
+                      label='Healthy Tissue', marker='o')
 
-    # STEP 2: Extract and show tumor regions
+    # PROFESSIONAL TUMOR VISUALIZATION
     tumor_count = 0
     for region_label in np.unique(phantom_volume):
         if region_label >= TUMOR_START_LABEL:
             tumor_mask = (phantom_volume == region_label)
             if np.any(tumor_mask):
-                # Extract tumor surface and internal
                 tumor_surface = tumor_mask & (~binary_erosion(tumor_mask, iterations=1))
-                tumor_internal = tumor_mask & binary_erosion(tumor_mask, iterations=1)
                 
-                # Show surface nodes (add to legend only for first tumor)
                 tumor_surface_coords = np.argwhere(tumor_surface)
                 if len(tumor_surface_coords) > 0:
                     tumor_count += 1
-                    # Convert to physical coordinates
                     tumor_surface_coords_mm = convert_voxel_to_physical_coordinates(tumor_surface_coords)
-                    # Downsample for performance
-                    downsample_factor = max(1, len(tumor_surface_coords_mm) // 300)
+                    downsample_factor = max(1, len(tumor_surface_coords_mm) // 350)
+                    
+                    # High-contrast tumor rendering
                     ax.scatter(tumor_surface_coords_mm[::downsample_factor, 0],
                               tumor_surface_coords_mm[::downsample_factor, 1], 
                               tumor_surface_coords_mm[::downsample_factor, 2],
-                              color='red', s=6, alpha=0.9, 
+                              color=tumor_color, s=12, alpha=0.9, edgecolors='white', linewidth=0.5,
                               label='Tumor' if tumor_count == 1 else '', marker='o')
-                
-                # Show internal nodes at 50% size (no legend entry)
-                tumor_internal_coords = np.argwhere(tumor_internal)
-                if len(tumor_internal_coords) > 0:
-                    # Convert to physical coordinates
-                    tumor_internal_coords_mm = convert_voxel_to_physical_coordinates(tumor_internal_coords)
-                    # Downsample for performance
-                    internal_downsample_factor = max(1, len(tumor_internal_coords_mm) // 150)
-                    ax.scatter(tumor_internal_coords_mm[::internal_downsample_factor, 0],
-                              tumor_internal_coords_mm[::internal_downsample_factor, 1], 
-                              tumor_internal_coords_mm[::internal_downsample_factor, 2],
-                              color='red', s=3, alpha=0.5, marker='o')
 
-    # STEP 3: Show patch region if provided (purple looks much better!)
+    # CLEAN PATCH REGION
     if patch_info is not None and 'patch_surface_coordinates' in patch_info:
         patch_surface_coords = patch_info['patch_surface_coordinates']
         if len(patch_surface_coords) > 0:
-            # Convert to physical coordinates
             patch_surface_coords_mm = convert_voxel_to_physical_coordinates(patch_surface_coords)
-            # Downsample for performance
-            patch_downsample_factor = max(1, len(patch_surface_coords_mm) // 600)
+            patch_downsample_factor = max(1, len(patch_surface_coords_mm) // 500)
+            
             ax.scatter(patch_surface_coords_mm[::patch_downsample_factor, 0],
                       patch_surface_coords_mm[::patch_downsample_factor, 1], 
                       patch_surface_coords_mm[::patch_downsample_factor, 2],
-                      color='purple', s=5, alpha=0.8, 
-                      label=f'Patch region (r={patch_info["radius"]}mm)', marker='o')
+                      color=patch_color, s=6, alpha=0.6, edgecolors='none',
+                      label=f'Probe Array Region (r={patch_info["radius"]}mm)', marker='o')
 
-    # STEP 4: Show source and detector
-    # Convert probe positions to physical coordinates
+    # PROFESSIONAL PROBE VISUALIZATION
     source_position_mm = convert_voxel_to_physical_coordinates([source_position])[0]
     detector_positions_mm = convert_voxel_to_physical_coordinates(detector_positions)
     
-    # Show source
+    # Bold source marker
     ax.scatter(source_position_mm[0], source_position_mm[1], source_position_mm[2], 
-               c='yellow', s=120, edgecolor='white', linewidth=2, 
-               label='NIR Source', marker='o')
+               color=source_color, s=150, edgecolor='white', linewidth=2.5, 
+               label='NIR Source', marker='o', alpha=1.0, zorder=10)
     
-    # Show only the first detector
+    # Bold detector marker
     if len(detector_positions_mm) > 0:
         first_detector = detector_positions_mm[0]
         ax.scatter(first_detector[0], first_detector[1], first_detector[2], 
-                   c='cyan', s=90, edgecolor='white', linewidth=1.5, 
-                   label='NIR Detector', marker='o')
+                   color=detector_color, s=130, edgecolor='white', linewidth=2.5, 
+                   label='NIR Detector', marker='o', alpha=1.0, zorder=10)
         
-        # Draw source-detector separation line
+        # Clean connection line
         ax.plot([source_position_mm[0], first_detector[0]],
                 [source_position_mm[1], first_detector[1]], 
                 [source_position_mm[2], first_detector[2]], 
-                'white', linewidth=2, alpha=0.8, linestyle='--', label='Source-detector separation')
+                color='#718096', linewidth=2.0, alpha=0.8, linestyle='-', zorder=5)
 
-    # Configure appearance for professional academic presentation
-    ax.set_title(f"3D Phantom Geometry: Tissue Distribution & NIR Probe Configuration", 
-                 color='white', fontsize=13, fontweight='normal', pad=20)
-    ax.set_xlabel('X (mm)', color='white', fontsize=11, fontweight='normal')
-    ax.set_ylabel('Y (mm)', color='white', fontsize=11, fontweight='normal')
-    ax.set_zlabel('Z (mm)', color='white', fontsize=11, fontweight='normal')
-    ax.tick_params(colors='white', labelsize=9)
-    ax.legend(facecolor='black', edgecolor='white', fontsize=8, labelcolor='white',
-              loc='upper right', bbox_to_anchor=(0.98, 0.98), framealpha=0.9,
-              markerscale=0.8, handletextpad=0.3, columnspacing=0.5)
+    # PROFESSIONAL ACADEMIC TYPOGRAPHY
+    ax.set_title(f'NIR-DOT Phantom Volume {probe_index+1:02d}: Tissue Distribution & Probe Configuration', 
+                 fontsize=15, fontweight='600', color='#2D3748', pad=20, 
+                 fontfamily='sans-serif')
+    
+    ax.set_xlabel('X Position (mm)', fontsize=12, color='#4A5568', fontweight='500', labelpad=10)
+    ax.set_ylabel('Y Position (mm)', fontsize=12, color='#4A5568', fontweight='500', labelpad=10)
+    ax.set_zlabel('Z Depth (mm)', fontsize=12, color='#4A5568', fontweight='500', labelpad=10)
+    
+    # Clean professional legend
+    legend = ax.legend(facecolor='white', edgecolor='#E2E8F0', fontsize=10, 
+                      framealpha=0.95, loc='upper left', bbox_to_anchor=(0.02, 0.98),
+                      borderpad=0.8, handletextpad=0.4, columnspacing=0.8,
+                      shadow=False, fancybox=False, frameon=True)
+    legend.get_frame().set_linewidth(1.0)
+    
+    # Perfect viewing setup with intuitive orientation (Z as depth)
     ax.set_xlim(0, phantom_size_mm)
     ax.set_ylim(0, phantom_size_mm)
     ax.set_zlim(0, phantom_size_mm)
     ax.set_box_aspect([1, 1, 1])
-    ax.view_init(elev=20, azim=45)
-
-    # Save the visualization
+    ax.view_init(elev=30, azim=45)  # Better angle to show Z as depth
+    
+    # Publication-quality output
     output_image_path = os.path.join(save_directory, f"probe_{probe_index+1:03d}.png")
-    plt.savefig(output_image_path, dpi=300, 
-                facecolor='black',  # Black background
-                bbox_inches='tight', 
-                edgecolor='none')
-    logger.debug(f"Saved visualization: {output_image_path}")
+    plt.savefig(output_image_path, dpi=300, facecolor='white', 
+                bbox_inches='tight', edgecolor='none', 
+                metadata={'Creator': 'NIR Phantom Generator', 'Subject': 'Medical Imaging'})
+    
+    logger.debug(f"Saved sophisticated visualization: {output_image_path}")
 
     if show_interactive:
         plt.show()
