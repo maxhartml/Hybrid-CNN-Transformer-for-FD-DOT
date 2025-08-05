@@ -52,6 +52,7 @@ from pathlib import Path
 import h5py
 import matplotlib.pyplot as plt
 import numpy as np
+import random
 from mpl_toolkits.mplot3d import Axes3D
 from scipy.ndimage import binary_erosion
 from scipy.spatial.distance import cdist
@@ -75,7 +76,8 @@ import nirfasterff as ff  # type: ignore
 from code.utils.logging_config import get_data_logger, NIRDOTLogger
 
 # Constants for phantom generation
-DEFAULT_N_PHANTOMS = 100                    # Number of phantoms to generate for dataset
+MASTER_RANDOM_SEED = 42                      # Master seed for reproducible datasets (change for different datasets)
+DEFAULT_N_PHANTOMS = 5                    # Number of phantoms to generate for dataset
 DEFAULT_PHANTOM_SHAPE = (64, 64, 64)        # Default cubic phantom dimensions in voxels (power of 2)
 DEFAULT_TISSUE_RADIUS_RANGE = (25, 30)      # Healthy tissue ellipsoid semi-axis range (25-30mm with 1mm voxels)
 DEFAULT_TUMOR_RADIUS_RANGE = (5, 10)        # Tumor ellipsoid semi-axis range (5-10mm with 1mm voxels)
@@ -127,6 +129,36 @@ RETRY_SEED_OFFSET = 1000                     # Seed offset for retries to ensure
 logger = get_data_logger(__name__)
 
 
+# =============================================================================
+# RANDOM STATE MANAGEMENT FOR REPRODUCIBLE DATASETS
+# =============================================================================
+
+def setup_random_state(seed=None):
+    """
+    Configure global random state for reproducible results.
+    
+    Args:
+        seed: Random seed for reproducibility. If None, uses current time.
+    
+    Returns:
+        tuple: (numpy_rng, seed_used) for consistent usage
+    """
+    if seed is None:
+        seed = int(time.time() * 1000000) % (2**31)  # Microsecond-based seed
+    
+    # Convert numpy integers to Python int (random.seed doesn't accept numpy types)
+    seed = int(seed)
+    
+    # Set all random number generators consistently
+    np.random.seed(seed)
+    random.seed(seed)  # For any standard library random usage
+    
+    # Create dedicated RNG for this simulation
+    rng = np.random.default_rng(seed)
+    
+    return rng, seed
+
+
 # ============================================================================
 # STEP 1: VOLUMETRIC PHANTOM CONSTRUCTION WITH EMBEDDED GEOMETRIES
 # ============================================================================
@@ -138,7 +170,7 @@ def build_phantom_with_tissue_and_tumours(phantom_shape=DEFAULT_PHANTOM_SHAPE,
                                           air_label=AIR_LABEL,
                                           tissue_label=HEALTHY_TISSUE_LABEL,
                                           tumour_start_label=TUMOR_START_LABEL,
-                                          rng_seed=None):
+                                          phantom_rng=None):
     """
     Construct 3D phantom volume with realistic tissue and tumor distributions.
     
@@ -162,13 +194,17 @@ def build_phantom_with_tissue_and_tumours(phantom_shape=DEFAULT_PHANTOM_SHAPE,
         air_label (int): Label for air/background regions (typically 0)
         tissue_label (int): Label for healthy tissue (typically 1)
         tumour_start_label (int): Starting label for tumors (incremented)
-        rng_seed (int): Random seed for reproducible generation
+        phantom_rng (np.random.Generator): Random number generator for reproducible generation
         
     Returns:
         numpy.ndarray: 3D volume with integer labels, shape (Nx, Ny, Nz)
     """
-    # Initialize pseudorandom number generator with specified seed for reproducibility
-    rng = np.random.default_rng(rng_seed)
+    # Initialize pseudorandom number generator for reproducibility
+    if phantom_rng is None:
+        # Fallback for backwards compatibility
+        phantom_rng = np.random.default_rng()
+        logger.warning("No RNG provided to build_phantom_with_tissue_and_tumours - using default random state")
+    
     Nx, Ny, Nz = phantom_shape
     
     # Create background air-filled volume using efficient memory allocation
@@ -230,14 +266,14 @@ def build_phantom_with_tissue_and_tumours(phantom_shape=DEFAULT_PHANTOM_SHAPE,
     
     # Sample random semi-axes lengths for tissue ellipsoid anisotropy simulation
     # Biological tissues rarely exhibit perfect spherical symmetry due to anatomical constraints
-    rx = rng.integers(*tissue_radius_range)  # Semi-axis length in x-direction [voxels]
-    ry = rng.integers(*tissue_radius_range)  # Semi-axis length in y-direction [voxels] 
-    rz = rng.integers(*tissue_radius_range)  # Semi-axis length in z-direction [voxels]
+    rx = phantom_rng.integers(*tissue_radius_range)  # Semi-axis length in x-direction [voxels]
+    ry = phantom_rng.integers(*tissue_radius_range)  # Semi-axis length in y-direction [voxels] 
+    rz = phantom_rng.integers(*tissue_radius_range)  # Semi-axis length in z-direction [voxels]
     
     # Generate random 3D rotation matrix for arbitrary ellipsoid orientation
     # This eliminates axis-aligned directional bias and simulates realistic anatomical variation
     # Critical for ML training: prevents model from learning phantom coordinate system artifacts
-    rotation_matrix = random_rotation_matrix(rng)
+    rotation_matrix = random_rotation_matrix(phantom_rng)
     
     # Apply rotation transformation to the entire coordinate system
     # Transform from phantom coordinates (X, Y, Z) to rotated ellipsoid coordinates (X', Y', Z')
@@ -262,7 +298,7 @@ def build_phantom_with_tissue_and_tumours(phantom_shape=DEFAULT_PHANTOM_SHAPE,
     # ----------------------
     # Sample the number of tumour inclusions from uniform distribution [0, max_tumours]
     # Biological variability: some phantoms have no tumors, others have multiple lesions
-    n_tumours = rng.integers(0, max_tumours+1)
+    n_tumours = phantom_rng.integers(0, max_tumours+1)
     logger.info(f"Embedding {n_tumours} tumor(s) with enhanced spatial constraints")
     logger.debug(f"Tissue ellipsoid: center=({cx},{cy},{cz}), radii=({rx},{ry},{rz})")
     current_label = tumour_start_label  # Initialize tumor labeling sequence
@@ -280,27 +316,27 @@ def build_phantom_with_tissue_and_tumours(phantom_shape=DEFAULT_PHANTOM_SHAPE,
             # Sample tumour center coordinates within tissue ellipsoid bounds using safety margins
             # Apply conservative margins (±3 voxels) to ensure tumours don't extend beyond tissue boundary
             # This prevents unrealistic "tumor bleeding" into air space during rotation
-            cx_t = rng.integers(cx-rx+3, cx+rx-3)  # X-coordinate with boundary safety margin
-            cy_t = rng.integers(cy-ry+3, cy+ry-3)  # Y-coordinate with boundary safety margin
-            cz_t = rng.integers(cz-rz+3, cz+rz-3)  # Z-coordinate with boundary safety margin
+            cx_t = phantom_rng.integers(cx-rx+3, cx+rx-3)  # X-coordinate with boundary safety margin
+            cy_t = phantom_rng.integers(cy-ry+3, cy+ry-3)  # Y-coordinate with boundary safety margin
+            cz_t = phantom_rng.integers(cz-rz+3, cz+rz-3)  # Z-coordinate with boundary safety margin
             
             # Sample tumour ellipsoid dimensions with physiological and geometric constraints
             # Tumor sizes follow clinical pathology distributions while respecting container geometry
-            rx_t = rng.integers(*tumour_radius_range)  # Tumor semi-axis in x-direction [voxels]
-            ry_t = rng.integers(*tumour_radius_range)  # Tumor semi-axis in y-direction [voxels]
+            rx_t = phantom_rng.integers(*tumour_radius_range)  # Tumor semi-axis in x-direction [voxels]
+            ry_t = phantom_rng.integers(*tumour_radius_range)  # Tumor semi-axis in y-direction [voxels]
             
             # Constrain z-axis dimension to maintain realistic aspect ratios and prevent elongated artifacts
             # Clinical tumors typically maintain roughly isotropic growth patterns in 3D
             # Ensure minimum radius ≥ 3 voxels for numerical stability and maximum ≤ max(rx_t, ry_t) for proportionality
             max_rz = min(tumour_radius_range[1], max(rx_t, ry_t))  # Enforce aspect ratio constraints
-            rz_t = rng.integers(3, max(4, max_rz + 1))  # Ensure valid range with minimum size guarantee
+            rz_t = phantom_rng.integers(3, max(4, max_rz + 1))  # Ensure valid range with minimum size guarantee
 
             logger.debug(f"Tumor {tumour_idx+1} attempt {attempts+1}: center=({cx_t},{cy_t},{cz_t}), radii=({rx_t},{ry_t},{rz_t})")
 
             # Generate independent random rotation matrix for arbitrary tumor orientation
             # This ensures tumors also exhibit random poses, not just the tissue ellipsoid
             # Critical for training data diversity: prevents correlation between tumor and tissue orientations
-            tumor_rotation = random_rotation_matrix(rng)
+            tumor_rotation = random_rotation_matrix(phantom_rng)
             
             # Apply rotation transformation to tumor's local coordinate system
             # Transform from phantom coordinates to tumor-specific rotated coordinates
@@ -519,7 +555,7 @@ def create_stndmesh(mesh_elements, mesh_nodes):
 # STEP 3: OPTICAL PROPERTY ASSIGNMENT AND GROUND TRUTH GENERATION
 # ============================================================================
 
-def assign_optical_properties(phantom_mesh, phantom_volume, rng_seed=None):
+def assign_optical_properties(phantom_mesh, phantom_volume, phantom_rng=None):
     """
     Assign physiologically realistic optical properties to mesh regions and generate ground truth.
     
@@ -537,7 +573,7 @@ def assign_optical_properties(phantom_mesh, phantom_volume, rng_seed=None):
     Args:
         phantom_mesh (nirfasterff.base.stndmesh): Finite element mesh with region labels
         phantom_volume (numpy.ndarray): Original voxel phantom for ground truth mapping
-        rng_seed (int): Random seed for reproducible property assignment
+        phantom_rng (np.random.Generator): Random number generator for reproducible property assignment
         
     Returns:
         tuple: (phantom_mesh, ground_truth_maps) where:
@@ -545,7 +581,9 @@ def assign_optical_properties(phantom_mesh, phantom_volume, rng_seed=None):
             - ground_truth_maps: Dense (Nx, Ny, Nz, 2) array with μₐ and μ′s maps
     """
     # Initialize controlled random number generator for reproducible property sampling
-    rng = np.random.default_rng(rng_seed)
+    if phantom_rng is None:
+        phantom_rng = np.random.default_rng()
+        logger.warning("No RNG provided to assign_optical_properties - using default random state")
     
     # Extract unique region labels from mesh elements
     # phantom_mesh.region contains the tissue type label for each tetrahedral element
@@ -553,12 +591,11 @@ def assign_optical_properties(phantom_mesh, phantom_volume, rng_seed=None):
     optical_properties = []  # Will store [region_id, μₐ, μ′s, n] for each tissue type
 
     logger.info(f"Starting optical property assignment for {len(unique_regions)} tissue regions")
-    logger.debug(f"Found regions: {unique_regions} (seed={rng_seed})")
 
     # Sample baseline healthy tissue optical properties from physiological distributions
     # These serve as reference values for relative tumour property scaling
-    healthy_mua = rng.uniform(*HEALTHY_MUA_RANGE)      # Absorption coeff. [mm⁻¹] - controls image contrast
-    healthy_musp = rng.uniform(*HEALTHY_MUSP_RANGE)    # Reduced scattering [mm⁻¹] - controls penetration depth
+    healthy_mua = phantom_rng.uniform(*HEALTHY_MUA_RANGE)      # Absorption coeff. [mm⁻¹] - controls image contrast
+    healthy_musp = phantom_rng.uniform(*HEALTHY_MUSP_RANGE)    # Reduced scattering [mm⁻¹] - controls penetration depth
     
     logger.debug(f"Baseline healthy tissue properties: μₐ={healthy_mua:.4f} mm⁻¹, μ′s={healthy_musp:.3f} mm⁻¹")
     
@@ -575,8 +612,8 @@ def assign_optical_properties(phantom_mesh, phantom_volume, rng_seed=None):
             # Apply controlled randomization within clinically observed ranges
             # Tumours typically show increased absorption (higher blood volume)
             # and altered scattering (modified cellular architecture)
-            mua_multiplier = rng.uniform(*TUMOR_MUA_MULTIPLIER_RANGE)
-            musp_multiplier = rng.uniform(*TUMOR_MUSP_MULTIPLIER_RANGE)
+            mua_multiplier = phantom_rng.uniform(*TUMOR_MUA_MULTIPLIER_RANGE)
+            musp_multiplier = phantom_rng.uniform(*TUMOR_MUSP_MULTIPLIER_RANGE)
             tissue_mua = healthy_mua * mua_multiplier     # 50-250% increase in absorption
             tissue_musp = healthy_musp * musp_multiplier  # 50-150% increase in scattering
             tumor_index = region_label - TUMOR_START_LABEL + 1
@@ -702,7 +739,7 @@ def convert_voxel_to_physical_coordinates(voxel_coordinates):
     return voxel_coords_array.astype(float) * VOXEL_SIZE_MM
 
 def find_safe_patch_centers(surface_coordinates, patch_radius=DEFAULT_PATCH_RADIUS, 
-                           min_patch_voxels=DEFAULT_MIN_PATCH_VOXELS, rng_seed=None):
+                           min_patch_voxels=DEFAULT_MIN_PATCH_VOXELS, phantom_rng=None):
     """
     Identifies surface voxels that can support full-radius patches for robust probe placement.
     
@@ -779,7 +816,7 @@ def build_patch_based_probe_layout(surface_coordinates, n_sources=50, detectors_
                                  min_source_detector_distance=DEFAULT_MIN_PROBE_DISTANCE,
                                  max_source_detector_distance=DEFAULT_MAX_PROBE_DISTANCE,
                                  min_patch_voxels=DEFAULT_MIN_PATCH_VOXELS,
-                                 rng_seed=None):
+                                 phantom_rng=None):
     """
     Generates optimized probe configurations using strategic source placement with multiple detectors per source.
     
@@ -818,7 +855,7 @@ def build_patch_based_probe_layout(surface_coordinates, n_sources=50, detectors_
         min_source_detector_distance (float): Minimum SDS in mm for diffusive regime validity (10mm)
         max_source_detector_distance (float): Maximum SDS in mm for clinical realism (40mm) 
         min_patch_voxels (int): Minimum surface voxels required for valid patch (500 for adequate sampling)
-        rng_seed (int): Random seed for reproducible patch selection and probe placement
+        phantom_rng (np.random.Generator): Random number generator for reproducible patch selection and probe placement
         
     Returns:
         tuple: (probe_sources, probe_detectors, measurement_links, patch_info) where:
@@ -828,7 +865,9 @@ def build_patch_based_probe_layout(surface_coordinates, n_sources=50, detectors_
             - patch_info: Dictionary containing patch metadata for visualization and analysis
     """
     # Initialize controlled randomization for reproducible patch-based placement
-    rng = np.random.default_rng(rng_seed)
+    if phantom_rng is None:
+        phantom_rng = np.random.default_rng()
+        logger.warning("No RNG provided to build_patch_based_probe_layout - using default random state")
     
     # Calculate total expected measurements for comprehensive logging
     total_expected_measurements = n_sources * detectors_per_source
@@ -837,11 +876,11 @@ def build_patch_based_probe_layout(surface_coordinates, n_sources=50, detectors_
     logger.info(f"Strategy: {n_sources} strategic sources × {detectors_per_source} detectors/source = {total_expected_measurements} total measurements")
     logger.info(f"Computational advantage: {n_sources} FEM solves (vs. {total_expected_measurements} in old approach = {total_expected_measurements/n_sources:.1f}x speedup)")
     logger.info(f"Patch constraints: {patch_radius}mm radius, SDS range: {min_source_detector_distance}-{max_source_detector_distance}mm")
-    logger.debug(f"Available surface positions: {len(surface_coordinates):,} voxels (seed={rng_seed})")
+    logger.debug(f"Available surface positions: {len(surface_coordinates):,} voxels")
     
     # STEP 5.1: Identify safe patch centers that can support full radius patches
     logger.debug("Step 1/6: Identifying safe patch centers...")
-    safe_patch_centers = find_safe_patch_centers(surface_coordinates, patch_radius, min_patch_voxels, rng_seed)
+    safe_patch_centers = find_safe_patch_centers(surface_coordinates, patch_radius, min_patch_voxels, phantom_rng)
     
     if len(safe_patch_centers) == 0:
         logger.error("No safe patch centers available - cannot proceed with probe placement")
@@ -849,7 +888,7 @@ def build_patch_based_probe_layout(surface_coordinates, n_sources=50, detectors_
     
     # STEP 5.2: Randomly select one patch center for this phantom
     logger.debug("Step 2/6: Selecting random patch center...")
-    center_idx = rng.integers(0, len(safe_patch_centers))
+    center_idx = phantom_rng.integers(0, len(safe_patch_centers))
     selected_patch_center = safe_patch_centers[center_idx]
     
     logger.info(f"Selected patch center: ({selected_patch_center[0]:.1f}, {selected_patch_center[1]:.1f}, {selected_patch_center[2]:.1f})")
@@ -874,7 +913,7 @@ def build_patch_based_probe_layout(surface_coordinates, n_sources=50, detectors_
     # STEP 5.4: **NEW - STRATEGIC SOURCE PLACEMENT USING POISSON DISK SAMPLING**
     logger.debug("Step 4/6: Placing sources using Poisson disk sampling for uniform distribution...")
     
-    def poisson_disk_sampling(patch_coordinates, n_samples, min_distance_mm=8.0, max_attempts=30):
+    def poisson_disk_sampling(patch_coordinates, n_samples, phantom_rng, min_distance_mm=8.0, max_attempts=30):
         """
         Implements Poisson disk sampling for uniform source distribution without clustering.
         
@@ -899,7 +938,7 @@ def build_patch_based_probe_layout(surface_coordinates, n_sources=50, detectors_
         selected_sources = []
         
         # Place first source randomly
-        first_idx = rng.integers(0, len(patch_coordinates))
+        first_idx = phantom_rng.integers(0, len(patch_coordinates))
         selected_sources.append(patch_coordinates[first_idx])
         
         # Place remaining sources with minimum distance constraint
@@ -907,7 +946,7 @@ def build_patch_based_probe_layout(surface_coordinates, n_sources=50, detectors_
             placed = False
             
             for attempt in range(max_attempts):
-                candidate_idx = rng.integers(0, len(patch_coordinates))
+                candidate_idx = phantom_rng.integers(0, len(patch_coordinates))
                 candidate_pos_mm = convert_voxel_to_physical_coordinates([patch_coordinates[candidate_idx]])[0]
                 
                 # Check distance to all existing sources
@@ -936,7 +975,7 @@ def build_patch_based_probe_layout(surface_coordinates, n_sources=50, detectors_
     source_positions = []
     
     for attempt in range(max_source_placement_attempts):
-        source_positions = poisson_disk_sampling(patch_surface_coordinates, n_sources, min_distance_mm=5.0)
+        source_positions = poisson_disk_sampling(patch_surface_coordinates, n_sources, phantom_rng, min_distance_mm=5.0)
         n_sources_placed = len(source_positions)
         
         logger.info(f"Source placement attempt {attempt+1}/{max_source_placement_attempts}: {n_sources_placed}/{n_sources} sources placed")
@@ -993,7 +1032,7 @@ def build_patch_based_probe_layout(surface_coordinates, n_sources=50, detectors_
         
         # PURE RANDOM SAMPLING - no bins, no complexity
         n_sample = min(n_detectors, len(valid_detector_indices))
-        selected_indices = rng.choice(valid_detector_indices, size=n_sample, replace=False)
+        selected_indices = phantom_rng.choice(valid_detector_indices, size=n_sample, replace=False)
         
         return [patch_coords[idx] for idx in selected_indices]
     
@@ -1032,8 +1071,11 @@ def build_patch_based_probe_layout(surface_coordinates, n_sources=50, detectors_
     logger.info(f"✓ OPTIMIZED probe layout completed successfully!")
     logger.info(f"Final configuration: {n_unique_sources} sources → {n_total_measurements} total measurements")
     logger.info(f"Average detectors per source: {avg_detectors_per_source:.1f}")
-    logger.info(f"Computational efficiency: {n_unique_sources} FEM solves (vs. {n_total_measurements} in old approach)")
-    logger.info(f"Speedup factor: {n_total_measurements/n_unique_sources:.1f}x more measurements per FEM solve")
+    
+    if n_total_measurements < total_expected_measurements:
+        completion_rate = n_total_measurements / total_expected_measurements * 100
+        logger.warning(f"Placement completion: {completion_rate:.1f}% ({n_total_measurements}/{total_expected_measurements} measurements)")
+        logger.info(f"Consider adjusting patch radius or SDS constraints for higher completion rate")
     
     if n_total_measurements < total_expected_measurements:
         completion_rate = n_total_measurements / total_expected_measurements * 100
@@ -1057,8 +1099,7 @@ def build_patch_based_probe_layout(surface_coordinates, n_sources=50, detectors_
         'data_augmentation_potential': f"~{n_total_measurements//256} training subsamples per phantom"
     }
     
-    logger.debug(f"OPTIMIZED patch metadata: center={selected_patch_center}, radius={patch_radius}mm, voxels={patch_size}")
-    logger.debug(f"Efficiency gains: {n_unique_sources} sources → {n_total_measurements} measurements (strategic placement)")
+    logger.debug(f"Patch metadata: center={selected_patch_center}, radius={patch_radius}mm, voxels={patch_size}")
     
     # Convert to NumPy arrays for efficient numerical processing
     return (np.array(all_probe_sources), 
@@ -1148,7 +1189,10 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
     # Project optodes onto mesh surface with geometric consistency validation
     # Critical for accurate boundary condition application and prevents non-physical floating optodes
     # NIRFASTer automatically finds nearest mesh surface nodes for each optode position
-    phantom_mesh.touch_optodes()
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # Suppress NIRFASTer warnings during optode projection
+        phantom_mesh.touch_optodes()
     logger.debug("Optodes successfully projected onto mesh surface with geometric validation")
 
     # STEP 2: Execute frequency-domain finite element forward simulation with comprehensive monitoring
@@ -1161,9 +1205,7 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
     mesh_density = num_elements / np.prod(phantom_volume.shape) if phantom_volume is not None else 0
     
     logger.debug(f"FEM mesh statistics: {num_nodes:,} nodes, {num_elements:,} elements")
-    logger.debug(f"Mesh density: {mesh_density:.3f} elements/voxel")
     logger.debug(f"OPTIMIZED measurement matrix: {n_unique_sources} unique sources → {n_measurements} total measurements")
-    logger.debug(f"Computational efficiency: {n_measurements/n_unique_sources:.1f}x more measurements per FEM solve vs. old approach")
     
     # Execute complex-valued frequency-domain finite element solution
     # Solves: -∇·(D∇Φ) + [μₐ + iω/c]Φ = S for complex photon fluence Φ(r,ω)
@@ -1366,8 +1408,6 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
     file_size_mb = os.path.getsize(output_h5_filename) / (1024**2)
     logger.info(f"✓ OPTIMIZED dataset saved successfully - {output_h5_filename} ({file_size_mb:.1f} MB)")
     logger.info(f"Final OPTIMIZED dataset: {n_measurements} measurements from {n_unique_sources} strategic sources")
-    logger.info(f"Efficiency achievement: {n_measurements/n_unique_sources:.1f}x more measurements per FEM solve")
-    logger.info(f"Data augmentation ready: ~{n_measurements//256} different 256-measurement training subsamples available")
     logger.debug(f"Ground truth shape: {ground_truth_maps.shape[0]}×{ground_truth_maps.shape[1]}×{ground_truth_maps.shape[2]}×{ground_truth_maps.shape[3]} voxels")
     
     # Return success - no NaN values detected
@@ -1379,163 +1419,162 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
 
 def visualize_probe_on_mesh(phantom_volume, phantom_mesh, source_position, detector_positions, probe_index, save_directory, patch_info=None, show_interactive=False):
     """
-    Creates a sophisticated 3D visualization for academic thesis presentation.
+    Creates a clean, professional 3D visualization suitable for academic reports.
     
-    Modern Design Features:
-    • Professional color palette with optimal medical imaging contrast
-    • Clean minimalist aesthetic with subtle depth and dimensionality
-    • High-quality tissue surface rendering with smooth gradients
-    • Elegant probe highlighting with academic-grade typography
-    • Thesis-ready output with publication-quality styling
+    Key Features:
+    • Clean axis labels (X, Y, Z in mm) with proper spatial orientation
+    • High-contrast colors optimized for both screen and print
+    • Minimal, professional styling suitable for thesis/reports
+    • Clear legend and typography
+    • Publication-quality output at 300 DPI
     """
     from scipy.ndimage import binary_erosion
-    import matplotlib.colors as mcolors
     
-    logger.debug(f"Creating sophisticated visualization for probe {probe_index+1}")
+    logger.debug(f"Creating professional visualization for probe {probe_index+1}")
 
-    # Initialize figure with modern academic styling
-    plt.style.use('default')  # Reset any existing style
-    fig = plt.figure(figsize=(14, 11), facecolor='white', dpi=150)
+    # Initialize figure with clean, modern styling
+    plt.style.use('default')
+    fig = plt.figure(figsize=(12, 10), facecolor='white', dpi=150)
     ax = fig.add_subplot(111, projection='3d')
     
-    # Create professional high-contrast color palette
-    tissue_color = '#22C55E'      # Professional green for healthy tissue
-    tumor_color = '#E53E3E'       # Bright medical red
-    patch_color = '#6B46C1'       # Professional purple
-    source_color = '#F56500'      # Bright orange
-    detector_color = '#0891B2'    # Professional cyan
+    # Professional color scheme - optimized for reports
+    colors = {
+        'tissue': '#2E8B57',        # Sea green - professional medical
+        'tumor': '#DC143C',         # Crimson red - high contrast
+        'patch': '#FF8C00',         # Dark orange - MUCH more visible than blue
+        'source': '#FF6347',        # Tomato red - bright but professional
+        'detector': '#1E90FF',      # Dodger blue - clean contrast
+        'connection': '#708090'     # Slate gray - subtle connection
+    }
     
-    # Clean white background with minimal panes
-    ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.1))  # Nearly transparent
-    ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.1))
-    ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.1))
-    ax.grid(False)  # No grid for clean look
+    # Clean background - minimal visual noise
+    ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))  # Transparent
+    ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+    ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+    ax.grid(True, alpha=0.2, linewidth=0.5)  # Subtle grid
     
     # Professional axis styling
-    ax.tick_params(axis='x', colors='#2D3748', labelsize=11, pad=8)
-    ax.tick_params(axis='y', colors='#2D3748', labelsize=11, pad=8)
-    ax.tick_params(axis='z', colors='#2D3748', labelsize=11, pad=8)
-    
-    # Subtle but visible axis lines
-    ax.xaxis._axinfo['axisline']['color'] = '#4A5568'
-    ax.yaxis._axinfo['axisline']['color'] = '#4A5568'
-    ax.zaxis._axinfo['axisline']['color'] = '#4A5568'
-    ax.xaxis._axinfo['axisline']['linewidth'] = 1.8
-    ax.yaxis._axinfo['axisline']['linewidth'] = 1.8
-    ax.zaxis._axinfo['axisline']['linewidth'] = 1.8
+    ax.tick_params(axis='x', colors='#2C3E50', labelsize=10)
+    ax.tick_params(axis='y', colors='#2C3E50', labelsize=10)
+    ax.tick_params(axis='z', colors='#2C3E50', labelsize=10)
 
     phantom_size_mm = phantom_volume.shape[0] * VOXEL_SIZE_MM
 
-    # CLEAN HIGH-CONTRAST TISSUE RENDERING
+    # TISSUE SURFACE RENDERING - Clean and efficient
     healthy_tissue_mask = (phantom_volume == HEALTHY_TISSUE_LABEL)
     if np.any(healthy_tissue_mask):
+        # Extract surface using morphological operations
         healthy_surface = healthy_tissue_mask & (~binary_erosion(healthy_tissue_mask, iterations=1))
+        healthy_coords = np.argwhere(healthy_surface)
         
-        healthy_surface_coords = np.argwhere(healthy_surface)
-        if len(healthy_surface_coords) > 0:
-            healthy_surface_coords_mm = convert_voxel_to_physical_coordinates(healthy_surface_coords)
-            downsample_factor = max(1, len(healthy_surface_coords_mm) // 1000)
+        if len(healthy_coords) > 0:
+            healthy_coords_mm = convert_voxel_to_physical_coordinates(healthy_coords)
+            # Downsample for performance while maintaining visual quality
+            step = max(1, len(healthy_coords_mm) // 2000)
             
-            # Clean uniform tissue rendering
-            ax.scatter(healthy_surface_coords_mm[::downsample_factor, 0], 
-                      healthy_surface_coords_mm[::downsample_factor, 1], 
-                      healthy_surface_coords_mm[::downsample_factor, 2],
-                      color=tissue_color, s=8, alpha=0.7, edgecolors='none',
-                      label='Healthy Tissue', marker='o')
+            ax.scatter(healthy_coords_mm[::step, 0], 
+                      healthy_coords_mm[::step, 1], 
+                      healthy_coords_mm[::step, 2],
+                      c=colors['tissue'], s=4, alpha=0.6, 
+                      label='Tissue Surface', edgecolors='none')
 
-    # PROFESSIONAL TUMOR VISUALIZATION
-    tumor_count = 0
-    for region_label in np.unique(phantom_volume):
-        if region_label >= TUMOR_START_LABEL:
+    # TUMOR VISUALIZATION - High contrast for visibility
+    tumor_labels = [label for label in np.unique(phantom_volume) if label >= TUMOR_START_LABEL]
+    if tumor_labels:
+        all_tumor_coords = []
+        for region_label in tumor_labels:
             tumor_mask = (phantom_volume == region_label)
-            if np.any(tumor_mask):
-                tumor_surface = tumor_mask & (~binary_erosion(tumor_mask, iterations=1))
-                
-                tumor_surface_coords = np.argwhere(tumor_surface)
-                if len(tumor_surface_coords) > 0:
-                    tumor_count += 1
-                    tumor_surface_coords_mm = convert_voxel_to_physical_coordinates(tumor_surface_coords)
-                    downsample_factor = max(1, len(tumor_surface_coords_mm) // 350)
-                    
-                    # High-contrast tumor rendering
-                    ax.scatter(tumor_surface_coords_mm[::downsample_factor, 0],
-                              tumor_surface_coords_mm[::downsample_factor, 1], 
-                              tumor_surface_coords_mm[::downsample_factor, 2],
-                              color=tumor_color, s=12, alpha=0.9, edgecolors='white', linewidth=0.5,
-                              label='Tumor' if tumor_count == 1 else '', marker='o')
-
-    # CLEAN PATCH REGION
-    if patch_info is not None and 'patch_surface_coordinates' in patch_info:
-        patch_surface_coords = patch_info['patch_surface_coordinates']
-        if len(patch_surface_coords) > 0:
-            patch_surface_coords_mm = convert_voxel_to_physical_coordinates(patch_surface_coords)
-            patch_downsample_factor = max(1, len(patch_surface_coords_mm) // 500)
-            
-            ax.scatter(patch_surface_coords_mm[::patch_downsample_factor, 0],
-                      patch_surface_coords_mm[::patch_downsample_factor, 1], 
-                      patch_surface_coords_mm[::patch_downsample_factor, 2],
-                      color=patch_color, s=6, alpha=0.6, edgecolors='none',
-                      label=f'Probe Array Region (r={patch_info["radius"]}mm)', marker='o')
-
-    # PROFESSIONAL PROBE VISUALIZATION
-    source_position_mm = convert_voxel_to_physical_coordinates([source_position])[0]
-    detector_positions_mm = convert_voxel_to_physical_coordinates(detector_positions)
-    
-    # Bold source marker
-    ax.scatter(source_position_mm[0], source_position_mm[1], source_position_mm[2], 
-               color=source_color, s=150, edgecolor='white', linewidth=2.5, 
-               label='NIR Source', marker='o', alpha=1.0, zorder=10)
-    
-    # Bold detector marker
-    if len(detector_positions_mm) > 0:
-        first_detector = detector_positions_mm[0]
-        ax.scatter(first_detector[0], first_detector[1], first_detector[2], 
-                   color=detector_color, s=130, edgecolor='white', linewidth=2.5, 
-                   label='NIR Detector', marker='o', alpha=1.0, zorder=10)
+            tumor_surface = tumor_mask & (~binary_erosion(tumor_mask, iterations=1))
+            tumor_coords = np.argwhere(tumor_surface)
+            if len(tumor_coords) > 0:
+                all_tumor_coords.extend(tumor_coords)
         
-        # Clean connection line
-        ax.plot([source_position_mm[0], first_detector[0]],
-                [source_position_mm[1], first_detector[1]], 
-                [source_position_mm[2], first_detector[2]], 
-                color='#718096', linewidth=2.0, alpha=0.8, linestyle='-', zorder=5)
+        if all_tumor_coords:
+            all_tumor_coords = np.array(all_tumor_coords)
+            tumor_coords_mm = convert_voxel_to_physical_coordinates(all_tumor_coords)
+            step = max(1, len(tumor_coords_mm) // 1000)
+            
+            ax.scatter(tumor_coords_mm[::step, 0],
+                      tumor_coords_mm[::step, 1], 
+                      tumor_coords_mm[::step, 2],
+                      c=colors['tumor'], s=8, alpha=0.8,
+                      label=f'Tumor{"s" if len(tumor_labels) > 1 else ""} ({len(tumor_labels)})',
+                      edgecolors='white', linewidths=0.2)
 
-    # PROFESSIONAL ACADEMIC TYPOGRAPHY
-    ax.set_title(f'NIR-DOT Phantom Volume {probe_index+1:02d}: Tissue Distribution & Probe Configuration', 
-                 fontsize=15, fontweight='600', color='#2D3748', pad=20, 
-                 fontfamily='sans-serif')
+    # PROBE PATCH REGION - HIGHLY VISIBLE for clinical context
+    if patch_info and 'patch_surface_coordinates' in patch_info:
+        patch_coords = patch_info['patch_surface_coordinates']
+        if len(patch_coords) > 0:
+            patch_coords_mm = convert_voxel_to_physical_coordinates(patch_coords)
+            step = max(1, len(patch_coords_mm) // 600)  # Less downsampling for better visibility
+            
+            ax.scatter(patch_coords_mm[::step, 0],
+                      patch_coords_mm[::step, 1], 
+                      patch_coords_mm[::step, 2],
+                      c=colors['patch'], s=8, alpha=0.8,  # Larger size, higher alpha
+                      label=f'Probe Region ({patch_info["radius"]}mm)',
+                      edgecolors='darkred', linewidths=0.3)  # Dark red outline for contrast
+
+    # PROBE ELEMENTS - Bold and clear
+    source_mm = convert_voxel_to_physical_coordinates([source_position])[0]
+    detector_mm = convert_voxel_to_physical_coordinates(detector_positions)
     
-    ax.set_xlabel('X Position (mm)', fontsize=12, color='#4A5568', fontweight='500', labelpad=10)
-    ax.set_ylabel('Y Position (mm)', fontsize=12, color='#4A5568', fontweight='500', labelpad=10)
-    ax.set_zlabel('Z Depth (mm)', fontsize=12, color='#4A5568', fontweight='500', labelpad=10)
+    # Source marker - prominent
+    ax.scatter(source_mm[0], source_mm[1], source_mm[2], 
+               c=colors['source'], s=120, 
+               label='NIR Source', marker='o', 
+               edgecolors='white', linewidths=2, alpha=1.0, zorder=10)
     
-    # Clean professional legend
-    legend = ax.legend(facecolor='white', edgecolor='#E2E8F0', fontsize=10, 
-                      framealpha=0.95, loc='upper left', bbox_to_anchor=(0.02, 0.98),
-                      borderpad=0.8, handletextpad=0.4, columnspacing=0.8,
-                      shadow=False, fancybox=False, frameon=True)
-    legend.get_frame().set_linewidth(1.0)
+    # Detector marker - clear contrast
+    if len(detector_mm) > 0:
+        det = detector_mm[0]
+        ax.scatter(det[0], det[1], det[2], 
+                   c=colors['detector'], s=100, 
+                   label='NIR Detector', marker='s', 
+                   edgecolors='white', linewidths=2, alpha=1.0, zorder=10)
+        
+        # Source-detector connection
+        ax.plot([source_mm[0], det[0]], [source_mm[1], det[1]], [source_mm[2], det[2]], 
+                color=colors['connection'], linewidth=2, alpha=0.7, zorder=5)
+
+    # PROFESSIONAL LABELING - Clean and minimal
+    ax.set_title(f'NIR Phantom {probe_index+1:02d}: Tissue Distribution & Probe Layout', 
+                 fontsize=14, fontweight='bold', color='#2C3E50', pad=20)
     
-    # Perfect viewing setup with intuitive orientation (Z as depth)
+    # Simple, clear axis labels
+    ax.set_xlabel('X (mm)', fontsize=12, color='#2C3E50', fontweight='bold')
+    ax.set_ylabel('Y (mm)', fontsize=12, color='#2C3E50', fontweight='bold')
+    ax.set_zlabel('Z (mm)', fontsize=12, color='#2C3E50', fontweight='bold')
+    
+    # Professional legend - clean and readable
+    legend = ax.legend(loc='upper left', bbox_to_anchor=(0.0, 1.0),
+                      frameon=True, fancybox=False, shadow=False,
+                      fontsize=10, edgecolor='#34495E', facecolor='white',
+                      framealpha=0.95, borderpad=1)
+    legend.get_frame().set_linewidth(1)
+    
+    # Proper 3D orientation - Z as expected vertical depth
     ax.set_xlim(0, phantom_size_mm)
-    ax.set_ylim(0, phantom_size_mm)
+    ax.set_ylim(0, phantom_size_mm) 
     ax.set_zlim(0, phantom_size_mm)
     ax.set_box_aspect([1, 1, 1])
-    ax.view_init(elev=30, azim=45)  # Better angle to show Z as depth
     
-    # Publication-quality output
-    output_image_path = os.path.join(save_directory, f"probe_{probe_index+1:03d}.png")
-    plt.savefig(output_image_path, dpi=300, facecolor='white', 
-                bbox_inches='tight', edgecolor='none', 
-                metadata={'Creator': 'NIR Phantom Generator', 'Subject': 'Medical Imaging'})
+    # Optimal viewing angle for medical imaging
+    ax.view_init(elev=25, azim=45)
     
-    logger.debug(f"Saved sophisticated visualization: {output_image_path}")
+    # High-quality output for reports
+    output_path = os.path.join(save_directory, f"probe_{probe_index+1:03d}.png")
+    plt.savefig(output_path, dpi=300, facecolor='white', bbox_inches='tight',
+                edgecolor='none', format='png')
+    
+    logger.debug(f"Professional visualization saved: {output_path}")
 
     if show_interactive:
         plt.show()
     else:
         plt.close()
 
-    return output_image_path
+    return output_path
 
 
 # --------------------------------------------------------------
@@ -1615,12 +1654,25 @@ def main():
     logger.info(f"Data augmentation potential: ~{measurements_per_phantom//256} different 256-measurement training samples per phantom")
     logger.info(f"Estimated dataset size: ~{expected_measurements * 8 / 1024**2:.1f} MB (float64 measurements)")
     
+    # STEP 2.5: Initialize master random state for reproducible dataset generation
+    master_rng, master_seed = setup_random_state(MASTER_RANDOM_SEED)
+    phantom_seeds = master_rng.integers(0, 2**31, size=n_phantoms)
+    
+    logger.info("🎯 Random state management initialized:")
+    logger.info(f"   Master seed: {master_seed} (for reproducible datasets)")
+    logger.info(f"   Unique phantom seeds: {n_phantoms} generated")
+    logger.info(f"   Reproducibility: ENABLED (same dataset every run)")
+    
     # STEP 3: Execute iterative phantom generation with comprehensive quality control
     # Each phantom is generated independently with unique random seeds to ensure statistical diversity
     pipeline_start_time = time.time()  # Track total pipeline execution time
     
     for phantom_idx in range(n_phantoms):
         phantom_start_time = time.time()  # Track per-phantom generation time for performance monitoring
+        phantom_seed = phantom_seeds[phantom_idx]
+        phantom_rng, _ = setup_random_state(phantom_seed)
+        
+        logger.info(f"🎲 Phantom {phantom_idx+1:02d}/{n_phantoms} - Seed: {phantom_seed}")
         
         logger.info("="*60)
         logger.info(f"GENERATING PHANTOM {phantom_idx+1:02d}/{n_phantoms}")
@@ -1640,21 +1692,26 @@ def main():
         while not phantom_success and retry_attempt < MAX_PHANTOM_RETRY_ATTEMPTS:
             if retry_attempt > 0:
                 logger.warning(f"Retrying phantom {phantom_idx+1} generation (attempt {retry_attempt+1}/{MAX_PHANTOM_RETRY_ATTEMPTS})")
+                # Generate new seed for retry attempt
+                retry_seed = phantom_seeds[phantom_idx] + (retry_attempt * RETRY_SEED_OFFSET)
+                phantom_rng, _ = setup_random_state(retry_seed)
+                logger.info(f"🎲 Retry with new seed: {retry_seed}")
                 
             try:
-                # Use different seeds for retries to ensure completely different geometry
-                base_seed_offset = phantom_idx + (retry_attempt * RETRY_SEED_OFFSET)
-                
-                # SUBSTEP 3.2: Construct phantom geometry with controlled randomization and biological realism
-                # Uses unique random seed per phantom to ensure statistical independence between phantoms
-                # Prevents correlation artifacts that could bias machine learning model training
-                logger.info("Step 1/6: Constructing randomized phantom geometry with tissue and tumor embedding")
-                phantom_volume = build_phantom_with_tissue_and_tumours(rng_seed=44+base_seed_offset)  # Offset seed for uniqueness
+                # ============================================================================
+                # STEP 1/6: PHANTOM GEOMETRY CONSTRUCTION
+                # ============================================================================
+                step1_start = time.time()
+                logger.info("▶️  STEP 1/6: Constructing randomized phantom geometry with tissue and tumor embedding...")
+                phantom_volume = build_phantom_with_tissue_and_tumours(phantom_rng=phantom_rng)  # Use managed RNG
+                step1_time = time.time() - step1_start
+                logger.info(f"✅ STEP 1/6 COMPLETED: Phantom geometry construction finished in {step1_time:.2f}s")
         
-                # SUBSTEP 3.3: Generate high-quality finite element mesh for accurate numerical simulation
-                # CGAL-based tetrahedral mesh generation ensures robust light transport modeling
-                # Mesh quality directly impacts forward modeling accuracy and reconstruction performance
-                logger.info("Step 2/6: Generating CGAL-based tetrahedral finite element mesh")
+                # ============================================================================
+                # STEP 2/6: FINITE ELEMENT MESH GENERATION  
+                # ============================================================================
+                step2_start = time.time()
+                logger.info("▶️  STEP 2/6: Generating CGAL-based tetrahedral finite element mesh...")
                 
                 # Temporarily suppress NIRFASTer warnings during mesh creation (they're harmless but noisy)
                 import warnings
@@ -1663,27 +1720,34 @@ def main():
                     mesh_elements, mesh_nodes = mesh_volume(phantom_volume)  # Raw mesh generation
                     phantom_mesh = create_stndmesh(mesh_elements, mesh_nodes)  # NIRFASTer standardization
                 
-                # SUBSTEP 3.4: Assign physiologically realistic optical properties with controlled randomization
-                # Uses literature-based optical coefficient ranges to ensure clinical relevance
-                # Ground truth maps provide pixel-perfect reference for supervised learning validation
-                logger.info("Step 3/6: Assigning physiological optical properties and generating ground truth maps")
-                phantom_mesh, ground_truth_maps = assign_optical_properties(phantom_mesh, phantom_volume, rng_seed=42+base_seed_offset)
+                step2_time = time.time() - step2_start
+                logger.info(f"✅ STEP 2/6 COMPLETED: FEM mesh generation finished in {step2_time:.2f}s")
                 
-                # SUBSTEP 3.5: Extract tissue surface and generate OPTIMIZED probe configurations  
-                # **NEW STRATEGY: Strategic source placement with multiple detectors per source**
-                # • 50 strategically placed sources using Poisson disk sampling
-                # • 20 detectors per source using pure random sampling  
-                # • Result: 1000 total measurements with only 50 FEM solves (20x efficiency gain!)
-                # • Enables data augmentation: subsample 256 from 1000 for training diversity
-                logger.info("Step 4/6: Extracting tissue surface and generating OPTIMIZED probe layout")
+                # ============================================================================
+                # STEP 3/6: OPTICAL PROPERTY ASSIGNMENT
+                # ============================================================================
+                step3_start = time.time()
+                logger.info("▶️  STEP 3/6: Assigning physiological optical properties and generating ground truth maps...")
+                phantom_mesh, ground_truth_maps = assign_optical_properties(phantom_mesh, phantom_volume, phantom_rng=phantom_rng)
+                step3_time = time.time() - step3_start
+                logger.info(f"✅ STEP 3/6 COMPLETED: Optical property assignment finished in {step3_time:.2f}s")
+                
+                # ============================================================================
+                # STEP 4/6: SURFACE EXTRACTION & PROBE LAYOUT
+                # ============================================================================
+                step4_start = time.time()
+                logger.info("▶️  STEP 4/6: Extracting tissue surface and generating OPTIMIZED probe layout...")
                 surface_coordinates = extract_surface_voxels(phantom_volume)  # Morphological surface extraction
                 probe_sources, probe_detectors, measurement_links, patch_info = build_patch_based_probe_layout(
-                    surface_coordinates, n_sources=50, detectors_per_source=20, rng_seed=123+base_seed_offset)  # Unique seed per phantom
+                    surface_coordinates, n_sources=50, detectors_per_source=20, phantom_rng=phantom_rng)  # Use managed RNG
+                step4_time = time.time() - step4_start
+                logger.info(f"✅ STEP 4/6 COMPLETED: Surface extraction & probe layout finished in {step4_time:.2f}s")
 
-                # SUBSTEP 3.6: Generate probe visualizations for quality assurance and validation
-                # Visualization enables geometric validation and provides educational materials
-                logger.info("Step 5/6: Generating probe visualization for quality assurance")
-                vis_start_time = time.time()  # Track visualization generation time
+                # ============================================================================
+                # STEP 5/6: VISUALIZATION GENERATION
+                # ============================================================================
+                step5_start = time.time()
+                logger.info("▶️  STEP 5/6: Generating probe visualization for quality assurance...")
                 
                 # Generate detailed visualization for the first probe of each phantom
                 if len(probe_sources) > 0:  # Ensure probes were successfully placed
@@ -1695,15 +1759,16 @@ def main():
                     visualize_probe_on_mesh(phantom_volume, phantom_mesh, first_source, first_detectors, 0, str(phantom_dir), 
                                            patch_info=patch_info, show_interactive=False)
                     
-                    logger.info(f"Generated static PNG visualization for phantom {phantom_idx+1}")
+                    logger.debug(f"Generated static PNG visualization for phantom {phantom_idx+1}")
         
-                vis_time = time.time() - vis_start_time  # Calculate visualization generation time
-                logger.debug(f"Visualization generation completed in {vis_time:.1f}s")
+                step5_time = time.time() - step5_start
+                logger.info(f"✅ STEP 5/6 COMPLETED: Visualization generation finished in {step5_time:.2f}s")
 
-                # SUBSTEP 3.7: Execute frequency-domain finite element simulation and save complete dataset
-                # This is the core physics simulation that generates realistic NIR measurement data
-                # Solves complex-valued diffusion equation and processes results for machine learning
-                logger.info("Step 6/6: Executing frequency-domain diffusion equation simulation and dataset generation")
+                # ============================================================================
+                # STEP 6/6: FREQUENCY-DOMAIN SIMULATION & DATA STORAGE
+                # ============================================================================
+                step6_start = time.time()
+                logger.info("▶️  STEP 6/6: Executing frequency-domain diffusion equation simulation and dataset generation...")
                 h5_output_path = phantom_dir / f"phantom_{phantom_idx+1:03d}_scan.h5"  # Use pathlib for systematic HDF5 naming
                 
                 # Execute complete forward modeling pipeline with noise simulation and data processing
@@ -1711,10 +1776,37 @@ def main():
                 simulation_success = run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, probe_detectors, measurement_links, 
                                        phantom_volume=phantom_volume, output_h5_filename=str(h5_output_path))
                 
+                step6_time = time.time() - step6_start
+                logger.info(f"✅ STEP 6/6 COMPLETED: FD simulation & data storage finished in {step6_time:.2f}s")
+                
                 if simulation_success:
                     # Success! Break out of retry loop
                     phantom_success = True
-                    logger.info(f"✓ PHANTOM {phantom_idx+1:02d} COMPLETED SUCCESSFULLY")
+                    
+                    # ============================================================================
+                    # PHANTOM TIMING SUMMARY
+                    # ============================================================================
+                    total_phantom_time = time.time() - phantom_start_time
+                    logger.info("="*70)
+                    logger.info(f"🎉 PHANTOM {phantom_idx+1:02d} COMPLETED SUCCESSFULLY!")
+                    logger.info("="*70)
+                    logger.info("⏱️  STEP-BY-STEP TIMING BREAKDOWN:")
+                    logger.info(f"   Step 1 - Geometry Construction:     {step1_time:6.2f}s ({step1_time/total_phantom_time*100:5.1f}%)")
+                    logger.info(f"   Step 2 - FEM Mesh Generation:      {step2_time:6.2f}s ({step2_time/total_phantom_time*100:5.1f}%)")
+                    logger.info(f"   Step 3 - Optical Properties:       {step3_time:6.2f}s ({step3_time/total_phantom_time*100:5.1f}%)")
+                    logger.info(f"   Step 4 - Surface & Probe Layout:   {step4_time:6.2f}s ({step4_time/total_phantom_time*100:5.1f}%)")
+                    logger.info(f"   Step 5 - Visualization:            {step5_time:6.2f}s ({step5_time/total_phantom_time*100:5.1f}%)")
+                    logger.info(f"   Step 6 - FD Simulation & Storage:  {step6_time:6.2f}s ({step6_time/total_phantom_time*100:5.1f}%)")
+                    logger.info("   " + "-"*60)
+                    logger.info(f"   🏁 TOTAL PHANTOM TIME:             {total_phantom_time:6.2f}s (100.0%)")
+                    logger.info("="*70)
+                    
+                    # Identify bottleneck
+                    step_times = [step1_time, step2_time, step3_time, step4_time, step5_time, step6_time]
+                    step_names = ["Geometry", "FEM Mesh", "Optical Props", "Surface/Probe", "Visualization", "FD Simulation"]
+                    slowest_step_idx = step_times.index(max(step_times))
+                    logger.info(f"🔍 BOTTLENECK ANALYSIS: Slowest step is '{step_names[slowest_step_idx]}' ({step_times[slowest_step_idx]:.2f}s)")
+                    
                 else:
                     # NaN values detected - increment retry counter and try again
                     retry_attempt += 1
@@ -1742,30 +1834,48 @@ def main():
                     logger.error(f"Phantom {phantom_idx+1} failed after {MAX_PHANTOM_RETRY_ATTEMPTS} attempts with error: {e}")
                     phantom_success = True  # Exit retry loop
         
-        # Calculate and log per-phantom generation performance metrics
-        phantom_time = time.time() - phantom_start_time
-        if phantom_success and 'simulation_success' in locals() and simulation_success:
-            logger.info(f"✓ PHANTOM {phantom_idx+1:02d} COMPLETED in {phantom_time:.1f}s")
-            logger.debug(f"Complete dataset saved: {h5_output_path}")
-            logger.debug(f"PNG visualization saved: {phantom_dir}/probe_001.png")
-        else:
-            logger.warning(f"⚠️  PHANTOM {phantom_idx+1:02d} GENERATION ISSUES - check data cleaning logs")
+        # Final phantom status logging (only if phantom failed completely)
+        if not phantom_success or ('simulation_success' in locals() and not simulation_success):
+            phantom_time = time.time() - phantom_start_time
+            logger.warning(f"⚠️  PHANTOM {phantom_idx+1:02d} HAD ISSUES - completed in {phantom_time:.1f}s")
+            logger.warning(f"Check data cleaning logs for phantom {phantom_idx+1}")
 
-    # STEP 4: Generate comprehensive pipeline completion summary and validation report
-    # Provides complete performance metrics and dataset validation for quality assurance
+    # ============================================================================
+    # PIPELINE COMPLETION SUMMARY WITH COMPREHENSIVE TIMING ANALYSIS
+    # ============================================================================
     total_pipeline_time = time.time() - pipeline_start_time  # Calculate total time for all phantoms
     average_time_per_phantom = total_pipeline_time / n_phantoms if n_phantoms > 0 else 0
     
+    logger.info("\n" + "="*80)
+    logger.info("🏁 NIR PHANTOM DATASET GENERATION PIPELINE COMPLETED")
     logger.info("="*80)
-    logger.info("NIR PHANTOM DATASET GENERATION PIPELINE COMPLETED SUCCESSFULLY")
-    logger.info("="*80)
-    logger.info(f"Generated {n_phantoms} complete phantom datasets with full ground truth")
-    logger.info(f"Total processing time: {total_pipeline_time:.1f}s ({average_time_per_phantom:.1f}s per phantom)")
-    logger.info(f"Generation rate: {n_phantoms / (total_pipeline_time/60):.1f} phantoms/minute")
-    logger.info(f"Dataset storage location: {data_dir.absolute()}")
+    logger.info("📊 PERFORMANCE SUMMARY:")
+    logger.info(f"   • Total phantoms generated:     {n_phantoms}")
+    logger.info(f"   • Total processing time:        {total_pipeline_time:.1f}s ({total_pipeline_time/60:.1f} minutes)")
+    logger.info(f"   • Average time per phantom:     {average_time_per_phantom:.1f}s")
+    logger.info(f"   • Generation rate:              {n_phantoms / (total_pipeline_time/60):.1f} phantoms/minute")
+    logger.info(f"   • Throughput:                   {n_phantoms * 1000 / (total_pipeline_time/60):.0f} measurements/minute")
+    logger.info(f"   📁 Dataset location:            {data_dir.absolute()}")
     
-    # Detailed dataset contents summary for user reference
-    logger.info("\nDataset Architecture and Contents:")
+    # Performance assessment
+    if average_time_per_phantom < 60:
+        performance_status = "🚀 EXCELLENT"
+    elif average_time_per_phantom < 120:
+        performance_status = "✅ GOOD"  
+    elif average_time_per_phantom < 300:
+        performance_status = "⚠️  MODERATE"
+    else:
+        performance_status = "🐌 SLOW"
+    
+    logger.info(f"   🎯 Performance rating:          {performance_status} ({average_time_per_phantom:.1f}s per phantom)")
+    
+    if average_time_per_phantom > 60:
+        logger.info("💡 OPTIMIZATION SUGGESTIONS:")
+        logger.info("   • Review step timing logs above to identify bottlenecks")
+        logger.info("   • Consider reducing mesh density or phantom complexity")
+        logger.info("   • Check system resources (CPU, memory, disk I/O)")
+    
+    logger.info("\n📋 DATASET SPECIFICATIONS:")
     logger.info("="*50)
     logger.info("Each phantom directory contains:")
     logger.info("  • HDF5 dataset file with complete measurement data")
