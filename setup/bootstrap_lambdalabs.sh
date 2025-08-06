@@ -35,25 +35,22 @@ sudo apt install -y \
 
 # Create virtual environment with Python 3.12
 echo "🐍 Creating Python 3.12 virtual environment..."
-python3.12 -m venv ~/env_diss
-source ~/env_diss/bin/activate
+python3.12 -m venv ~/venv_diss
+source ~/venv_diss/bin/activate
 
 # Upgrade pip
 echo "📦 Upgrading pip..."
 pip install --upgrade pip
-
-# Install PyTorch with CUDA first (most critical)
-echo "🔥 Installing PyTorch with CUDA 11.8..."
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
 echo ""
 echo "✅ Bootstrap complete!"
 echo "================================================"
 echo "💡 Next steps:"
 echo "   1. Transfer your project files using FileZilla"
-echo "   2. SSH back in and run: source ~/env_diss/bin/activate"
-echo "   3. Run: cd mah422 && pip install -r requirements.txt"
-echo "   4. Start training!"
+echo "   2. SSH back in and run: source ~/venv_diss/bin/activate"
+echo "   3. Run: cd mah422 && pip install -r setup/requirements.txt"
+echo "   4. Test GPU: python setup/setup_lambdalabs.py"
+echo "   5. Start training!"
 echo ""
 echo "🔧 To run this script:"
 echo "   chmod +x bootstrap_lambdalabs.sh"
