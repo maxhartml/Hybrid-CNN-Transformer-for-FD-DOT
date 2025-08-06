@@ -1,39 +1,37 @@
-# Core ML/DL packages
-torch==2.7.1
-torchaudio==2.7.1
-torchvision==0.22.1
-numpy==2.3.1
+# Core ML/DL packages (Python 3.10 compatible)
+torch==2.1.2
+numpy==1.26.4
 
 # Data handling and I/O
-h5py==3.14.0
-scipy==1.16.0
-matplotlib==3.10.3
-pillow==11.3.0
+h5py==3.10.0
+scipy==1.11.4
+matplotlib==3.8.2
+pillow==10.1.0
 
 # ML tools and utilities
-scikit-learn==1.7.1
-wandb
+scikit-learn==1.3.2
+wandb==0.16.1
 
 # System utilities
-psutil==7.0.0
+psutil==5.9.6
 
-# Core dependencies (auto-installed with above)
-contourpy==1.3.2
+# Core dependencies (compatible versions)
+contourpy==1.2.0
 cycler==0.12.1
-filelock==3.18.0
-fonttools==4.59.0
-fsspec==2025.7.0
-Jinja2==3.1.6
-joblib==1.5.1
-kiwisolver==1.4.8
-MarkupSafe==3.0.2
+filelock==3.13.1
+fonttools==4.47.0
+fsspec==2023.12.2
+Jinja2==3.1.2
+joblib==1.3.2
+kiwisolver==1.4.5
+MarkupSafe==2.1.3
 mpmath==1.3.0
-networkx==3.5
-packaging==25.0
-pyparsing==3.2.3
-python-dateutil==2.9.0.post0
-setuptools==80.9.0
-six==1.17.0
-sympy==1.14.0
-threadpoolctl==3.6.0
-typing_extensions==4.14.1
+networkx==3.2.1
+packaging==23.2
+pyparsing==3.1.1
+python-dateutil==2.8.2
+setuptools==69.0.3
+six==1.16.0
+sympy==1.12
+threadpoolctl==3.2.0
+typing_extensions==4.9.0
