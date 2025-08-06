@@ -48,38 +48,11 @@ from datetime import datetime
 # Project imports
 from code.models.hybrid_model import HybridCNNTransformer
 from code.utils.logging_config import get_training_logger
+from code.training.training_config import *  # Import all training config
 
 # =============================================================================
-# HYPERPARAMETERS AND CONSTANTS
+# STAGE-SPECIFIC CONFIGURATION
 # =============================================================================
-
-# Training Configuration
-LEARNING_RATE = 1e-4                    # Adam optimizer learning rate
-EPOCHS = 50                             # Default number of training epochs
-DEVICE = "cpu"                          # Default training device
-
-# Training Progress and Logging
-PROGRESS_LOG_INTERVAL = 10              # Log progress every N epochs
-FINAL_EPOCH_OFFSET = 1                  # Offset for final epoch logging
-BATCH_LOG_INTERVAL = 5                  # Detailed logging every N batches
-
-# Checkpoint Configuration
-CHECKPOINT_FILENAME = "stage1_best.pth" # Default checkpoint filename
-CHECKPOINT_BASE_DIR = "checkpoints"     # Base checkpoint directory
-
-# Model Configuration
-USE_TISSUE_PATCHES = False              # Stage 1 doesn't use tissue patches
-TRAINING_STAGE = "stage1"               # Training stage identifier
-
-# Weights & Biases Configuration
-WANDB_PROJECT = "nir-dot-reconstruction"     # Unified project name
-LOG_IMAGES_EVERY = 5                         # Log reconstruction images every N epochs (reduced for debugging)
-WANDB_TAGS_STAGE1 = ["stage1", "cnn-autoencoder", "pretraining", "nir-dot"]
-
-# W&B Organization Structure for Stage 1:
-# - Charts/: Training metrics (train_loss, val_loss, learning_rate, train_val_loss_ratio)
-# - Reconstructions/: Image reconstructions by epoch (predicted vs target slices)
-# - System/: System metrics (final_best_val_loss)
 
 # Initialize module logger
 logger = get_training_logger(__name__)
@@ -151,18 +124,28 @@ class Stage1Trainer:
         >>> print(f"Best validation loss: {results['best_val_loss']:.6f}")
     """
     
-    def __init__(self, learning_rate=LEARNING_RATE, device=DEVICE, use_wandb=True):
+    def __init__(self, learning_rate=LEARNING_RATE_STAGE1, device=CPU_DEVICE, use_wandb=True, 
+                 weight_decay=WEIGHT_DECAY, early_stopping_patience=EARLY_STOPPING_PATIENCE):
         """
         Initialize the Stage 1 trainer with model and optimization components.
         
         Args:
-            learning_rate (float): Learning rate for Adam optimizer. Default: 1e-4
-            device (str): Training device ('cpu' or 'cuda'). Default: 'cpu'
+            learning_rate (float): Learning rate for Adam optimizer. Default from constants
+            device (str): Training device ('cpu' or 'cuda'). Default from constants
             use_wandb (bool): Whether to use Weights & Biases logging. Default: True
+            weight_decay (float): L2 regularization strength. Default: 1e-4
+            early_stopping_patience (int): Early stopping patience in epochs. Default: 8
         """
         self.device = torch.device(device)
         self.learning_rate = learning_rate
         self.use_wandb = use_wandb
+        self.weight_decay = weight_decay
+        self.early_stopping_patience = early_stopping_patience
+        
+        # Early stopping tracking
+        self.best_val_loss = float('inf')
+        self.patience_counter = 0
+        self.early_stopped = False
         
         # Initialize model (stage 1: CNN autoencoder only, no tissue patches)
         # NOTE: Full hybrid model is initialized (including transformer) because:
@@ -170,17 +153,32 @@ class Stage1Trainer:
         # 2. Only CNN parameters receive gradients in Stage 1 (transformer stays frozen)
         # 3. Memory allocation is done once for consistency across stages
         self.model = HybridCNNTransformer(
-            use_tissue_patches=USE_TISSUE_PATCHES,
-            training_stage=TRAINING_STAGE  # Explicit stage 1 setting
+            use_tissue_patches=USE_TISSUE_PATCHES_STAGE1,
+            training_stage=TRAINING_STAGE1  # Explicit stage 1 setting
         )
         self.model.to(self.device)
         
-        # Loss and optimizer
+        # Loss and optimizer with L2 regularization
         self.criterion = RMSELoss()
-        self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+        self.optimizer = optim.Adam(
+            self.model.parameters(), 
+            lr=learning_rate,
+            weight_decay=weight_decay  # L2 regularization
+        )
+        
+        # Learning rate scheduler
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer,
+            mode='min',
+            factor=LR_SCHEDULER_FACTOR,           # Reduce LR by half
+            patience=LR_SCHEDULER_PATIENCE,      # Wait 5 epochs before reducing
+            min_lr=LR_MIN          # Minimum learning rate
+        )
         
         logger.info(f"🏋️  Stage 1 Trainer initialized on {self.device}")
         logger.info(f"📈 Learning rate: {learning_rate}")
+        logger.info(f"🔒 L2 regularization (weight decay): {weight_decay}")
+        logger.info(f"⏰ Early stopping patience: {early_stopping_patience}")
         
         # Log model info
         total_params = sum(p.numel() for p in self.model.parameters())
@@ -202,7 +200,7 @@ class Stage1Trainer:
                 # Model architecture
                 "stage": "CNN_Autoencoder_Pretraining",
                 "model_type": "3D_CNN_Autoencoder",
-                "training_stage": TRAINING_STAGE,
+                "training_stage": TRAINING_STAGE1,
                 
                 # Training hyperparameters
                 "learning_rate": self.learning_rate,
@@ -215,7 +213,7 @@ class Stage1Trainer:
                 "input_shape": "64x64x64x2_channels",
                 "target_data": "same_ground_truth_volumes", 
                 "reconstruction_task": "autoencoder_identity_mapping",
-                "use_tissue_patches": USE_TISSUE_PATCHES,
+                "use_tissue_patches": USE_TISSUE_PATCHES_STAGE1,
                 
                 # Architecture details
                 "total_parameters": sum(p.numel() for p in self.model.parameters()),
@@ -392,7 +390,7 @@ class Stage1Trainer:
         logger.debug(f"✅ Validation completed. Average loss: {avg_loss:.6f}")
         return avg_loss
     
-    def train(self, data_loaders, epochs=EPOCHS):
+    def train(self, data_loaders, epochs=EPOCHS_STAGE1):
         """
         Execute the complete Stage 1 training pipeline.
         
@@ -457,30 +455,52 @@ class Stage1Trainer:
             # Print progress
             if epoch % PROGRESS_LOG_INTERVAL == 0 or epoch == epochs - FINAL_EPOCH_OFFSET:
                 logger.info(f"📈 Epoch {epoch+1:3d}/{epochs}: Train Loss: {train_loss:.6f}, "
-                           f"Val Loss: {val_loss:.6f}")
+                           f"Val Loss: {val_loss:.6f}, LR: {self.optimizer.param_groups[0]['lr']:.2e}")
             
-            # Save best model
-            if val_loss < best_val_loss:
-                improvement = best_val_loss - val_loss
-                best_val_loss = val_loss
-                checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_FILENAME}"
-                logger.info(f"🎉 New best model! Improvement: {improvement:.6f} -> Best validation loss: {best_val_loss:.6f}")
+            # Learning rate scheduling
+            old_lr = self.optimizer.param_groups[0]['lr']
+            self.scheduler.step(val_loss)
+            new_lr = self.optimizer.param_groups[0]['lr']
+            if new_lr < old_lr:
+                logger.info(f"📉 Learning rate reduced: {old_lr:.2e} → {new_lr:.2e}")
+            
+            # Early stopping and best model tracking
+            if val_loss < self.best_val_loss:
+                improvement = self.best_val_loss - val_loss
+                self.best_val_loss = val_loss
+                self.patience_counter = 0  # Reset patience counter
+                checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_STAGE1}"
+                logger.info(f"🎉 New best model! Improvement: {improvement:.6f} → Best validation loss: {self.best_val_loss:.6f}")
                 logger.debug(f"💾 Checkpoint path: {checkpoint_path}")
                 self.save_checkpoint(checkpoint_path, epoch, val_loss)
                 logger.debug(f"💾 New best model saved at epoch {epoch+1}")
             else:
-                logger.debug(f"📊 No improvement. Current: {val_loss:.6f}, Best: {best_val_loss:.6f}")
+                self.patience_counter += 1
+                logger.debug(f"📊 No improvement. Current: {val_loss:.6f}, Best: {self.best_val_loss:.6f}, Patience: {self.patience_counter}/{self.early_stopping_patience}")
+                
+                # Check for early stopping
+                if self.patience_counter >= self.early_stopping_patience:
+                    logger.info(f"🛑 Early stopping triggered at epoch {epoch+1}")
+                    logger.info(f"🔄 No improvement for {self.early_stopping_patience} epochs")
+                    logger.info(f"🏆 Best validation loss: {self.best_val_loss:.6f}")
+                    self.early_stopped = True
+                    break
         
-        logger.info(f"✅ Stage 1 training complete! Best val loss: {best_val_loss:.6f}")
-        logger.debug(f"🏁 Training summary: Total epochs: {epochs}, Final best loss: {best_val_loss:.6f}")
+        # Training completion message
+        if self.early_stopped:
+            logger.info(f"✅ Stage 1 training stopped early! Best val loss: {self.best_val_loss:.6f}")
+        else:
+            logger.info(f"✅ Stage 1 training complete! Best val loss: {self.best_val_loss:.6f}")
+        
+        logger.debug(f"🏁 Training summary: Completed epochs: {epoch+1}, Final best loss: {self.best_val_loss:.6f}")
         
         # Finish W&B run
         if self.use_wandb:
-            wandb.log({"System/final_best_val_loss": best_val_loss})
+            wandb.log({"System/final_best_val_loss": self.best_val_loss, "System/early_stopped": self.early_stopped})
             wandb.finish()
             logger.info("🔬 W&B experiment finished")
         
-        return {'best_val_loss': best_val_loss}
+        return {'best_val_loss': self.best_val_loss, 'early_stopped': self.early_stopped}
     
     def save_checkpoint(self, path, epoch, val_loss):
         """

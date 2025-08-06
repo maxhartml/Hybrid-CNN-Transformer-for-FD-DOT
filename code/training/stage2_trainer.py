@@ -49,48 +49,11 @@ from datetime import datetime
 # Project imports
 from code.models.hybrid_model import HybridCNNTransformer
 from code.utils.logging_config import get_training_logger
+from code.training.training_config import *  # Import all training config
 
 # =============================================================================
-# HYPERPARAMETERS AND CONSTANTS
+# STAGE-SPECIFIC CONFIGURATION
 # =============================================================================
-
-# Training Configuration
-LEARNING_RATE = 5e-5                    # Lower learning rate for transformer training
-EPOCHS = 100                            # Default number of training epochs
-DEVICE = "cpu"                          # Default training device
-USE_TISSUE_PATCHES = True               # Default tissue patch usage
-
-# Training Progress and Logging
-PROGRESS_LOG_INTERVAL = 10              # Log progress every N epochs
-FINAL_EPOCH_OFFSET = 1                  # Offset for final epoch logging
-BATCH_LOG_INTERVAL = 5                  # Detailed logging every N batches
-
-# Checkpoint Configuration
-BASELINE_CHECKPOINT = "stage2_baseline_best.pth"  # Baseline checkpoint filename
-ENHANCED_CHECKPOINT = "stage2_enhanced_best.pth"  # Enhanced checkpoint filename
-CHECKPOINT_BASE_DIR = "checkpoints"     # Base checkpoint directory
-
-# Model Configuration
-TRAINING_STAGE = "stage2"               # Training stage identifier
-
-# Mode Configuration
-BASELINE_MODE = "Baseline"              # Baseline training mode name
-ENHANCED_MODE = "Enhanced"              # Enhanced training mode name
-
-# Parameter Freezing Configuration
-FREEZE_CNN_PARAMS = True                # Whether to freeze all CNN autoencoder parameters
-
-# Weights & Biases Configuration
-WANDB_PROJECT = "nir-dot-reconstruction"     # Unified project name (same as Stage 1)
-LOG_IMAGES_EVERY = 5                         # Log reconstruction images every N epochs (consistent with Stage 1)
-WANDB_TAGS_STAGE2_BASELINE = ["stage2", "transformer", "baseline", "nir-dot"]
-WANDB_TAGS_STAGE2_ENHANCED = ["stage2", "transformer", "enhanced", "tissue-patches", "nir-dot"]
-
-# W&B Organization Structure for Stage 2:
-# - Charts/: Training metrics (train_loss, val_loss, learning_rate, train_val_loss_ratio)
-# - Reconstructions/: Image reconstructions by epoch (predicted vs target vs error slices)
-# - Transformer/: Transformer-specific metrics (feature magnitudes, attention entropy, enhancement ratios)
-# - System/: System metrics (mode, use_tissue_patches, final_best_val_loss, final_mode)
 
 # Initialize module logger
 logger = get_training_logger(__name__)
@@ -172,8 +135,9 @@ class Stage2Trainer:
         >>> trainer.train(data_loaders, epochs=100)
     """
     
-    def __init__(self, stage1_checkpoint_path, use_tissue_patches=USE_TISSUE_PATCHES, 
-                 learning_rate=LEARNING_RATE, device=DEVICE, use_wandb=True):
+    def __init__(self, stage1_checkpoint_path, use_tissue_patches=USE_TISSUE_PATCHES_STAGE2, 
+                 learning_rate=LEARNING_RATE_STAGE2, device=CPU_DEVICE, use_wandb=True,
+                 weight_decay=WEIGHT_DECAY, early_stopping_patience=EARLY_STOPPING_PATIENCE):
         """
         Initialize the Stage 2 trainer with pre-trained CNN components.
         
@@ -186,16 +150,25 @@ class Stage2Trainer:
                                  Typically lower than Stage 1. Default from constants
             device (str): Training device ('cpu' or 'cuda'). Default from constants
             use_wandb (bool): Whether to use Weights & Biases logging. Default: True
+            weight_decay (float): L2 regularization strength. Default: 1e-4
+            early_stopping_patience (int): Early stopping patience in epochs. Default: 8
         """
         self.device = torch.device(device)
         self.learning_rate = learning_rate
         self.use_tissue_patches = use_tissue_patches
         self.use_wandb = use_wandb
+        self.weight_decay = weight_decay
+        self.early_stopping_patience = early_stopping_patience
+        
+        # Early stopping tracking
+        self.best_val_loss = float('inf')
+        self.patience_counter = 0
+        self.early_stopped = False
         
         # Initialize model
         self.model = HybridCNNTransformer(
             use_tissue_patches=use_tissue_patches,
-            training_stage=TRAINING_STAGE  # IMPORTANT: Set to stage 2 for correct forward pass
+            training_stage=TRAINING_STAGE2  # IMPORTANT: Set to stage 2 for correct forward pass
         )
         self.model.to(self.device)
         
@@ -205,16 +178,28 @@ class Stage2Trainer:
         # Freeze CNN decoder (Robin Dale's approach)
         self.freeze_cnn_decoder()
         
-        # Loss and optimizer (only for unfrozen parameters)
+        # Loss and optimizer (only for unfrozen parameters) with L2 regularization
         self.criterion = RMSELoss()
         self.optimizer = optim.Adam(
             [p for p in self.model.parameters() if p.requires_grad], 
-            lr=learning_rate
+            lr=learning_rate,
+            weight_decay=weight_decay  # L2 regularization
+        )
+        
+        # Learning rate scheduler
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer,
+            mode='min',
+            factor=LR_SCHEDULER_FACTOR,           # Reduce LR by half
+            patience=LR_SCHEDULER_PATIENCE,      # Wait 5 epochs before reducing
+            min_lr=LR_MIN          # Minimum learning rate
         )
         
         mode = ENHANCED_MODE if use_tissue_patches else BASELINE_MODE
         logger.info(f"🏋️  Stage 2 Trainer initialized on {self.device} ({mode})")
         logger.info(f"📈 Learning rate: {learning_rate}")
+        logger.info(f"🔒 L2 regularization (weight decay): {weight_decay}")
+        logger.info(f"⏰ Early stopping patience: {early_stopping_patience}")
         logger.info(f"🧬 Use tissue patches: {use_tissue_patches}")
         
         # Initialize Weights & Biases
@@ -237,7 +222,7 @@ class Stage2Trainer:
                 # Model architecture
                 "stage": "Transformer_Enhancement",
                 "model_type": "Hybrid_CNN_Transformer",
-                "training_stage": TRAINING_STAGE,
+                "training_stage": TRAINING_STAGE2,
                 "mode": ENHANCED_MODE if self.use_tissue_patches else BASELINE_MODE,
                 
                 # Training hyperparameters
@@ -597,7 +582,7 @@ class Stage2Trainer:
         logger.debug(f"✅ Stage 2 validation completed. Average loss: {avg_loss:.6f}")
         return avg_loss
     
-    def train(self, data_loaders, epochs=EPOCHS):
+    def train(self, data_loaders, epochs=EPOCHS_STAGE2):
         """
         Execute the complete Stage 2 training pipeline.
         
@@ -677,7 +662,7 @@ class Stage2Trainer:
             if val_loss < best_val_loss:
                 improvement = best_val_loss - val_loss
                 best_val_loss = val_loss
-                checkpoint_filename = ENHANCED_CHECKPOINT if self.use_tissue_patches else BASELINE_CHECKPOINT
+                checkpoint_filename = CHECKPOINT_STAGE2_ENHANCED if self.use_tissue_patches else CHECKPOINT_STAGE2_BASELINE
                 checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{checkpoint_filename}"
                 logger.info(f"🎉 New best Stage 2 model! Improvement: {improvement:.6f} -> Saving checkpoint")
                 logger.debug(f"💾 Stage 2 checkpoint path: {checkpoint_path}")
