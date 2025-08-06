@@ -7,7 +7,20 @@ focusing on training transformer components while keeping the pre-trained
 CNN decoder frozen. This approach leverages the robust feature representations
 learned in Stage 1 while adding sophisticated spatial modeling capabilities.
 
-The training process supports both baseline and enhanced modes:
+The tra            total_loss += loss.item()
+            num_batches += 1
+            
+            # Show batch progress at INFO level (every batch)
+            mode = "Enhanced" if self.use_tissue_patches else "Baseline"
+            logger.info(f"📈 Stage 2 {mode} Batch {batch_idx + 1}/{len(data_loader)}: Loss = {loss.item():.6f}, Avg = {total_loss/num_batches:.6f}")
+            
+            # Log GPU memory usage every 20 batches (only on GPU)
+            if torch.cuda.is_available() and batch_idx % 20 == 0:
+                log_gpu_stats()
+            
+            # Additional detailed logging at DEBUG level
+            if batch_idx % 5 == 0:  # Log every 5 batches during DEBUG
+                logger.debug(f"📊 Detailed: Stage 2 Batch {batch_idx}: Loss = {loss.item():.6f}, Running Avg = {total_loss/num_batches:.6f}")ess supports both baseline and enhanced modes:
 - Baseline: Transformer training without tissue context
 - Enhanced: Transformer training with tissue patch integration for improved
   spatial awareness and context-sensitive reconstruction
@@ -201,6 +214,15 @@ class Stage2Trainer:
         logger.info(f"🔒 L2 regularization (weight decay): {weight_decay}")
         logger.info(f"⏰ Early stopping patience: {early_stopping_patience}")
         logger.info(f"🧬 Use tissue patches: {use_tissue_patches}")
+        
+        # Log GPU info if available
+        if torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name(0)
+            gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            logger.info(f"🖥️  GPU: {gpu_name} ({gpu_memory:.1f}GB)")
+            logger.info(f"🔧 Current batch size: {BATCH_SIZE_STAGE2}")
+        else:
+            logger.info(f"💻 Running on CPU")
         
         # Initialize Weights & Biases
         if self.use_wandb:

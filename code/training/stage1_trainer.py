@@ -184,6 +184,20 @@ class Stage1Trainer:
         total_params = sum(p.numel() for p in self.model.parameters())
         logger.info(f"📊 Model parameters: {total_params:,}")
         
+        # Log GPU info if available
+        if torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name(0)
+            gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            logger.info(f"🖥️  GPU: {gpu_name} ({gpu_memory:.1f}GB)")
+            
+            # Log optimal batch size detection
+            sample_input = torch.randn(1, 2, 64, 64, 64).to(self.device)
+            optimal_batch = get_optimal_batch_size(self.model, sample_input)
+            logger.info(f"🎯 Optimal batch size detected: {optimal_batch}")
+            logger.info(f"🔧 Current batch size: {BATCH_SIZE_STAGE1}")
+        else:
+            logger.info(f"💻 Running on CPU")
+        
         # Initialize Weights & Biases
         if self.use_wandb:
             self._init_wandb()
@@ -274,6 +288,10 @@ class Stage1Trainer:
             
             # Show batch progress at INFO level (every batch)
             logger.info(f"📈 Stage 1 Batch {batch_idx + 1}/{len(data_loader)}: Loss = {loss.item():.6f}, Avg = {total_loss/num_batches:.6f}")
+            
+            # Log GPU memory usage every 20 batches (only on GPU)
+            if torch.cuda.is_available() and batch_idx % 20 == 0:
+                log_gpu_stats()
             
             # Additional detailed logging at DEBUG level
             if batch_idx % BATCH_LOG_INTERVAL == 0:  # Log every 5 batches during DEBUG

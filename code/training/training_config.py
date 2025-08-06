@@ -38,9 +38,31 @@ LEARNING_RATE_STAGE2 = 3e-5             # Transformer learning rate (lower for s
 EPOCHS_STAGE1 = 50                      # Increase for better convergence (was 10)
 EPOCHS_STAGE2 = 100                     # Default epochs for Stage 2
 
-# Batch Sizes
-BATCH_SIZE_STAGE1 = 4                   # Stage 1: CNN autoencoder (increased for better generalization)
-BATCH_SIZE_STAGE2 = 4                   # Stage 2: Transformer (increased for stable training)
+# Batch Sizes - AUTO-DETECTED BASED ON HARDWARE
+import torch
+import psutil
+def get_device_optimized_batch_sizes():
+    """Auto-detect optimal batch sizes based on available hardware."""
+    if torch.cuda.is_available():
+        gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        if gpu_memory > 30:  # A100 40GB or similar
+            return 32, 16    # Stage1, Stage2
+        elif gpu_memory > 15:  # RTX 3080/4080 class
+            return 16, 8
+        elif gpu_memory > 8:   # Smaller GPU
+            return 8, 4
+        else:
+            return 4, 4      # Very small GPU
+    else:
+        return 4, 4          # CPU - your current settings
+
+BATCH_SIZE_STAGE1, BATCH_SIZE_STAGE2 = get_device_optimized_batch_sizes()
+
+# Data Loading Configuration - OPTIMIZED FOR SERVER
+import psutil
+NUM_WORKERS = min(8, max(1, psutil.cpu_count(logical=False) - 2))  # Use most CPU cores
+PIN_MEMORY = torch.cuda.is_available()  # Enable GPU memory pinning if CUDA available
+PREFETCH_FACTOR = 4 if torch.cuda.is_available() else 2  # More prefetching on GPU systems
 
 # Regularization
 WEIGHT_DECAY = 1e-4                     # L2 regularization strength
@@ -87,3 +109,47 @@ USE_TISSUE_PATCHES_STAGE2 = True        # Stage 2 default tissue patch usage (se
 # Mode Configuration
 BASELINE_MODE = "Baseline"              # Baseline training mode name
 ENHANCED_MODE = "Enhanced"              # Enhanced training mode name
+
+# =============================================================================
+# GPU UTILITIES AND MONITORING
+# =============================================================================
+
+def log_gpu_stats():
+    """Log GPU memory usage during training."""
+    if torch.cuda.is_available():
+        allocated = torch.cuda.memory_allocated() / 1024**3
+        reserved = torch.cuda.memory_reserved() / 1024**3
+        total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        
+        print(f"🖥️  GPU Memory: {allocated:.1f}GB allocated, {reserved:.1f}GB reserved, {total:.1f}GB total")
+        print(f"📊 GPU Utilization: {allocated/total*100:.1f}%")
+        
+        if allocated/total > 0.9:
+            print("⚠️ GPU memory usage >90% - consider reducing batch size")
+
+def get_optimal_batch_size(model, sample_input, max_memory_gb=35):
+    """Find optimal batch size for given model and GPU memory."""
+    if not torch.cuda.is_available():
+        return 4  # Safe CPU default
+    
+    batch_size = 1
+    while batch_size <= 64:  # Reasonable upper limit
+        try:
+            # Test memory usage with this batch size
+            test_batch = sample_input.repeat(batch_size, 1, 1, 1, 1)
+            
+            torch.cuda.empty_cache()
+            _ = model(test_batch)
+            
+            memory_used = torch.cuda.memory_allocated() / 1024**3
+            if memory_used > max_memory_gb:
+                return batch_size - 1
+                
+            batch_size *= 2
+        except RuntimeError as e:
+            if "out of memory" in str(e):
+                return max(1, batch_size // 2)
+            else:
+                raise e
+    
+    return min(batch_size, 64)

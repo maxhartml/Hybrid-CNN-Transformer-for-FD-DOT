@@ -85,6 +85,30 @@ ENABLE_PIN_MEMORY = True                          # Enable GPU memory pinning wh
 DROP_INCOMPLETE_BATCHES = True                    # Drop incomplete batches during training
 ENABLE_PERSISTENT_WORKERS = True                 # Keep workers alive between epochs
 
+# GPU-optimized data loading configuration
+def get_optimal_dataloader_config():
+    """Get optimal DataLoader configuration based on hardware."""
+    import torch
+    import psutil
+    
+    if torch.cuda.is_available():
+        # GPU system - optimize for GPU transfer
+        num_workers = min(8, max(1, psutil.cpu_count(logical=False) - 2))
+        pin_memory = True
+        prefetch_factor = 4
+    else:
+        # CPU system - conservative settings
+        num_workers = min(4, max(1, psutil.cpu_count(logical=False) - 1))
+        pin_memory = False
+        prefetch_factor = 2
+    
+    return {
+        'num_workers': num_workers,
+        'pin_memory': pin_memory,
+        'prefetch_factor': prefetch_factor,
+        'persistent_workers': num_workers > 0
+    }
+
 # HDF5 dataset keys (must match data_simulator.py output)
 H5_KEYS = {
     'log_amplitude': 'log_amplitude',             # (N_measurements,) log-amplitude measurements
@@ -666,7 +690,7 @@ def create_nir_dataloaders(data_dir: str = "../data",
 
 def create_phantom_dataloaders(data_dir: str = "../data",
                               batch_size: int = DEFAULT_PHANTOM_BATCH_SIZE,
-                              num_workers: int = 0,  # Set to 0 to avoid multiprocessing issues
+                              num_workers: int = None,  # Auto-detect optimal workers
                               use_tissue_patches: bool = True,
                               random_seed: int = DEFAULT_RANDOM_SEED) -> Dict[str, DataLoader]:
     """
@@ -679,13 +703,26 @@ def create_phantom_dataloaders(data_dir: str = "../data",
     Args:
         data_dir (str): Path to phantom data directory
         batch_size (int): Number of phantoms per batch
-        num_workers (int): Number of worker processes (set to 0 for main process only)
+        num_workers (int): Number of worker processes (auto-detected if None)
         use_tissue_patches (bool): Whether to include tissue patches
         random_seed (int): Random seed for splits
         
     Returns:
         Dict[str, DataLoader]: Dictionary with 'train', 'val', 'test' DataLoaders
     """
+    
+    # Get optimal DataLoader configuration
+    if num_workers is None:
+        dataloader_config = get_optimal_dataloader_config()
+        num_workers = dataloader_config['num_workers']
+        pin_memory = dataloader_config['pin_memory']
+        prefetch_factor = dataloader_config['prefetch_factor']
+        persistent_workers = dataloader_config['persistent_workers'] and num_workers > 0
+    else:
+        # Use provided num_workers with safe defaults
+        pin_memory = torch.cuda.is_available() and ENABLE_PIN_MEMORY
+        prefetch_factor = 2
+        persistent_workers = num_workers > 0
     
     dataloaders = {}
     
@@ -699,9 +736,10 @@ def create_phantom_dataloaders(data_dir: str = "../data",
             batch_size=batch_size,
             shuffle=shuffle,
             num_workers=num_workers,
-            pin_memory=torch.cuda.is_available() and ENABLE_PIN_MEMORY,
+            pin_memory=pin_memory,
             drop_last=(split == 'train') and DROP_INCOMPLETE_BATCHES,
-            persistent_workers=False  # Disable persistent workers when num_workers=0
+            persistent_workers=persistent_workers,
+            prefetch_factor=prefetch_factor if num_workers > 0 else None
         )
         
         dataloaders[split] = dataloader
