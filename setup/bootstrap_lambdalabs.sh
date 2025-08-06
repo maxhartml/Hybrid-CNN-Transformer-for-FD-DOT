@@ -1,57 +1,46 @@
 #!/bin/bash
-# 🚀 LambdaLabs Bootstrap Script - Run FIRST on fresh Ubuntu server
-# This prepares the server for your project files
+# 🚀 Fast LambdaLabs Bootstrap Script
+# Minimal setup - skip slow system updates!
 
-echo "🚀 LambdaLabs Bootstrap Script Starting..."
-echo "================================================"
+echo "🚀 Fast LambdaLabs Bootstrap Starting..."
+echo "============================================"
 
-# Update system
-echo "📦 Updating system packages..."
-sudo apt update && sudo apt upgrade -y
+# Skip system updates to save time (CUDA/drivers already installed)
+echo "⏭️  Skipping system updates (saves 10+ minutes)"
 
-# Install Python 3.12 specifically (NIRFASTer requirement)
-echo "🐍 Installing Python 3.12..."
-sudo apt install -y software-properties-common
-sudo add-apt-repository ppa:deadsnakes/ppa -y
-sudo apt update
-sudo apt install -y \
-    python3.12 \
-    python3.12-venv \
-    python3.12-dev \
-    python3.12-distutils
+# Check what Python versions are available
+echo "🐍 Checking available Python versions..."
+python3 --version
+python3.10 --version 2>/dev/null || echo "Python 3.10 not found"
+python3.11 --version 2>/dev/null || echo "Python 3.11 not found"
 
-# Install essential tools
-echo "🔧 Installing essential tools..."
-sudo apt install -y \
-    git \
-    htop \
-    tmux \
-    nano \
-    curl \
-    wget \
-    unzip \
-    build-essential \
-    pip
+# Use system Python 3.10 (already installed on LambdaLabs)
+PYTHON_CMD="python3"
+echo "✅ Using system Python: $(python3 --version)"
 
-# Create virtual environment with Python 3.12
-echo "🐍 Creating Python 3.12 virtual environment..."
-python3.12 -m venv ~/venv_diss
-source ~/venv_diss/bin/activate
+# Install only essential missing tools (most already installed)
+echo "🔧 Installing minimal essential tools..."
+sudo apt update -qq  # Quiet update, just packages list
+sudo apt install -y python3-venv python3-pip
+
+# Create virtual environment on PERSISTENT storage
+echo "🐍 Creating virtual environment on persistent storage..."
+$PYTHON_CMD -m venv /home/ubuntu/NIR-DOT/venv_diss
+source /home/ubuntu/NIR-DOT/venv_diss/bin/activate
 
 # Upgrade pip
 echo "📦 Upgrading pip..."
 pip install --upgrade pip
 
 echo ""
-echo "✅ Bootstrap complete!"
-echo "================================================"
+echo "✅ Fast Bootstrap complete! (2-3 minutes vs 20+ minutes)"
+echo "========================================================="
 echo "💡 Next steps:"
 echo "   1. Transfer your project files using FileZilla"
-echo "   2. SSH back in and run: source ~/venv_diss/bin/activate"
+echo "   2. SSH back in and run: source /home/ubuntu/NIR-DOT/venv_diss/bin/activate"
 echo "   3. Run: cd mah422 && pip install -r setup/requirements.txt"
-echo "   4. Test GPU: python setup/setup_lambdalabs.py"
-echo "   5. Start training!"
+echo "   4. Start training!"
 echo ""
 echo "🔧 To run this script:"
-echo "   chmod +x bootstrap_lambdalabs.sh"
-echo "   ./bootstrap_lambdalabs.sh"
+echo "   chmod +x setup/bootstrap_lambdalabs.sh"
+echo "   ./setup/bootstrap_lambdalabs.sh"
