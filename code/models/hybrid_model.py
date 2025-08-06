@@ -40,14 +40,13 @@ import torch.nn as nn
 
 # Project imports - Clean absolute imports from project root
 from code.models.cnn_autoencoder import CNNAutoEncoder
-from code.models.tissue_context_encoder import TissueContextEncoder, TissueContextToggle
 from code.models.transformer_encoder import TransformerEncoder
+from code.models.nir_processor import SpatialAttentionNIRProcessor
 from code.utils.logging_config import get_model_logger
 
 # Import configuration constants from component modules
 from code.models import cnn_autoencoder as cnn_config
 from code.models import transformer_encoder as transformer_config
-from code.models import tissue_context_encoder as tissue_config
 
 # =============================================================================
 # HYPERPARAMETERS AND CONSTANTS
@@ -57,6 +56,11 @@ from code.models import tissue_context_encoder as tissue_config
 NIR_INPUT_DIM = 8                       # 8D NIR feature vectors (log_amp, phase, source_xyz, det_xyz)
 N_MEASUREMENTS = 256                    # Number of measurements for training (subsampled from 1000 generated)
 N_GENERATED_MEASUREMENTS = 1000         # Number of measurements generated per phantom (50 sources × 20 detectors)
+
+# Tissue patch configuration (used by NIR processor)
+TISSUE_PATCH_SIZE = 11                  # Size of tissue patches (increased for better context)
+TISSUE_NUM_PATCHES = 2                  # Number of patches (source + detector)
+TISSUE_OUTPUT_DIM = 8                   # Total tissue context dimension (2 patches × 4D each)
 
 # Model Behavior Configuration
 USE_TISSUE_PATCHES = True               # Whether to use tissue context by default
@@ -102,7 +106,7 @@ class HybridCNNTransformer(nn.Module):
         embed_dim (int, optional): Transformer embedding dimension. Defaults to 768.
         tissue_patch_size (int, optional): Size of tissue patches. Defaults to 7.
         tissue_num_patches (int, optional): Number of tissue patches. Defaults to 2.
-        tissue_embed_dim (int, optional): Tissue embedding dimension. Defaults to 256.
+        tissue_output_dim (int, optional): Tissue output dimension. Defaults to 64.
         dropout (float, optional): Dropout probability. Defaults to 0.1.
     """
     
@@ -116,11 +120,9 @@ class HybridCNNTransformer(nn.Module):
                  nir_input_dim: int = NIR_INPUT_DIM,  # 8D NIR feature vectors (log_amp, phase, source_xyz, det_xyz)
                  
                  # Tissue context encoder configuration
-                 patch_size: int = tissue_config.PATCH_SIZE,  # Tissue patch size matching data format
-                 num_patches: int = tissue_config.NUM_PATCHES,  # Source + detector regions
-                 tissue_embed_dim: int = tissue_config.EMBED_DIM,
-                 tissue_num_layers: int = tissue_config.NUM_LAYERS,
-                 tissue_num_heads: int = tissue_config.NUM_HEADS,
+                 patch_size: int = TISSUE_PATCH_SIZE,  # Tissue patch size matching data format
+                 num_patches: int = TISSUE_NUM_PATCHES,  # Source + detector regions
+                 tissue_output_dim: int = TISSUE_OUTPUT_DIM,  # 16D total output
                  
                  # Transformer encoder configuration
                  transformer_embed_dim: int = transformer_config.EMBED_DIM,
@@ -151,38 +153,19 @@ class HybridCNNTransformer(nn.Module):
             base_channels=cnn_base_channels
         )
         
-        # Initialize Tissue Context Encoder (conditional)
-        self.tissue_encoder = TissueContextEncoder(
-            patch_size=patch_size,
-            num_patches=num_patches,
-            embed_dim=tissue_embed_dim,
-            num_layers=tissue_num_layers,
-            num_heads=tissue_num_heads,
-            dropout=dropout
-        ) if use_tissue_patches else None
+        # Initialize Optimized NIR Processor with Spatial Attention
+        self.nir_processor = SpatialAttentionNIRProcessor()
         
-        # Initialize Transformer Encoder (stage 2 component)
+        # Initialize Optimized Transformer Encoder (stage 2 component)
         self.transformer_encoder = TransformerEncoder(
             cnn_feature_dim=cnn_config.FEATURE_DIM,  # Use CNN's actual feature dimension
-            tissue_context_dim=tissue_embed_dim if use_tissue_patches else 0,
+            tissue_context_dim=tissue_output_dim if use_tissue_patches else 0,  # 64D total tissue context
             embed_dim=transformer_embed_dim,
             num_layers=transformer_num_layers,
             num_heads=transformer_num_heads,
             mlp_ratio=mlp_ratio,
             dropout=dropout
         )
-        
-        # NIR projection network for Stage 2 (NIR measurements → CNN feature space)
-        self.nir_projection = nn.Sequential(
-            nn.Linear(self.nir_input_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, 256), 
-            nn.ReLU(),
-            nn.Linear(256, cnn_config.FEATURE_DIM)    # Project to CNN feature dimension
-        )
-        
-        # Utility for tissue context toggle functionality
-        self.toggle_utils = TissueContextToggle()
         
         # Initialize network weights
         self._init_weights()
@@ -233,11 +216,21 @@ class HybridCNNTransformer(nn.Module):
         outputs = {}
         
         # Smart input detection: NIR measurements vs ground truth volumes
-        is_nir_measurements = (len(dot_measurements.shape) == 3 and 
-                              dot_measurements.shape[2] == self.nir_input_dim)
+        is_nir_measurements = ((len(dot_measurements.shape) == 2 and 
+                               dot_measurements.shape[1] == self.nir_input_dim) or
+                              (len(dot_measurements.shape) == 3 and 
+                               dot_measurements.shape[2] == self.nir_input_dim))
         is_ground_truth = (len(dot_measurements.shape) == 4 or len(dot_measurements.shape) == 5)
         
-        if self.training_stage == STAGE1 and is_ground_truth:
+        # Stage 1 can only handle ground truth volumes for CNN autoencoder training
+        if self.training_stage == STAGE1:
+            if not is_ground_truth:
+                # For Stage 1, we need ground truth volumes to train the CNN autoencoder
+                raise ValueError(
+                    f"Stage 1 training requires ground truth volumes, got shape {dot_measurements.shape}. "
+                    f"NIR measurements can only be processed in Stage 2."
+                )
+            
             logger.debug("📍 Stage 1: CNN autoencoder only mode")
             # Stage 1: CNN autoencoder only
             reconstructed = self.cnn_autoencoder(dot_measurements)
@@ -249,83 +242,76 @@ class HybridCNNTransformer(nn.Module):
             
         elif self.training_stage == STAGE2 or is_nir_measurements:
             logger.debug("📍 Stage 2: Transformer enhancement mode (or NIR measurements auto-detected)")
-            # Stage 2: Handle NIR measurements → Transformer → CNN decoder
-            # Also handles NIR measurements regardless of training stage setting
+            # Stage 2: Handle NIR measurements → NIR Processor → Transformer → CNN decoder
             
-            # Check input type: NIR measurements vs ground truth volumes
-            # NEW FORMAT: NIR measurements are (batch_size, 256, 8) for training (subsampled from 1000)
-            # GENERATION: Phantoms contain 1000 measurements (50 sources × 20 detectors)
-            # TRAINING: DataLoader subsamples 256 measurements for consistency + data augmentation
-            if len(dot_measurements.shape) == 3 and dot_measurements.shape[2] == self.nir_input_dim:
-                logger.debug(f"🔍 Processing NIR measurements: {dot_measurements.shape}")
-                # Complete phantom NIR measurements: (batch_size, 256_subsampled, nir_input_dim)
-                # Note: Input measurements are subsampled from 1000 generated measurements for data augmentation
-                batch_size, n_measurements, n_features = dot_measurements.shape
-                logger.debug(f"📦 NIR measurements breakdown: batch_size={batch_size}, n_measurements={n_measurements}, n_features={n_features}")
-                
-                # Validate measurement count and provide informative logging
-                if n_measurements == N_MEASUREMENTS:
-                    logger.debug(f"✅ Standard training format: {n_measurements} measurements (subsampled from generated data)")
-                elif n_measurements == N_GENERATED_MEASUREMENTS:
-                    logger.debug(f"📊 Full generated format: {n_measurements} measurements (before subsampling)")
-                else:
-                    logger.debug(f"ℹ️  Custom measurement count: {n_measurements} measurements")
-                
-                # Reshape to process all measurements in batch
-                nir_features = dot_measurements.view(-1, n_features)  # (batch_size * n_measurements, nir_input_dim)
-                logger.debug(f"📦 Reshaped NIR features: {nir_features.shape}")
-                
-                # Project all measurements to CNN feature space  
-                projected_features = self.nir_projection(nir_features)  # (batch_size * n_measurements, 256)
-                logger.debug(f"📦 Projected features: {projected_features.shape}")
-                
-                # Reshape back to batch format and aggregate measurements per phantom
-                projected_features = projected_features.view(batch_size, n_measurements, cnn_config.FEATURE_DIM)  # (batch_size, n_measurements, 256)
-                logger.debug(f"📦 Reshaped projected features: {projected_features.shape}")
-                
-                # Aggregate measurements to single feature vector per phantom
-                # Using mean pooling across all measurements - could also use attention pooling
-                cnn_features = projected_features.mean(dim=1)  # (batch_size, 256)
-                logger.debug(f"📦 Aggregated CNN features: {cnn_features.shape}")
-                
-            elif len(dot_measurements.shape) == 2 and dot_measurements.shape[1] == self.nir_input_dim:
+            if len(dot_measurements.shape) == 2 and dot_measurements.shape[1] == self.nir_input_dim:
                 logger.debug(f"🔍 Processing individual NIR measurements: {dot_measurements.shape}")
-                # Individual NIR measurements: (batch_size, nir_input_dim) - for compatibility
-                nir_features = dot_measurements  # Shape: (batch_size, nir_input_dim)
                 
-                # Project NIR measurements to CNN feature space  
-                cnn_features = self.nir_projection(nir_features)  # Shape: (batch_size, 256)
-                logger.debug(f"📦 Individual NIR features projected: {cnn_features.shape}")
+                # Process individual NIR measurements using NIR processor
+                nir_results = self.nir_processor(
+                    nir_measurements=dot_measurements,  # [batch, 8]
+                    tissue_patches=tissue_patches,       # [batch, 2, 7^3*2] or None
+                    use_tissue_patches=self.use_tissue_patches
+                )
+                
+                cnn_features = nir_results['features']  # [batch, 256]
+                attention_weights = nir_results['attention_weights']  # None for individual measurements
+                
+                logger.debug(f"📦 NIR processor output features: {cnn_features.shape}")
+                
+            elif len(dot_measurements.shape) == 3 and dot_measurements.shape[2] == self.nir_input_dim:
+                logger.debug(f"🔍 Processing batch of NIR measurements: {dot_measurements.shape}")
+                # Handle full phantom processing: [batch, n_measurements, 8]
+                batch_size, n_measurements, nir_dim = dot_measurements.shape
+                
+                # Process all measurements using the NIR processor 
+                # We'll process them in sequence and use spatial attention to aggregate
+                measurement_features = []
+                
+                for i in range(n_measurements):
+                    # Extract single measurement: [batch, 8]
+                    single_measurement = dot_measurements[:, i, :]  # [batch, 8]
+                    
+                    # Process individual measurement
+                    nir_results = self.nir_processor(
+                        nir_measurements=single_measurement,     # [batch, 8]
+                        tissue_patches=tissue_patches,           # [batch, 2, 7^3*2] or None
+                        use_tissue_patches=self.use_tissue_patches
+                    )
+                    
+                    measurement_features.append(nir_results['features'])  # [batch, 256]
+                
+                # Stack all measurement features: [batch, n_measurements, 256]
+                all_features = torch.stack(measurement_features, dim=1)
+                
+                # Use spatial attention to aggregate features across measurements
+                # For now, use mean pooling (can be enhanced with learned attention later)
+                cnn_features = torch.mean(all_features, dim=1)  # [batch, 256]
+                attention_weights = None  # Could add measurement-level attention here
+                
+                logger.debug(f"📦 Aggregated features from {n_measurements} measurements: {cnn_features.shape}")
                 
             else:
                 logger.debug(f"🔍 Processing ground truth volumes: {dot_measurements.shape}")
-                # Ground truth volumes input (for compatibility): extract CNN features
+                # Ground truth volumes input: extract CNN features
                 with torch.no_grad() if self.training else torch.enable_grad():
                     cnn_features = self.cnn_autoencoder.encode(dot_measurements)  # (batch, 256)
-            
-            # Process tissue patches based on toggle
-            processed_tissue_patches = self.toggle_utils.process_tissue_patches(
-                tissue_patches, self.use_tissue_patches
-            )
-            
-            # Encode tissue context if available
-            tissue_context = None
-            if self.use_tissue_patches and self.tissue_encoder is not None:
-                if processed_tissue_patches is not None:
-                    tissue_context = self.tissue_encoder(processed_tissue_patches)
+                attention_weights = None
             
             # Transform features using transformer (expecting 256D CNN features)
-            # Ensure CNN features require gradients for backpropagation
             if not cnn_features.requires_grad:
                 cnn_features = cnn_features.detach().requires_grad_(True)
             
-            enhanced_features, attention_weights = self.transformer_encoder(
-                cnn_features=cnn_features,
-                tissue_context=tissue_context,
-                use_tissue_patches=self.use_tissue_patches
+            # Transformer expects 2D CNN features
+            enhanced_features, transformer_attention = self.transformer_encoder(
+                cnn_features,  # [batch, 256] - already correct shape
+                tissue_context=None,  # Tissue context already handled by NIR processor
+                use_tissue_patches=False  # Already integrated in NIR processor
             )
             
-            # Decode using frozen CNN decoder (gradients flow through, but params frozen)
+            # enhanced_features is already [batch, 256] from transformer
+            
+            # Decode using frozen CNN decoder
             reconstructed = self.cnn_autoencoder.decode(enhanced_features)
             
             outputs.update({
@@ -338,6 +324,8 @@ class HybridCNNTransformer(nn.Module):
             # Add attention weights if available
             if attention_weights is not None:
                 outputs['attention_weights'] = attention_weights
+            if transformer_attention is not None:
+                outputs['transformer_attention'] = transformer_attention
         
         else:
             # Enhanced error handling with input shape information
@@ -378,8 +366,6 @@ class HybridCNNTransformer(nn.Module):
         if stage == STAGE1:
             # Stage 1: Train CNN autoencoder end-to-end
             self.cnn_autoencoder.train()
-            if self.tissue_encoder is not None:
-                self.tissue_encoder.eval()
             self.transformer_encoder.eval()
             
         elif stage == STAGE2:
@@ -391,10 +377,9 @@ class HybridCNNTransformer(nn.Module):
             for param in self.cnn_autoencoder.decoder.parameters():
                 param.requires_grad = False
             
-            # Enable training for transformer and tissue encoder
+            # Enable training for transformer and NIR processor
             self.transformer_encoder.train()
-            if self.tissue_encoder is not None:
-                self.tissue_encoder.train()
+            self.nir_processor.train()
                 
             logger.info("🔒 CNN decoder frozen, transformer components enabled for training")
     
@@ -412,8 +397,7 @@ class HybridCNNTransformer(nn.Module):
         self.use_tissue_patches = use_tissue_patches
         logger.info(f"🔄 Tissue patches {'enabled' if use_tissue_patches else 'disabled'}")
         
-        if not use_tissue_patches and self.tissue_encoder is not None:
-            self.tissue_encoder.eval()
+        # Note: Tissue encoding is now handled inside the NIR processor
     
     def get_trainable_parameters(self) -> Dict[str, torch.nn.Parameter]:
         """
@@ -435,15 +419,15 @@ class HybridCNNTransformer(nn.Module):
                     trainable_params[f"cnn_autoencoder.{name}"] = param
                     
         elif self.training_stage == STAGE2:
-            # Stage 2: Transformer and tissue encoder parameters are trainable
+            # Stage 2: Transformer and NIR processor parameters are trainable
             for name, param in self.transformer_encoder.named_parameters():
                 if param.requires_grad:
                     trainable_params[f"transformer_encoder.{name}"] = param
             
-            if self.use_tissue_patches and self.tissue_encoder is not None:
-                for name, param in self.tissue_encoder.named_parameters():
-                    if param.requires_grad:
-                        trainable_params[f"tissue_encoder.{name}"] = param
+            # NIR processor contains tissue encoding internally
+            for name, param in self.nir_processor.named_parameters():
+                if param.requires_grad:
+                    trainable_params[f"nir_processor.{name}"] = param
         
         logger.debug(f"Found {len(trainable_params)} trainable parameters for {self.training_stage}")
         return trainable_params
@@ -488,7 +472,7 @@ class HybridCNNTransformer(nn.Module):
         
         cnn_params = sum(p.numel() for p in self.cnn_autoencoder.parameters())
         transformer_params = sum(p.numel() for p in self.transformer_encoder.parameters())
-        tissue_params = sum(p.numel() for p in self.tissue_encoder.parameters()) if self.tissue_encoder else 0
+        nir_processor_params = sum(p.numel() for p in self.nir_processor.parameters())
         
         return {
             'training_stage': self.training_stage,
@@ -497,6 +481,6 @@ class HybridCNNTransformer(nn.Module):
             'trainable_parameters': trainable_params,
             'cnn_parameters': cnn_params,
             'transformer_parameters': transformer_params,
-            'tissue_encoder_parameters': tissue_params,
+            'nir_processor_parameters': nir_processor_params,
             'output_size': self.output_size
         }

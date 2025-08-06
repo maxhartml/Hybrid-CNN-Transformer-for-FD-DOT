@@ -57,11 +57,11 @@ from code.utils.logging_config import get_model_logger
 # HYPERPARAMETERS AND CONSTANTS
 # =============================================================================
 
-# Model Architecture Parameters
-EMBED_DIM = 768                         # Transformer embedding dimension
-NUM_LAYERS = 6                          # Number of transformer layers
-NUM_HEADS = 12                          # Number of attention heads
-MLP_RATIO = 4                           # MLP expansion ratio
+# Model Architecture Parameters (OPTIMIZED)
+EMBED_DIM = 256                         # Transformer embedding dimension (reduced from 768)
+NUM_LAYERS = 4                          # Number of transformer layers (reduced from 6)
+NUM_HEADS = 8                           # Number of attention heads (reduced from 12)
+MLP_RATIO = 3                           # MLP expansion ratio (reduced from 4)
 DROPOUT = 0.1                           # Dropout probability
 MAX_SEQ_LEN = 1000                      # Maximum sequence length
 

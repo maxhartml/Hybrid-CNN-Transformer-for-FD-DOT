@@ -63,7 +63,7 @@ VOXEL_SIZE_MM = 2.0                               # Physical size of each voxel 
 PHANTOM_SIZE_MM = 128                             # Total phantom size in millimeters (64 voxels × 2mm each)
 
 # Patch extraction parameters
-DEFAULT_PATCH_SIZE = (7, 7, 7)                   # Local tissue patch dimensions
+DEFAULT_PATCH_SIZE = (11, 11, 11)                  # Local tissue patch dimensions (increased for better context)
 AIR_VALUE = 0.0                                   # Air padding value for out-of-bounds regions
 
 # Dataset split ratios (must sum to 1.0)
@@ -128,9 +128,9 @@ def extract_tissue_patch(ground_truth: np.ndarray,
                         position: np.ndarray, 
                         patch_size: Tuple[int, int, int] = DEFAULT_PATCH_SIZE) -> np.ndarray:
     """
-    Extract tissue patch around a position for tissue context encoder.
+    Extract tissue patch around a position for tissue context processing.
     
-    Simplified extraction focused on compatibility with TissueContextEncoder.
+    Simplified extraction for tissue context integration in NIR processing.
     Extracts a local patch of optical properties around source/detector positions.
     
     Args:
