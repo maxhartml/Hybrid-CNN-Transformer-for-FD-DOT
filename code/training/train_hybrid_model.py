@@ -42,7 +42,7 @@ from pathlib import Path
 import torch
 
 # Project imports
-from code.data_processing.data_loader import create_nir_dataloaders, create_phantom_dataloaders
+from code.data_processing.data_loader import create_phantom_dataloaders
 from code.training.stage1_trainer import Stage1Trainer
 from code.training.stage2_trainer import Stage2Trainer
 from code.utils.logging_config import get_training_logger, NIRDOTLogger
@@ -156,8 +156,7 @@ def main():
         # Stage 1: Use phantom DataLoader for ground truth batching (CNN autoencoder training)
         data_loaders = create_phantom_dataloaders(
             data_dir=DATA_DIRECTORY,
-            batch_size=batch_size,
-            use_tissue_patches=False  # Stage 1 doesn't use tissue patches
+            batch_size=batch_size
         )
         logger.info(f"✅ Stage 1 data loaders created successfully")
         logger.debug(f"📊 Train batches: {len(data_loaders['train'])}, Val batches: {len(data_loaders['val'])}")
@@ -166,12 +165,11 @@ def main():
         # Stage 2: Use phantom DataLoader for NIR measurement + ground truth batching
         data_loaders = create_phantom_dataloaders(
             data_dir=DATA_DIRECTORY,
-            batch_size=batch_size,
-            use_tissue_patches=use_tissue_patches
+            batch_size=batch_size
         )
         logger.info(f"✅ Stage 2 data loaders created successfully")
         logger.debug(f"📊 Train batches: {len(data_loaders['train'])}, Val batches: {len(data_loaders['val'])}")
-        logger.debug(f"🧬 Tissue patches enabled: {use_tissue_patches}")
+        logger.debug(f"🧬 Tissue patches handled by model: {use_tissue_patches}")
 
     # =========================================================================
     # TRAINING EXECUTION
