@@ -77,7 +77,7 @@ from code.utils.logging_config import get_data_logger, NIRDOTLogger
 
 # Constants for phantom generation
 MASTER_RANDOM_SEED = 42                      # Master seed for reproducible datasets (change for different datasets)
-DEFAULT_N_PHANTOMS = 5                    # Number of phantoms to generate for dataset
+DEFAULT_N_PHANTOMS = 10000                   # Number of phantoms to generate for dataset
 DEFAULT_PHANTOM_SHAPE = (64, 64, 64)        # Default cubic phantom dimensions in voxels (power of 2)
 DEFAULT_TISSUE_RADIUS_RANGE = (25, 30)      # Healthy tissue ellipsoid semi-axis range (25-30mm with 1mm voxels)
 DEFAULT_TUMOR_RADIUS_RANGE = (5, 10)        # Tumor ellipsoid semi-axis range (5-10mm with 1mm voxels)
@@ -1744,25 +1744,34 @@ def main():
                 logger.info(f"✅ STEP 4/6 COMPLETED: Surface extraction & probe layout finished in {step4_time:.2f}s")
 
                 # ============================================================================
-                # STEP 5/6: VISUALIZATION GENERATION
+                # STEP 5/6: VISUALIZATION GENERATION (EVERY 100TH PHANTOM)
                 # ============================================================================
                 step5_start = time.time()
-                logger.info("▶️  STEP 5/6: Generating probe visualization for quality assurance...")
                 
-                # Generate detailed visualization for the first probe of each phantom
-                if len(probe_sources) > 0:  # Ensure probes were successfully placed
-                    first_source = probe_sources[0]  # Select first source for visualization
-                    first_detectors = probe_detectors[0:1]  # First detector associated with first measurement
+                # Only generate visualizations every 100 phantoms to save disk space
+                # For 100,000 phantoms: 1,000 PNGs instead of 100,000 (saves ~100GB)
+                should_visualize = (phantom_idx + 1) % 100 == 0 or phantom_idx < 5  # Every 100th + first 5 for validation
+                
+                if should_visualize:
+                    logger.info("▶️  STEP 5/6: Generating probe visualization for quality assurance...")
                     
-                    # Generate 3D visualization with surface boundaries and probe positioning
-                    # Note: show_interactive=False to avoid popup windows
-                    visualize_probe_on_mesh(phantom_volume, phantom_mesh, first_source, first_detectors, 0, str(phantom_dir), 
-                                           patch_info=patch_info, show_interactive=False)
-                    
-                    logger.debug(f"Generated static PNG visualization for phantom {phantom_idx+1}")
+                    # Generate detailed visualization for the first probe of this phantom
+                    if len(probe_sources) > 0:  # Ensure probes were successfully placed
+                        first_source = probe_sources[0]  # Select first source for visualization
+                        first_detectors = probe_detectors[0:1]  # First detector associated with first measurement
+                        
+                        # Generate 3D visualization with surface boundaries and probe positioning
+                        # Note: show_interactive=False to avoid popup windows
+                        visualize_probe_on_mesh(phantom_volume, phantom_mesh, first_source, first_detectors, 0, str(phantom_dir), 
+                                               patch_info=patch_info, show_interactive=False)
+                        
+                        logger.debug(f"Generated static PNG visualization for phantom {phantom_idx+1} (milestone phantom)")
+                else:
+                    logger.info("▶️  STEP 5/6: Skipping visualization generation (not a milestone phantom)")
+                    logger.debug(f"Next visualization will be generated at phantom {((phantom_idx // 100) + 1) * 100}")
         
                 step5_time = time.time() - step5_start
-                logger.info(f"✅ STEP 5/6 COMPLETED: Visualization generation finished in {step5_time:.2f}s")
+                logger.info(f"✅ STEP 5/6 COMPLETED: Visualization step finished in {step5_time:.2f}s")
 
                 # ============================================================================
                 # STEP 6/6: FREQUENCY-DOMAIN SIMULATION & DATA STORAGE
@@ -1821,9 +1830,20 @@ def main():
                         phantom_success = True  # Exit retry loop (will be handled by data cleaning later)
                         
             except Exception as e:
-                # Handle any other errors during phantom generation
+                # Handle any errors during phantom generation with specific error detection
+                error_msg = str(e).lower()
                 retry_attempt += 1
-                logger.error(f"Phantom {phantom_idx+1} generation failed with error: {e}")
+                
+                # Detect specific mesh generation failures
+                if "cgalmesher" in error_msg or "exec format error" in error_msg:
+                    logger.error(f"Phantom {phantom_idx+1} failed with NIRFASTer mesh generation error: {e}")
+                    logger.warning("This suggests geometry too complex for CGAL mesher - will try simpler geometry")
+                elif "sigkill" in error_msg or "died with" in error_msg:
+                    logger.error(f"Phantom {phantom_idx+1} failed with process termination: {e}")
+                    logger.warning("This suggests memory/resource exhaustion - will try with different seed")
+                else:
+                    logger.error(f"Phantom {phantom_idx+1} generation failed with error: {e}")
+                
                 if retry_attempt < MAX_PHANTOM_RETRY_ATTEMPTS:
                     logger.warning(f"Retrying phantom {phantom_idx+1} with different seed...")
                     # Clean up any partial files
@@ -1832,7 +1852,8 @@ def main():
                         logger.debug(f"Removed partial H5 file: {h5_output_path}")
                 else:
                     logger.error(f"Phantom {phantom_idx+1} failed after {MAX_PHANTOM_RETRY_ATTEMPTS} attempts with error: {e}")
-                    phantom_success = True  # Exit retry loop
+                    logger.warning(f"Skipping phantom {phantom_idx+1} and continuing with next phantom...")
+                    phantom_success = True  # Exit retry loop and continue to next phantom
         
         # Final phantom status logging (only if phantom failed completely)
         if not phantom_success or ('simulation_success' in locals() and not simulation_success):
@@ -1884,10 +1905,11 @@ def main():
     logger.info("    - Ground truth optical property maps (μₐ, μ′s)")
     logger.info("    - Complete geometry and metadata for reproducibility")
     
-    logger.info("  • High-quality 3D visualization (probe_001.png) - Generated for all phantoms")
+    logger.info("  • High-quality 3D visualization (probe_001.png) - Generated every 100 phantoms + first 5")
+    logger.info("    - Storage optimization: ~1,000 PNGs instead of 100,000 (saves ~100GB disk space)")
     logger.info("    - Publication-quality rendering for geometric validation")
     logger.info("    - Tumor surfaces: unified red coloring for all tumor regions")
-    logger.info("    - Patch regions: purple circular markers matching tissue surface")
+    logger.info("    - Patch regions: orange circular markers matching tissue surface")
     logger.info("    - Static PNG files only (no interactive displays)")
     
     # Technical specifications summary for dataset users
