@@ -307,36 +307,66 @@ class Stage1Trainer:
                     normalized = np.zeros_like(data)
                 return normalized.astype(np.uint8)
             
-            # Log slices from different dimensions (absorption coefficient channel)
-            absorption_channel = 0
+                        # Log slices from different dimensions for BOTH channels
+            absorption_channel = 0  # μₐ (absorption coefficient)
+            scattering_channel = 1  # μ′s (reduced scattering coefficient)
             
-            # XY plane (Z=32) - middle slice in Z dimension
-            pred_xy = pred_batch[absorption_channel, :, :, pred_batch.shape[-1]//2]
-            target_xy = target_batch[absorption_channel, :, :, target_batch.shape[-1]//2]
+            # XY plane (Z=32) - middle slice in Z dimension - ABSORPTION
+            pred_xy_abs = pred_batch[absorption_channel, :, :, pred_batch.shape[-1]//2]
+            target_xy_abs = target_batch[absorption_channel, :, :, target_batch.shape[-1]//2]
             
-            # XZ plane (Y=32) - middle slice in Y dimension
-            pred_xz = pred_batch[absorption_channel, :, pred_batch.shape[-2]//2, :]
-            target_xz = target_batch[absorption_channel, :, target_batch.shape[-2]//2, :]
+            # XY plane (Z=32) - middle slice in Z dimension - SCATTERING  
+            pred_xy_scat = pred_batch[scattering_channel, :, :, pred_batch.shape[-1]//2]
+            target_xy_scat = target_batch[scattering_channel, :, :, target_batch.shape[-1]//2]
             
-            # YZ plane (X=32) - middle slice in X dimension
-            pred_yz = pred_batch[absorption_channel, pred_batch.shape[-3]//2, :, :]
-            target_yz = target_batch[absorption_channel, target_batch.shape[-3]//2, :, :]
+            # XZ plane (Y=32) - middle slice in Y dimension - ABSORPTION
+            pred_xz_abs = pred_batch[absorption_channel, :, pred_batch.shape[-2]//2, :]
+            target_xz_abs = target_batch[absorption_channel, :, target_batch.shape[-2]//2, :]
+            
+            # XZ plane (Y=32) - middle slice in Y dimension - SCATTERING
+            pred_xz_scat = pred_batch[scattering_channel, :, pred_batch.shape[-2]//2, :]
+            target_xz_scat = target_batch[scattering_channel, :, target_batch.shape[-2]//2, :]
+            
+            # YZ plane (X=32) - middle slice in X dimension - ABSORPTION
+            pred_yz_abs = pred_batch[absorption_channel, pred_batch.shape[-3]//2, :, :]
+            target_yz_abs = target_batch[absorption_channel, pred_batch.shape[-3]//2, :, :]
+            
+            # YZ plane (X=32) - middle slice in X dimension - SCATTERING
+            pred_yz_scat = pred_batch[scattering_channel, pred_batch.shape[-3]//2, :, :]
+            target_yz_scat = target_batch[scattering_channel, pred_batch.shape[-3]//2, :, :]
             
             # Normalize all images for proper W&B display
-            pred_xy_norm = normalize_for_display(pred_xy)
-            target_xy_norm = normalize_for_display(target_xy)
-            pred_xz_norm = normalize_for_display(pred_xz)
-            target_xz_norm = normalize_for_display(target_xz)
-            pred_yz_norm = normalize_for_display(pred_yz)
-            target_yz_norm = normalize_for_display(target_yz)
+            pred_xy_abs_norm = normalize_for_display(pred_xy_abs)
+            target_xy_abs_norm = normalize_for_display(target_xy_abs)
+            pred_xy_scat_norm = normalize_for_display(pred_xy_scat)
+            target_xy_scat_norm = normalize_for_display(target_xy_scat)
+            
+            pred_xz_abs_norm = normalize_for_display(pred_xz_abs)
+            target_xz_abs_norm = normalize_for_display(target_xz_abs)
+            pred_xz_scat_norm = normalize_for_display(pred_xz_scat)
+            target_xz_scat_norm = normalize_for_display(target_xz_scat)
+            
+            pred_yz_abs_norm = normalize_for_display(pred_yz_abs)
+            target_yz_abs_norm = normalize_for_display(target_yz_abs)
+            pred_yz_scat_norm = normalize_for_display(pred_yz_scat)
+            target_yz_scat_norm = normalize_for_display(target_yz_scat)
             
             wandb.log({
-                f"Reconstructions/predicted_xy_slice": wandb.Image(pred_xy_norm, caption=f"Epoch {epoch} - Predicted XY slice (phantom_idx=0, z=32)"),
-                f"Reconstructions/target_xy_slice": wandb.Image(target_xy_norm, caption=f"Epoch {epoch} - Ground Truth XY slice (phantom_idx=0, z=32)"),
-                f"Reconstructions/predicted_xz_slice": wandb.Image(pred_xz_norm, caption=f"Epoch {epoch} - Predicted XZ slice (phantom_idx=0, y=32)"),
-                f"Reconstructions/target_xz_slice": wandb.Image(target_xz_norm, caption=f"Epoch {epoch} - Ground Truth XZ slice (phantom_idx=0, y=32)"),
-                f"Reconstructions/predicted_yz_slice": wandb.Image(pred_yz_norm, caption=f"Epoch {epoch} - Predicted YZ slice (phantom_idx=0, x=32)"),
-                f"Reconstructions/target_yz_slice": wandb.Image(target_yz_norm, caption=f"Epoch {epoch} - Ground Truth YZ slice (phantom_idx=0, x=32)"),
+                # Absorption channel (μₐ) - existing
+                f"Reconstructions/Absorption/predicted_xy_slice": wandb.Image(pred_xy_abs_norm, caption=f"Epoch {epoch} - Predicted μₐ XY slice (z=32)"),
+                f"Reconstructions/Absorption/target_xy_slice": wandb.Image(target_xy_abs_norm, caption=f"Epoch {epoch} - Ground Truth μₐ XY slice (z=32)"),
+                f"Reconstructions/Absorption/predicted_xz_slice": wandb.Image(pred_xz_abs_norm, caption=f"Epoch {epoch} - Predicted μₐ XZ slice (y=32)"),
+                f"Reconstructions/Absorption/target_xz_slice": wandb.Image(target_xz_abs_norm, caption=f"Epoch {epoch} - Ground Truth μₐ XZ slice (y=32)"),
+                f"Reconstructions/Absorption/predicted_yz_slice": wandb.Image(pred_yz_abs_norm, caption=f"Epoch {epoch} - Predicted μₐ YZ slice (x=32)"),
+                f"Reconstructions/Absorption/target_yz_slice": wandb.Image(target_yz_abs_norm, caption=f"Epoch {epoch} - Ground Truth μₐ YZ slice (x=32)"),
+                
+                # Scattering channel (μ′s) - NEW!
+                f"Reconstructions/Scattering/predicted_xy_slice": wandb.Image(pred_xy_scat_norm, caption=f"Epoch {epoch} - Predicted μ′s XY slice (z=32)"),
+                f"Reconstructions/Scattering/target_xy_slice": wandb.Image(target_xy_scat_norm, caption=f"Epoch {epoch} - Ground Truth μ′s XY slice (z=32)"),
+                f"Reconstructions/Scattering/predicted_xz_slice": wandb.Image(pred_xz_scat_norm, caption=f"Epoch {epoch} - Predicted μ′s XZ slice (y=32)"),
+                f"Reconstructions/Scattering/target_xz_slice": wandb.Image(target_xz_scat_norm, caption=f"Epoch {epoch} - Ground Truth μ′s XZ slice (y=32)"),
+                f"Reconstructions/Scattering/predicted_yz_slice": wandb.Image(pred_yz_scat_norm, caption=f"Epoch {epoch} - Predicted μ′s YZ slice (x=32)"),
+                f"Reconstructions/Scattering/target_yz_slice": wandb.Image(target_yz_scat_norm, caption=f"Epoch {epoch} - Ground Truth μ′s YZ slice (x=32)"),
             }, step=epoch)
             
             logger.debug(f"✅ Successfully logged reconstruction images for epoch {epoch}")

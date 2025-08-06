@@ -35,7 +35,7 @@ LEARNING_RATE_STAGE1 = 5e-5             # CNN autoencoder learning rate
 LEARNING_RATE_STAGE2 = 3e-5             # Transformer learning rate (lower for stability)
 
 # Training Duration
-EPOCHS_STAGE1 = 10                      # Default epochs for Stage 1
+EPOCHS_STAGE1 = 50                      # Increase for better convergence (was 10)
 EPOCHS_STAGE2 = 100                     # Default epochs for Stage 2
 
 # Batch Sizes
@@ -66,6 +66,7 @@ CHECKPOINT_STAGE2_ENHANCED = "stage2_enhanced_best.pth"  # Stage 2 enhanced
 # W&B Configuration
 WANDB_PROJECT = "nir-dot-reconstruction"     # Unified project name
 LOG_IMAGES_EVERY = 1                         # Log reconstruction images every N epochs
+LOG_BOTH_CHANNELS = True                     # Log both absorption and scattering channels
 WANDB_TAGS_STAGE1 = ["stage1", "cnn-autoencoder", "pretraining", "nir-dot"]
 WANDB_TAGS_STAGE2_BASELINE = ["stage2", "transformer", "baseline", "nir-dot"]
 WANDB_TAGS_STAGE2_ENHANCED = ["stage2", "transformer", "enhanced", "tissue-patches", "nir-dot"]
