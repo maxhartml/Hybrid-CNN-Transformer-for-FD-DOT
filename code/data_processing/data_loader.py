@@ -59,8 +59,8 @@ DEFAULT_NIR_FEATURE_DIMENSION = 8                # Features per NIR measurement 
 DEFAULT_OPTICAL_CHANNELS = 2                     # Optical property channels (absorption + scattering)
 
 # Voxel and coordinate parameters (must match data_simulator.py)
-VOXEL_SIZE_MM = 2.0                               # Physical size of each voxel in millimeters
-PHANTOM_SIZE_MM = 128                             # Total phantom size in millimeters (64 voxels × 2mm each)
+VOXEL_SIZE_MM = 1.0                               # Physical size of each voxel in millimeters (updated to match simulator)
+PHANTOM_SIZE_MM = 64                              # Total phantom size in millimeters (64 voxels × 1mm each)
 
 # Patch extraction parameters
 DEFAULT_PATCH_SIZE = (11, 11, 11)                  # Local tissue patch dimensions (increased for better context)

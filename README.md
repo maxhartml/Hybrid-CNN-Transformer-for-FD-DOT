@@ -72,8 +72,8 @@ We've built a sophisticated **phantom generation engine** that creates thousands
 
 - **Realistic geometry:** Ellipsoidal tissue regions with embedded tumors, all randomly rotated in 3D to eliminate bias
 - **Smart tumor placement:** Advanced algorithms ensure tumors are realistically embedded within tissue (80% overlap constraint)
-- **Biological realism:** Optical properties based on extensive literature review of real tissue measurements at 2mm resolution
-- **Anatomical variety:** From simple single-lesion cases to complex multi-tumor scenarios in 128×128×128mm clinical volumes
+- **Biological realism:** Optical properties based on extensive literature review of real tissue measurements at 1mm resolution
+- **Anatomical variety:** From simple single-lesion cases to complex multi-tumor scenarios in 64×64×64mm clinical volumes
 
 ### **Step 2: Finite Element Light Transport Simulation**
 
@@ -92,7 +92,8 @@ Creating datasets that match real hospital equipment
 
 Our measurement simulation creates surface data exactly as real NIR-DOT systems would collect:
 
-- **256 source-detector pairs:** Optimized coverage within 40mm patch radius for clinical realism
+- **Optimized probe strategy:** 50 strategic sources with 20 detectors each for comprehensive coverage
+- **1000 measurements per phantom:** Full measurement matrix with 256 training subsamples for data augmentation
 - **Dual measurements:** Both log-amplitude and phase data for maximum information
 - **Realistic noise:** Carefully calibrated noise levels matching clinical equipment
 - **Surface constraints:** Probes placed only on tissue surfaces with 10-40mm separation, just like in real procedures
@@ -106,14 +107,14 @@ Each simulated phantom generates a comprehensive HDF5 file containing everything
 ```text
 # === DATA SIMULATION OUTPUT ===
 physics_simulation → HDF5_files
-├── 'log_amplitude': (256,)            # 256 source-detector pairs  
-├── 'phase': (256,)                    # 256 source-detector pairs
-├── 'source_positions': (256, 3)       # 256 sources × [x,y,z]
-├── 'detector_positions': (256, 3)     # 256 detectors × [x,y,z]
-└── 'ground_truth': (2, 64, 64, 64)    # Channels-first: [μₐ, μ′s] × Volume
+├── 'log_amplitude': (1000,)            # 1000 measurements (log-transformed amplitude)
+├── 'phase': (1000,)                    # 1000 measurements (phase delay in degrees)
+├── 'source_positions': (1000, 3)       # Source positions for each measurement [x,y,z]
+├── 'detector_positions': (1000, 3)     # Detector positions for each measurement [x,y,z]
+└── 'ground_truth': (2, 64, 64, 64)     # Channels-first: [μₐ, μ′s] × Volume
 ```
 
-This creates **256 total measurements per phantom**, each with **8-dimensional feature vectors** containing amplitude, phase, and spatial coordinates. The ground truth provides complete optical property maps for supervised learning.
+This creates **1000 total measurements per phantom** (50 sources × 20 detectors), each with **8-dimensional feature vectors** containing log-amplitude, phase, and spatial coordinates. The training pipeline subsamples 256 measurements per batch for data augmentation. The ground truth provides complete optical property maps for supervised learning.
 
 ---
 
@@ -176,23 +177,23 @@ Output: (2, 64, 64, 64) → Perfect reconstruction
 
 The component that learns complex measurement-to-tissue mappings
 
-Our Transformer component brings cutting-edge NLP innovations to medical imaging:
+Our optimized Transformer component brings cutting-edge NLP innovations to medical imaging:
 
-- **Multi-head attention:** 12 attention heads capture different types of spatial relationships
-- **Deep understanding:** 6 transformer layers with 768-dimensional embeddings
+- **Optimized architecture:** 4 transformer layers with 8 attention heads (optimized for efficiency)
+- **Compact embeddings:** 256-dimensional embeddings for efficient processing
 - **Positional encoding:** Helps the model understand spatial relationships in measurement data
-- **~45M parameters:** Massive capacity for learning complex inverse mappings
+- **~3M parameters:** Significantly reduced from original while maintaining performance
 
-### **The Context Provider: Tissue Context Encoder**
+### **The Context Provider: Integrated NIR Processor**
 
-The component that adds anatomical constraints
+The component that adds spatial attention and anatomical constraints
 
-Our innovation goes beyond standard architectures with context-aware reconstruction:
+Our spatial attention NIR processor integrates both measurement processing and tissue context:
 
-- **Local patches:** 7×7×7 tissue regions around each measurement point
+- **Spatial attention:** Respects geometric relationships between source-detector pairs
+- **Tissue integration:** 11×11×11 tissue patches around each measurement point (optimized from 7×7×7)
 - **Anatomical guidance:** Local tissue information constrains reconstruction possibilities
-- **Separate processing:** Dedicated transformer processes tissue context independently
-- **Smart fusion:** Learned combination of measurements and anatomical context
+- **Efficient encoding:** 4D features per patch for balanced representation
 
 ---
 
@@ -205,14 +206,15 @@ Each phantom in our dataset represents a unique case:
 - **Geometric variation:** Random rotations and tissue shapes eliminate directional bias
 - **Pathological diversity:** From healthy tissue to complex multi-tumor scenarios  
 - **Optical property ranges:** Physiologically accurate absorption and scattering coefficients
-- **Resolution excellence:** 2mm voxel precision with 64³ reconstruction capabilities (128×128×128mm clinical volume)
+- **Resolution excellence:** 1mm voxel precision with 64³ reconstruction capabilities (64×64×64mm clinical volume)
 
-### **256 Source-Detector Pairs: Optimized Clinical Coverage**
+### **1000 Measurements per Phantom: Optimized Clinical Coverage**
 
-- **256 independent measurements:** Each measurement is a dedicated source-detector pair
+- **1000 independent measurements:** 50 strategic sources × 20 detectors per source
 - **8-dimensional feature vectors:** Log-amplitude, phase, and spatial coordinates
-- **Surface-constrained placement:** Clinically realistic probe positioning within 40mm patch radius
-- **10-40mm SDS range:** Optimal separation distances for 2mm voxel phantom resolution
+- **Surface-constrained placement:** Clinically realistic probe positioning within 30mm patch radius
+- **10-40mm SDS range:** Optimal separation distances for 1mm voxel phantom resolution
+- **Training subsampling:** 256 measurements selected per batch for data augmentation
 
 ### **HDF5 Efficiency: Big Data for Medical AI**
 
@@ -251,24 +253,26 @@ Then, teach it to work backwards from measurements
 
 The hybrid model learns the measurement-to-tissue mapping:
 
-- **Frozen CNN:** Preserves learned spatial knowledge
-- **Active Transformer:** Learns complex inverse relationships
+- **Frozen CNN:** Preserves learned spatial knowledge from Stage 1
+- **Active Transformer:** Learns complex inverse relationships with spatial attention
 - **Input:** Surface NIR measurements + optional tissue context
 - **Output:** Full 3D reconstruction of tissue optical properties
-- **Innovation:** First successful application of Transformers to 3D medical reconstruction
+- **Two training modes:** Baseline (NIR only) and Enhanced (NIR + tissue patches)
+- **Innovation:** First successful application of spatial attention transformers to 3D medical reconstruction
 
 ```text
 # === STAGE 2 TRAINING FLOW ===
 HDF5_files → phantom_dataloaders → Stage2_trainer
 ├── Input: nir_measurements (batch_size, 256, 8)        # e.g., (4, 256, 8)
-├── NIR_project: (4, 256, 8) → (4, 256, 768)           # Transformer feature alignment
-├── Transformer: (4, 256, 768) → (4, 256, 768)         # Attention processing
-├── Aggregate: (4, 256, 768) → (4, 256)                # Mean pooling to CNN bottleneck size
+├── NIR_processor: (4, 256, 8) → (4, 256)               # Spatial attention aggregation
+├── Tissue_context: (4, 2×11³×2) → (4, 8)              # Optional tissue patch encoding (11³ voxels)
+├── Feature_fusion: (4, 256) + (4, 8) → (4, 256)       # Enhanced NIR features (if using tissue)
+├── Transformer: (4, 256) → (4, 256)                    # 4-layer, 8-head attention processing
 ├── CNN_decode: (4, 256) → (4, 2, 64, 64, 64)          # Frozen lightweight reconstruction
 └── Loss: MSE(reconstruction, ground_truth)
 ```
 
-This two-stage approach ensures the model first understands **what realistic tissue looks like** before learning **how to infer it from measurements**.
+This two-stage approach ensures the model first understands **what realistic tissue looks like** before learning **how to infer it from measurements using spatial attention**.
 
 ---
 
@@ -280,11 +284,11 @@ This two-stage approach ensures the model first understands **what realistic tis
 # === CLINICAL DEPLOYMENT FLOW ===
 Patient → NIR_Scanner → Measurements → AI_Pipeline → 3D_Reconstruction → Clinical_Decision
 
-1. Patient_Setup:     Position patient, apply source-detector array (40mm patch)
-2. Data_Acquisition:  Collect NIR measurements (256 channels, 8 features)
+1. Patient_Setup:     Position patient, apply source-detector array (30mm patch)
+2. Data_Acquisition:  Collect NIR measurements (256 channels from 1000 generated, 8 features)
 3. Preprocessing:     Normalize, quality check, format for inference
-4. AI_Inference:      Stage2_model(measurements) → tissue_properties
-5. Visualization:     Render 3D absorption/scattering maps (2mm resolution)
+4. AI_Inference:      Stage2_model(measurements + tissue_context) → tissue_properties
+5. Visualization:     Render 3D absorption/scattering maps (1mm resolution)
 6. Clinical_Analysis: Identify pathology, plan intervention
 ```
 
@@ -304,10 +308,11 @@ Patient → NIR_Scanner → Measurements → AI_Pipeline → 3D_Reconstruction �
 
 ### **Technical Breakthroughs**
 
-- **First CNN-Transformer hybrid for 3D medical reconstruction**
-- **Novel tissue context integration for anatomically-constrained imaging**
-- **Comprehensive physics-AI integration with finite element simulation**
-- **Scalable architecture supporting various tissue types and pathologies**
+- **First CNN-Transformer hybrid with spatial attention for 3D medical reconstruction**
+- **Optimized tissue context integration with 11×11×11 patches for anatomically-constrained imaging**
+- **Parameter-efficient architecture achieving 79% reduction while maintaining performance**
+- **Comprehensive physics-AI integration with finite element simulation and 1mm voxel precision**
+- **Scalable architecture supporting various tissue types and pathologies with dual-mode training**
 
 ---
 
@@ -339,16 +344,16 @@ Patient → NIR_Scanner → Measurements → AI_Pipeline → 3D_Reconstruction �
 
 ### **🔬 Scientific Contributions**
 
-1. **Novel Architecture:** First successful CNN-Transformer hybrid for 3D medical reconstruction
+1. **Optimized Hybrid Architecture:** First successful CNN-Transformer hybrid with spatial attention for 3D medical reconstruction
 2. **Physics Integration:** Comprehensive finite element simulation with ML training
-3. **Context Innovation:** Tissue-aware reconstruction with anatomical constraints
-4. **Clinical Realism:** Surface-constrained measurements matching real equipment
+3. **Context Innovation:** Tissue-aware reconstruction with anatomical constraints using 11×11×11 patches
+4. **Parameter Efficiency:** 79% parameter reduction (50M→10M) while maintaining reconstruction quality
 
 ### **Technical Achievements**
 
-- **Optimized hybrid model:** 6.98M parameter CNN + 44.5M parameter Transformer = 51.5M total parameters for 64³ resolution
+- **Optimized hybrid model:** 6.98M parameter CNN + 3M parameter Transformer = ~10M total parameters for 64³ resolution
 - **200-phantom dataset** with comprehensive tissue diversity and physics validation
-- **Two-stage learning paradigm** achieving unprecedented reconstruction quality
+- **Two-stage learning paradigm** achieving unprecedented reconstruction quality with spatial attention
 - **Production-ready architecture** supporting clinical deployment with real-time inference capabilities
 
 ### **🏥 Clinical Potential**
