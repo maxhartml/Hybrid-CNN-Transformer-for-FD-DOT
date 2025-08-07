@@ -75,6 +75,10 @@ WEIGHT_DECAY = 1e-4                     # L2 regularization strength
 DROPOUT_RATE = 0.15                     # Dropout probability (for future use)
 EARLY_STOPPING_PATIENCE = 8            # Early stopping patience (epochs)
 
+# Gradient Clipping Configuration
+GRADIENT_CLIP_MAX_NORM = 1.0            # Maximum gradient norm for clipping (prevents explosion)
+GRADIENT_MONITOR_THRESHOLD = 10.0       # Log warning if gradient norm exceeds this
+
 # Learning Rate Scheduling
 LR_SCHEDULER_PATIENCE = 5               # Learning rate scheduler patience  
 LR_SCHEDULER_FACTOR = 0.5               # Learning rate reduction factor

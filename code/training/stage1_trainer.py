@@ -262,6 +262,15 @@ class Stage1Trainer:
                 
                 # Backward pass with gradient scaling
                 self.scaler.scale(loss).backward()
+                
+                # Apply gradient clipping before optimizer step
+                self.scaler.unscale_(self.optimizer)
+                grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=GRADIENT_CLIP_MAX_NORM)
+                
+                # Monitor gradient norm for training health
+                if grad_norm > GRADIENT_MONITOR_THRESHOLD:
+                    logger.warning(f"⚠️ High gradient norm detected: {grad_norm:.4f} > {GRADIENT_MONITOR_THRESHOLD}")
+                
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:  # Standard precision training (CPU fallback)
@@ -274,6 +283,14 @@ class Stage1Trainer:
                 
                 # Standard backward pass
                 loss.backward()
+                
+                # Apply gradient clipping
+                grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=GRADIENT_CLIP_MAX_NORM)
+                
+                # Monitor gradient norm for training health
+                if grad_norm > GRADIENT_MONITOR_THRESHOLD:
+                    logger.warning(f"⚠️ High gradient norm detected: {grad_norm:.4f} > {GRADIENT_MONITOR_THRESHOLD}")
+                
                 self.optimizer.step()
                 
             logger.debug(f"💰 Batch loss: {loss.item():.6f}")
@@ -296,7 +313,7 @@ class Stage1Trainer:
             # Show batch progress with enhanced metrics
             logger.info(f"📈 Stage 1 Batch {batch_idx + 1}/{len(data_loader)}: "
                        f"Loss = {loss.item():.6f}, SSIM = {batch_metrics.get('ssim', 0):.4f}, "
-                       f"PSNR = {batch_metrics.get('psnr', 0):.2f}dB")
+                       f"PSNR = {batch_metrics.get('psnr', 0):.2f}dB, GradNorm = {grad_norm:.4f}")
             
             # Log GPU memory usage every 20 batches (only on GPU)
             if torch.cuda.is_available() and batch_idx % 20 == 0:

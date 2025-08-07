@@ -330,6 +330,16 @@ class NIRPhantomDataset(Dataset):
                 
                 logger.debug(f"Extracted tissue patches shape: {tissue_patches.shape}")  # Should be (256, 2, 8192)
                 
+                # 📊 TISSUE PATCH QUALITY MONITORING: Basic sanity check
+                tissue_tensor = torch.tensor(tissue_patches, dtype=torch.float32)
+                zero_ratio = (tissue_tensor == 0).float().mean()
+                if zero_ratio > 0.85:
+                    logger.warning(f"⚠️ High zero content in tissue patches: {zero_ratio:.1%} for phantom {phantom_id}")
+                elif zero_ratio < 0.3:
+                    logger.info(f"📍 Unusually low zero content: {zero_ratio:.1%} for phantom {phantom_id}")
+                else:
+                    logger.debug(f"✅ Normal tissue patch quality: {zero_ratio:.1%} zeros for phantom {phantom_id}")
+                
         except Exception as e:
             logger.error(f"Error loading complete phantom {phantom_idx} from {phantom_file}: {e}")
             # Return zero-filled phantom with training dimensions

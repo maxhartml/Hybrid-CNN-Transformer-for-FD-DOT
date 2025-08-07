@@ -392,6 +392,15 @@ class Stage2Trainer:
             logger.debug("🔙 Starting Stage 2 backward pass (only transformer gradients)...")
             try:
                 self.scaler.scale(loss).backward()
+                
+                # Apply gradient clipping before optimizer step
+                self.scaler.unscale_(self.optimizer)
+                grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=GRADIENT_CLIP_MAX_NORM)
+                
+                # Monitor gradient norm for training health
+                if grad_norm > GRADIENT_MONITOR_THRESHOLD:
+                    logger.warning(f"⚠️ High gradient norm detected: {grad_norm:.4f} > {GRADIENT_MONITOR_THRESHOLD}")
+                
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
                 logger.debug("✅ Stage 2 mixed precision optimizer step completed")
@@ -404,7 +413,8 @@ class Stage2Trainer:
             
             # Show batch progress at INFO level (every batch)
             mode = "Enhanced" if self.use_tissue_patches else "Baseline"
-            logger.info(f"📈 Stage 2 {mode} Batch {batch_idx + 1}/{len(data_loader)}: Loss = {loss.item():.6f}, Avg = {total_loss/num_batches:.6f}")
+            logger.info(f"📈 Stage 2 {mode} Batch {batch_idx + 1}/{len(data_loader)}: "
+                       f"Loss = {loss.item():.6f}, Avg = {total_loss/num_batches:.6f}, GradNorm = {grad_norm:.4f}")
             
             # Additional detailed logging at DEBUG level
             if batch_idx % 5 == 0:  # Log every 5 batches during DEBUG
