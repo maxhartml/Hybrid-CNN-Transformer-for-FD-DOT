@@ -356,13 +356,22 @@ class Stage2Trainer:
             logger.debug(f"📦 Ground truth targets shape: {targets.shape}")
             logger.debug(f"🖥️  Data moved to device: {nir_measurements.device}")
             
-            # Get tissue patches if using them (not yet implemented for complete phantom format)
+            # Get tissue patches if using them (now implemented with tissue patch extraction!)
             tissue_patches = None
             if self.use_tissue_patches and 'tissue_patches' in batch:
                 tissue_patches = batch['tissue_patches'].to(self.device)
                 logger.debug(f"🧬 Using tissue patches: {tissue_patches.shape}")
+                logger.debug(f"🧬 Tissue patch format: (batch_size={tissue_patches.shape[0]}, "
+                           f"patches_per_measurement={tissue_patches.shape[1]}, "
+                           f"patch_data={tissue_patches.shape[2]}) = 16³×2 channels flattened")
             else:
-                logger.debug("🧬 No tissue patches used")
+                logger.debug("🧬 No tissue patches used (baseline mode)")
+                
+            # Log data flow for tissue patch debugging
+            if tissue_patches is not None:
+                logger.debug(f"🔍 Tissue patch stats: min={tissue_patches.min():.4f}, "
+                           f"max={tissue_patches.max():.4f}, mean={tissue_patches.mean():.4f}")
+            
             
             # Forward pass through hybrid model with mixed precision
             logger.debug("⚡ Starting Stage 2 forward pass (NIR → features → reconstruction)...")

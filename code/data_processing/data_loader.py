@@ -67,6 +67,112 @@ H5_KEYS = {
 logger = logging.getLogger(__name__)
 
 # ===============================================================================
+# TISSUE PATCH EXTRACTION
+# ===============================================================================
+
+def extract_tissue_patches_from_measurements(ground_truth: np.ndarray, 
+                                            source_positions: np.ndarray,
+                                            detector_positions: np.ndarray,
+                                            measurement_indices: np.ndarray,
+                                            patch_size: int = 16) -> np.ndarray:
+    """
+    Extract 16x16x16 tissue patches around source and detector locations for each measurement.
+    
+    This function extracts tissue property patches from the ground truth volume around
+    source and detector positions for each NIR measurement. These patches provide
+    local anatomical context that enhances reconstruction quality.
+    
+    Args:
+        ground_truth (np.ndarray): Ground truth volume of shape (2, 64, 64, 64) 
+                                  where 2 channels are [μ_a, μ_s]
+        source_positions (np.ndarray): Source positions of shape (n_measurements, 3) in mm
+        detector_positions (np.ndarray): Detector positions of shape (n_measurements, 3) in mm  
+        measurement_indices (np.ndarray): Indices of selected measurements
+        patch_size (int): Size of cubic patch to extract (default 16)
+        
+    Returns:
+        np.ndarray: Tissue patches of shape (n_selected_measurements, 2, patch_size^3 * 2)
+                   Each measurement gets 2 patches (source + detector) × 2 tissue properties
+                   Flattened format: [μ_a_patch, μ_s_patch] for each location
+    """
+    n_selected = len(measurement_indices)
+    channels, vol_d, vol_h, vol_w = ground_truth.shape  # (2, 64, 64, 64)
+    
+    # Initialize output tensor: [n_measurements, 2_patches, patch_volume * 2_channels]
+    patch_volume = patch_size ** 3
+    tissue_patches = np.zeros((n_selected, 2, patch_volume * 2), dtype=np.float32)
+    
+    # Volume dimensions in mm (assuming 1mm voxel size, centered at origin)
+    vol_extent_mm = 64  # 64mm volume
+    voxel_size_mm = 1.0
+    vol_center_mm = vol_extent_mm / 2
+    
+    for i, meas_idx in enumerate(measurement_indices):
+        # Get source and detector positions for this measurement (in mm)
+        src_pos_mm = source_positions[meas_idx]  # [x, y, z] in mm
+        det_pos_mm = detector_positions[meas_idx]  # [x, y, z] in mm
+        
+        # Convert positions from mm to voxel indices (assuming volume centered at origin)
+        src_voxel = np.round(src_pos_mm + vol_center_mm).astype(int)  # Center at (32, 32, 32)
+        det_voxel = np.round(det_pos_mm + vol_center_mm).astype(int)
+        
+        positions = [src_voxel, det_voxel]
+        
+        for patch_idx, pos_voxel in enumerate(positions):
+            x, y, z = pos_voxel
+            
+            # Calculate patch boundaries (centered on position)
+            half_patch = patch_size // 2
+            x_start = max(0, x - half_patch)
+            x_end = min(vol_w, x + half_patch)
+            y_start = max(0, y - half_patch)  
+            y_end = min(vol_h, y + half_patch)
+            z_start = max(0, z - half_patch)
+            z_end = min(vol_d, z + half_patch)
+            
+            # Extract patch for both tissue property channels
+            patch_absorption = ground_truth[0, z_start:z_end, y_start:y_end, x_start:x_end]  # μ_a
+            patch_scattering = ground_truth[1, z_start:z_end, y_start:y_end, x_start:x_end]  # μ_s
+            
+            # Handle edge cases by padding if necessary
+            actual_patch_shape = patch_absorption.shape
+            if actual_patch_shape != (patch_size, patch_size, patch_size):
+                # Pad to full patch size
+                padded_absorption = np.zeros((patch_size, patch_size, patch_size), dtype=np.float32)
+                padded_scattering = np.zeros((patch_size, patch_size, patch_size), dtype=np.float32)
+                
+                # Calculate padding offsets to center the extracted region
+                pad_z = (patch_size - actual_patch_shape[0]) // 2
+                pad_y = (patch_size - actual_patch_shape[1]) // 2
+                pad_x = (patch_size - actual_patch_shape[2]) // 2
+                
+                padded_absorption[pad_z:pad_z+actual_patch_shape[0], 
+                                pad_y:pad_y+actual_patch_shape[1],
+                                pad_x:pad_x+actual_patch_shape[2]] = patch_absorption
+                                
+                padded_scattering[pad_z:pad_z+actual_patch_shape[0],
+                                pad_y:pad_y+actual_patch_shape[1], 
+                                pad_x:pad_x+actual_patch_shape[2]] = patch_scattering
+                
+                patch_absorption = padded_absorption
+                patch_scattering = padded_scattering
+            
+            # Flatten and concatenate both channels: [μ_a_flat, μ_s_flat]
+            # IMPORTANT: NIR processor expects interleaved format for proper reshaping
+            # Convert concatenated format to interleaved format for compatibility
+            absorption_flat = patch_absorption.flatten()  # 16^3 values
+            scattering_flat = patch_scattering.flatten()   # 16^3 values
+            
+            # Create interleaved format: [μ_a[0], μ_s[0], μ_a[1], μ_s[1], ...]
+            interleaved_patch = np.zeros(patch_volume * 2, dtype=np.float32)
+            interleaved_patch[0::2] = absorption_flat   # Even indices: absorption
+            interleaved_patch[1::2] = scattering_flat   # Odd indices: scattering
+            
+            tissue_patches[i, patch_idx] = interleaved_patch
+    
+    return tissue_patches
+
+# ===============================================================================
 # PHANTOM DATASET CLASS
 # ===============================================================================
 
@@ -201,19 +307,44 @@ class NIRPhantomDataset(Dataset):
                 # Extract phantom ID
                 phantom_id = int(phantom_file.stem.split('_')[1])
                 
+                # 🧬 TISSUE PATCH EXTRACTION: Extract 16x16x16 patches around source/detector locations
+                # This provides local anatomical context for each measurement
+                if n_measurements > DEFAULT_N_TRAINING_MEASUREMENTS:
+                    # Use the same subsample indices for tissue patches
+                    tissue_patches = extract_tissue_patches_from_measurements(
+                        ground_truth=ground_truth,           # (2, 64, 64, 64)
+                        source_positions=source_pos,         # (1000, 3) 
+                        detector_positions=detector_pos,     # (1000, 3)
+                        measurement_indices=subsample_indices, # (256,) selected indices
+                        patch_size=16
+                    )
+                else:
+                    # Use all measurements if we have fewer than training target
+                    tissue_patches = extract_tissue_patches_from_measurements(
+                        ground_truth=ground_truth,
+                        source_positions=source_pos,
+                        detector_positions=detector_pos,
+                        measurement_indices=np.arange(n_measurements),
+                        patch_size=16
+                    )
+                
+                logger.debug(f"Extracted tissue patches shape: {tissue_patches.shape}")  # Should be (256, 2, 8192)
+                
         except Exception as e:
             logger.error(f"Error loading complete phantom {phantom_idx} from {phantom_file}: {e}")
             # Return zero-filled phantom with training dimensions
             return {
                 'nir_measurements': torch.zeros(DEFAULT_N_TRAINING_MEASUREMENTS, DEFAULT_NIR_FEATURE_DIMENSION, dtype=torch.float32),
                 'ground_truth': torch.zeros(DEFAULT_OPTICAL_CHANNELS, *DEFAULT_PHANTOM_SHAPE, dtype=torch.float32),
+                'tissue_patches': torch.zeros(DEFAULT_N_TRAINING_MEASUREMENTS, 2, 16**3 * 2, dtype=torch.float32),
                 'phantom_id': torch.tensor(0, dtype=torch.long)
             }
         
         return {
-            'nir_measurements': torch.tensor(nir_measurements, dtype=torch.float32),  # (256, DEFAULT_NIR_FEATURE_DIMENSION) - subsampled
-            'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),          # (DEFAULT_OPTICAL_CHANNELS, 64, 64, 64)
-            'phantom_id': torch.tensor(phantom_id, dtype=torch.long)
+            'nir_measurements': torch.tensor(nir_measurements, dtype=torch.float32),    # (256, 8) - subsampled NIR measurements
+            'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),           # (2, 64, 64, 64) - full ground truth
+            'tissue_patches': torch.tensor(tissue_patches, dtype=torch.float32),       # (256, 2, 8192) - tissue patches for each measurement
+            'phantom_id': torch.tensor(phantom_id, dtype=torch.long)                   # Phantom identifier
         }
 
 
