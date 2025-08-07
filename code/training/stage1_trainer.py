@@ -41,6 +41,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.cuda.amp import GradScaler, autocast  # Mixed precision training for A100 optimization
 import wandb
 import numpy as np
 from datetime import datetime
@@ -175,10 +176,15 @@ class Stage1Trainer:
             min_lr=LR_MIN          # Minimum learning rate
         )
         
+        # Mixed precision training for A100 optimization (2x speedup + memory savings)
+        self.scaler = GradScaler() if self.device.type == 'cuda' else None
+        
         logger.info(f"🏋️  Stage 1 Trainer initialized on {self.device}")
         logger.info(f"📈 Learning rate: {learning_rate}")
         logger.info(f"🔒 L2 regularization (weight decay): {weight_decay}")
         logger.info(f"⏰ Early stopping patience: {early_stopping_patience}")
+        if self.scaler:
+            logger.info(f"🚀 Mixed precision training enabled for A100 optimization!")
         
         # Log model info
         total_params = sum(p.numel() for p in self.model.parameters())
@@ -266,21 +272,36 @@ class Stage1Trainer:
             logger.debug(f"📦 Ground truth batch shape: {ground_truth.shape}")
             logger.debug(f"🖥️  Ground truth moved to device: {ground_truth.device}")
             
-            # Forward pass - ground truth as both input and target for autoencoder training
+            # Forward pass with mixed precision for A100 optimization
             logger.debug("⚡ Starting forward pass...")
             self.optimizer.zero_grad()
-            outputs = self.model(ground_truth, tissue_patches=None)
-            logger.debug(f"📤 Model output shape: {outputs['reconstructed'].shape}")
             
-            # Compute loss - reconstruction vs original
-            logger.debug("📏 Computing RMSE loss...")
-            loss = self.criterion(outputs['reconstructed'], ground_truth)
+            if self.scaler:  # Mixed precision training
+                with autocast():
+                    outputs = self.model(ground_truth, tissue_patches=None)
+                    logger.debug(f"📤 Model output shape: {outputs['reconstructed'].shape}")
+                    
+                    # Compute loss - reconstruction vs original
+                    logger.debug("📏 Computing RMSE loss...")
+                    loss = self.criterion(outputs['reconstructed'], ground_truth)
+                
+                # Backward pass with gradient scaling
+                self.scaler.scale(loss).backward()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:  # Standard precision training (CPU fallback)
+                outputs = self.model(ground_truth, tissue_patches=None)
+                logger.debug(f"📤 Model output shape: {outputs['reconstructed'].shape}")
+                
+                # Compute loss - reconstruction vs original
+                logger.debug("📏 Computing RMSE loss...")
+                loss = self.criterion(outputs['reconstructed'], ground_truth)
+                
+                # Standard backward pass
+                loss.backward()
+                self.optimizer.step()
+                
             logger.debug(f"💰 Batch loss: {loss.item():.6f}")
-            
-            # Backward pass
-            logger.debug("🔙 Starting backward pass...")
-            loss.backward()
-            self.optimizer.step()
             logger.debug("✅ Optimizer step completed")
             
             total_loss += loss.item()
@@ -424,8 +445,14 @@ class Stage1Trainer:
                 logger.debug(f"📦 Validation batch shape: {ground_truth.shape}")
                 
                 logger.debug("⚡ Forward pass (no gradients)...")
-                outputs = self.model(ground_truth, tissue_patches=None)
-                loss = self.criterion(outputs['reconstructed'], ground_truth)
+                if self.scaler:  # Mixed precision validation
+                    with autocast():
+                        outputs = self.model(ground_truth, tissue_patches=None)
+                        loss = self.criterion(outputs['reconstructed'], ground_truth)
+                else:  # Standard precision validation
+                    outputs = self.model(ground_truth, tissue_patches=None)
+                    loss = self.criterion(outputs['reconstructed'], ground_truth)
+                    
                 logger.debug(f"💰 Validation batch loss: {loss.item():.6f}")
                 
                 total_loss += loss.item()

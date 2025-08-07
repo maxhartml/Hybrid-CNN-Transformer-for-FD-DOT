@@ -55,6 +55,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.cuda.amp import GradScaler, autocast  # Mixed precision training for A100 optimization
 import wandb
 import numpy as np
 from datetime import datetime
@@ -208,12 +209,17 @@ class Stage2Trainer:
             min_lr=LR_MIN          # Minimum learning rate
         )
         
+        # Mixed precision training for A100 optimization (2x speedup + memory savings)
+        self.scaler = GradScaler() if self.device.type == 'cuda' else None
+        
         mode = ENHANCED_MODE if use_tissue_patches else BASELINE_MODE
         logger.info(f"🏋️  Stage 2 Trainer initialized on {self.device} ({mode})")
         logger.info(f"📈 Learning rate: {learning_rate}")
         logger.info(f"🔒 L2 regularization (weight decay): {weight_decay}")
         logger.info(f"⏰ Early stopping patience: {early_stopping_patience}")
         logger.info(f"🧬 Use tissue patches: {use_tissue_patches}")
+        if self.scaler:
+            logger.info(f"🚀 Mixed precision training enabled for A100 optimization!")
         
         # Log GPU info if available
         if torch.cuda.is_available():
@@ -396,26 +402,28 @@ class Stage2Trainer:
             else:
                 logger.debug("🧬 No tissue patches used")
             
-            # Forward pass through hybrid model
+            # Forward pass through hybrid model with mixed precision
             logger.debug("⚡ Starting Stage 2 forward pass (NIR → features → reconstruction)...")
             self.optimizer.zero_grad()
             
-            # The hybrid model handles: NIR measurements (batch, 256_subsampled, 8) → transformer → CNN decoder → reconstruction
-            # Note: 256 measurements are subsampled from 1000 generated measurements for data augmentation
-            outputs = self.model(nir_measurements, tissue_patches)
-            logger.debug(f"📤 Stage 2 model output shape: {outputs['reconstructed'].shape}")
+            with autocast():
+                # The hybrid model handles: NIR measurements (batch, 256_subsampled, 8) → transformer → CNN decoder → reconstruction
+                # Note: 256 measurements are subsampled from 1000 generated measurements for data augmentation
+                outputs = self.model(nir_measurements, tissue_patches)
+                logger.debug(f"📤 Stage 2 model output shape: {outputs['reconstructed'].shape}")
+                
+                # Compute loss
+                logger.debug("📏 Computing Stage 2 RMSE loss...")
+                loss = self.criterion(outputs['reconstructed'], targets)
+                logger.debug(f"💰 Stage 2 batch loss: {loss.item():.6f}")
             
-            # Compute loss
-            logger.debug("📏 Computing Stage 2 RMSE loss...")
-            loss = self.criterion(outputs['reconstructed'], targets)
-            logger.debug(f"💰 Stage 2 batch loss: {loss.item():.6f}")
-            
-            # Backward pass
+            # Backward pass with mixed precision scaling
             logger.debug("🔙 Starting Stage 2 backward pass (only transformer gradients)...")
             try:
-                loss.backward()
-                self.optimizer.step()
-                logger.debug("✅ Stage 2 optimizer step completed")
+                self.scaler.scale(loss).backward()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+                logger.debug("✅ Stage 2 mixed precision optimizer step completed")
             except RuntimeError as e:
                 logger.error(f"🚨 Gradient error: {e}")
                 raise e
@@ -559,9 +567,10 @@ class Stage2Trainer:
                     logger.debug("🧬 No tissue patches in validation")
                 
                 logger.debug("⚡ Stage 2 validation forward pass (no gradients)...")
-                outputs = self.model(nir_measurements, tissue_patches)
-                loss = self.criterion(outputs['reconstructed'], targets)
-                logger.debug(f"💰 Stage 2 validation batch loss: {loss.item():.6f}")
+                with autocast():
+                    outputs = self.model(nir_measurements, tissue_patches)
+                    loss = self.criterion(outputs['reconstructed'], targets)
+                    logger.debug(f"💰 Stage 2 validation batch loss: {loss.item():.6f}")
                 
                 total_loss += loss.item()
                 num_batches += 1
