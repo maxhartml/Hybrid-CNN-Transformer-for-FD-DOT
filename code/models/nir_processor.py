@@ -186,56 +186,56 @@ class PerMeasurementTissueEncoder(nn.Module):
         return tissue_contexts
 
 
-class SpatialAttentionNIRProcessor(nn.Module):
+class SimplifiedNIRProcessor(nn.Module):
     """
-    NIR measurement processor with spatial attention aggregation.
+    Simplified NIR measurement processor without redundant attention.
     
-    Processes NIR measurements using spatial attention to respect the geometric
-    relationships between source-detector pairs. Supports both baseline mode
-    (NIR only) and enhanced mode (NIR + tissue context).
+    Processes NIR measurements using simple projections with spatial encoding.
+    The transformer encoder handles all attention mechanisms, making this
+    processor focused solely on feature projection and spatial awareness.
+    Supports both baseline mode (NIR only) and enhanced mode (NIR + tissue context).
+    
+    Architectural Benefits:
+    - Removes redundant attention (~330K parameters saved)
+    - Clearer separation of concerns (projection vs attention)
+    - All spatial reasoning handled by transformer
+    - Maintains dual-path architecture for baseline/enhanced modes
     """
     
     def __init__(self):
         super().__init__()
         
-        logger.info("🏗️  Initializing SpatialAttentionNIRProcessor")
+        logger.info("🏗️  Initializing SimplifiedNIRProcessor")
         
         # Tissue encoder for per-measurement context
         self.tissue_encoder = PerMeasurementTissueEncoder()
         
         # Different projections for baseline vs enhanced mode
         self.baseline_projection = nn.Sequential(
-            nn.Linear(NIR_INPUT_DIM, 64),
+            nn.Linear(NIR_INPUT_DIM, 128),  # 8 → 128
             nn.ReLU(),
-            nn.Linear(64, SPATIAL_EMBED_DIM)
+            nn.Dropout(0.1),
+            nn.Linear(128, CNN_FEATURE_DIM)  # 128 → 256
         )
         
         self.enhanced_projection = nn.Sequential(
-            nn.Linear(NIR_INPUT_DIM + TISSUE_CONTEXT_DIM, 48),  # 8 NIR + 8 tissue = 16 total
+            nn.Linear(NIR_INPUT_DIM + TISSUE_CONTEXT_DIM, 96),  # 16 → 96  
             nn.ReLU(),
-            nn.Linear(48, SPATIAL_EMBED_DIM)
+            nn.Dropout(0.1),
+            nn.Linear(96, CNN_FEATURE_DIM)  # 96 → 256
         )
         
-        # Positional encoding for source/detector locations
-        self.positional_encoder = nn.Linear(POSITION_DIM, POSITION_ENCODING_DIM)
-        
-        # Spatial attention mechanism
-        self.spatial_attention = nn.MultiheadAttention(
-            embed_dim=SPATIAL_EMBED_DIM, 
-            num_heads=NUM_ATTENTION_HEADS, 
-            batch_first=True
+        # Spatial encoding for source/detector locations (preserved from original)
+        self.spatial_encoder = nn.Sequential(
+            nn.Linear(POSITION_DIM, 32),  # 6 → 32
+            nn.ReLU(),
+            nn.Linear(32, 64)  # 32 → 64
         )
-        
-        # Learnable global query for aggregation
-        self.global_query = nn.Parameter(torch.randn(1, 1, SPATIAL_EMBED_DIM))
-        
-        # Final projection to CNN feature space
-        self.final_projection = nn.Linear(SPATIAL_EMBED_DIM, CNN_FEATURE_DIM)
         
         # Initialize weights
         self._init_weights()
         
-        logger.info(f"✅ SpatialAttentionNIRProcessor initialized with ~{self.count_parameters()} parameters")
+        logger.info(f"✅ SimplifiedNIRProcessor initialized with ~{self.count_parameters()} parameters")
     
     def count_parameters(self):
         """Count total parameters in the model."""
@@ -248,48 +248,25 @@ class SpatialAttentionNIRProcessor(nn.Module):
                 nn.init.normal_(m.weight, std=0.02)
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
-        
-        # Initialize global query
-        nn.init.normal_(self.global_query, std=0.02)
     
-    def create_positional_encoding(self, nir_measurements: torch.Tensor) -> torch.Tensor:
+    def create_spatial_encoding(self, nir_measurements: torch.Tensor) -> torch.Tensor:
         """
-        Create positional encoding from source/detector coordinates.
+        Create spatial encoding from source/detector coordinates.
         
         Args:
-            nir_measurements (torch.Tensor): Shape [batch, 1, 8] or [batch, 8]
+            nir_measurements (torch.Tensor): Shape [batch, 8]
                 Last 6 dimensions are [src_x, src_y, src_z, det_x, det_y, det_z]
         
         Returns:
-            torch.Tensor: Positional encodings [batch, POSITION_ENCODING_DIM] or [batch, 1, POSITION_ENCODING_DIM]
+            torch.Tensor: Spatial encodings [batch, 64]
         """
-        # Handle both [batch, 8] and [batch, 1, 8] shapes
-        if len(nir_measurements.shape) == 2:
-            # Extract positions from NIR measurements: [batch, 8] → [batch, 6]
-            positions = nir_measurements[:, 2:]  # [batch, 6]
-            squeeze_output = True
-        else:
-            # Extract positions from NIR measurements: [batch, 1, 8] → [batch, 1, 6]
-            positions = nir_measurements[:, :, 2:]  # [batch, 1, 6]
-            squeeze_output = False
+        # Extract positions from NIR measurements: [batch, 8] → [batch, 6]
+        positions = nir_measurements[:, 2:]  # [batch, 6]
         
-        # Encode positions
-        if len(positions.shape) == 2:
-            pos_encoding = self.positional_encoder(positions)  # [batch, 64]
-        else:
-            batch_size, seq_len = positions.shape[:2]
-            pos_encoding = self.positional_encoder(positions.view(-1, 6))  # [batch*seq_len, 64]
-            pos_encoding = pos_encoding.view(batch_size, seq_len, -1)  # [batch, seq_len, 64]
+        # Encode spatial positions
+        spatial_encoding = self.spatial_encoder(positions)  # [batch, 64]
         
-        # Pad to match spatial embedding dimension
-        if POSITION_ENCODING_DIM < SPATIAL_EMBED_DIM:
-            pad_size = SPATIAL_EMBED_DIM - POSITION_ENCODING_DIM
-            if len(pos_encoding.shape) == 2:
-                pos_encoding = F.pad(pos_encoding, (0, pad_size))  # [batch, 256]
-            else:
-                pos_encoding = F.pad(pos_encoding, (0, pad_size))  # [batch, seq_len, 256]
-        
-        return pos_encoding
+        return spatial_encoding
     
     def forward(self, nir_measurements: torch.Tensor, 
                 tissue_patches: Optional[torch.Tensor] = None, 
@@ -325,17 +302,50 @@ class SpatialAttentionNIRProcessor(nn.Module):
         
         logger.debug(f"📦 Projected measurements: {projected.shape}")
         
-        # Add positional encoding based on source/detector locations
-        pos_encoding = self.create_positional_encoding(nir_measurements.unsqueeze(1)).squeeze(1)  # [batch, 256]
-        projected_with_pos = projected + pos_encoding  # [batch, 256]
-        logger.debug(f"📦 With positional encoding: {projected_with_pos.shape}")
+            
+    def forward(self, nir_measurements: torch.Tensor, 
+                tissue_patches: Optional[torch.Tensor] = None, 
+                use_tissue_patches: bool = False) -> Dict[str, torch.Tensor]:
+        """
+        Simplified forward pass through NIR processor.
         
-        # For individual measurements, no spatial attention needed - just project to final space
-        final_features = self.final_projection(projected_with_pos)  # [batch, CNN_FEATURE_DIM]
-        logger.debug(f"📦 Final features: {final_features.shape}")
+        Args:
+            nir_measurements (torch.Tensor): Shape [batch, 8] (individual measurements)
+            tissue_patches (torch.Tensor, optional): Shape [batch, 2, 16^3*2] (individual tissue patches)
+            use_tissue_patches (bool): Whether to use tissue context
+        
+        Returns:
+            Dict[str, torch.Tensor]: Dictionary containing:
+                - 'features': Processed features [batch, CNN_FEATURE_DIM]
+                - 'spatial_encoding': Spatial encoding [batch, 64] 
+                - 'projected_measurements': Projected measurements [batch, CNN_FEATURE_DIM]
+        """
+        logger.debug(f"🏃 SimplifiedNIRProcessor forward: nir_measurements {nir_measurements.shape}")
+        
+        batch_size = nir_measurements.shape[0]
+        
+        if use_tissue_patches and tissue_patches is not None:
+            logger.debug("📦 Enhanced mode: processing tissue context")
+            # Enhanced mode: append tissue context to each measurement
+            tissue_contexts = self.tissue_encoder(tissue_patches)  # [batch, 8]
+            enhanced_measurements = torch.cat([nir_measurements, tissue_contexts], dim=1)  # [batch, 16]
+            projected = self.enhanced_projection(enhanced_measurements)  # [batch, 256]
+        else:
+            logger.debug("📦 Baseline mode: NIR measurements only")
+            # Baseline mode: NIR measurements only
+            projected = self.baseline_projection(nir_measurements)  # [batch, 256]
+        
+        logger.debug(f"📦 Projected measurements: {projected.shape}")
+        
+        # Create spatial encoding from source/detector positions
+        spatial_encoding = self.create_spatial_encoding(nir_measurements)  # [batch, 64]
+        logger.debug(f"📦 Spatial encoding: {spatial_encoding.shape}")
+        
+        # No attention mechanism - let transformer handle all spatial reasoning
+        # Return projected features directly
         
         return {
-            'features': final_features,
-            'attention_weights': None,  # No spatial attention for individual measurements
-            'projected_measurements': projected_with_pos
+            'features': projected,  # [batch, CNN_FEATURE_DIM]
+            'spatial_encoding': spatial_encoding,  # [batch, 64] - available for transformer if needed
+            'projected_measurements': projected  # [batch, CNN_FEATURE_DIM]
         }

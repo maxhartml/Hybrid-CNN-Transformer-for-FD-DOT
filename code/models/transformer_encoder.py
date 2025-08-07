@@ -338,8 +338,7 @@ class TransformerEncoder(nn.Module):
         # Token type embeddings to distinguish different input modalities
         self.token_type_embedding = nn.Embedding(NUM_TOKEN_TYPES, embed_dim)  # 0: CNN, 1: tissue
         
-        # Positional encoding for sequence modeling
-        self.positional_encoding = PositionalEncoding(embed_dim, max_seq_len)
+        # Note: No positional encoding needed - spatial relationships handled by NIR processor
         
         # Stack of transformer encoder layers
         self.layers = nn.ModuleList([
@@ -458,10 +457,8 @@ class TransformerEncoder(nn.Module):
             token_sequence = token_sequence + token_type_emb
             logger.debug(f"📦 CNN-only token sequence: {token_sequence.shape}")
         
-        # Add positional encoding to token sequence
-        logger.debug("🎯 Adding positional encoding...")
-        token_sequence = self.positional_encoding(token_sequence.transpose(0, 1)).transpose(0, 1)
-        logger.debug(f"📦 After positional encoding: {token_sequence.shape}")
+        # Skip positional encoding - spatial relationships already encoded by NIR processor
+        logger.debug("⏭️  Skipping positional encoding (spatial info handled by NIR processor)")
         
         # Process through transformer layers
         logger.debug(f"🔄 Processing through {len(self.layers)} transformer layers...")

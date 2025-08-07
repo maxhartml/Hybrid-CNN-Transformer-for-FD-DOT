@@ -41,7 +41,7 @@ import torch.nn as nn
 # Project imports - Clean absolute imports from project root
 from code.models.cnn_autoencoder import CNNAutoEncoder
 from code.models.transformer_encoder import TransformerEncoder
-from code.models.nir_processor import SpatialAttentionNIRProcessor
+from code.models.nir_processor import SimplifiedNIRProcessor
 from code.utils.logging_config import get_model_logger
 
 # Import configuration constants from component modules
@@ -153,8 +153,8 @@ class HybridCNNTransformer(nn.Module):
             base_channels=cnn_base_channels
         )
         
-        # Initialize Optimized NIR Processor with Spatial Attention
-        self.nir_processor = SpatialAttentionNIRProcessor()
+        # Initialize Simplified NIR Processor (attention removed for efficiency)
+        self.nir_processor = SimplifiedNIRProcessor()
         
         # Initialize Optimized Transformer Encoder (stage 2 component)
         self.transformer_encoder = TransformerEncoder(
@@ -255,9 +255,12 @@ class HybridCNNTransformer(nn.Module):
                 )
                 
                 cnn_features = nir_results['features']  # [batch, 256]
-                attention_weights = nir_results['attention_weights']  # None for individual measurements
+                spatial_encoding = nir_results.get('spatial_encoding', None)  # [batch, 64] - optional
+                attention_weights = None  # SimplifiedNIRProcessor doesn't provide attention weights
                 
                 logger.debug(f"📦 NIR processor output features: {cnn_features.shape}")
+                if spatial_encoding is not None:
+                    logger.debug(f"📦 Spatial encoding: {spatial_encoding.shape}")
                 
             elif len(dot_measurements.shape) == 3 and dot_measurements.shape[2] == self.nir_input_dim:
                 logger.debug(f"🔍 Processing batch of NIR measurements: {dot_measurements.shape}")
