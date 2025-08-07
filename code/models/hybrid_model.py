@@ -58,7 +58,7 @@ N_MEASUREMENTS = 256                    # Number of measurements for training (s
 N_GENERATED_MEASUREMENTS = 1000         # Number of measurements generated per phantom (50 sources × 20 detectors)
 
 # Tissue patch configuration (used by NIR processor)
-TISSUE_PATCH_SIZE = 11                  # Size of tissue patches (increased for better context)
+TISSUE_PATCH_SIZE = 16                  # Size of tissue patches (enhanced from 11 for better context)
 TISSUE_NUM_PATCHES = 2                  # Number of patches (source + detector)
 TISSUE_OUTPUT_DIM = 8                   # Total tissue context dimension (2 patches × 4D each)
 
@@ -104,9 +104,9 @@ class HybridCNNTransformer(nn.Module):
         transformer_layers (int, optional): Number of transformer layers. Defaults to 6.
         transformer_heads (int, optional): Number of attention heads. Defaults to 12.
         embed_dim (int, optional): Transformer embedding dimension. Defaults to 768.
-        tissue_patch_size (int, optional): Size of tissue patches. Defaults to 7.
+        tissue_patch_size (int, optional): Size of tissue patches. Defaults to 16.
         tissue_num_patches (int, optional): Number of tissue patches. Defaults to 2.
-        tissue_output_dim (int, optional): Tissue output dimension. Defaults to 64.
+        tissue_output_dim (int, optional): Tissue output dimension. Defaults to 8.
         dropout (float, optional): Dropout probability. Defaults to 0.1.
     """
     
@@ -122,7 +122,7 @@ class HybridCNNTransformer(nn.Module):
                  # Tissue context encoder configuration
                  patch_size: int = TISSUE_PATCH_SIZE,  # Tissue patch size matching data format
                  num_patches: int = TISSUE_NUM_PATCHES,  # Source + detector regions
-                 tissue_output_dim: int = TISSUE_OUTPUT_DIM,  # 16D total output
+                 tissue_output_dim: int = TISSUE_OUTPUT_DIM,  # 8D total output (2 patches × 4D each)
                  
                  # Transformer encoder configuration
                  transformer_embed_dim: int = transformer_config.EMBED_DIM,
@@ -200,7 +200,7 @@ class HybridCNNTransformer(nn.Module):
             dot_measurements (torch.Tensor): DOT measurements of shape 
                 (batch_size, channels, D, H, W)
             tissue_patches (torch.Tensor, optional): Tissue property patches of shape
-                (batch_size, num_patches, patch_size^3 * 2). Defaults to None.
+                (batch_size, num_patches, 16^3 * 2). Defaults to None.
         
         Returns:
             Dict[str, torch.Tensor]: Dictionary containing:
@@ -250,7 +250,7 @@ class HybridCNNTransformer(nn.Module):
                 # Process individual NIR measurements using NIR processor
                 nir_results = self.nir_processor(
                     nir_measurements=dot_measurements,  # [batch, 8]
-                    tissue_patches=tissue_patches,       # [batch, 2, 7^3*2] or None
+                    tissue_patches=tissue_patches,       # [batch, 2, 16^3*2] or None
                     use_tissue_patches=self.use_tissue_patches
                 )
                 
@@ -275,7 +275,7 @@ class HybridCNNTransformer(nn.Module):
                     # Process individual measurement
                     nir_results = self.nir_processor(
                         nir_measurements=single_measurement,     # [batch, 8]
-                        tissue_patches=tissue_patches,           # [batch, 2, 7^3*2] or None
+                        tissue_patches=tissue_patches,           # [batch, 2, 16^3*2] or None
                         use_tissue_patches=self.use_tissue_patches
                     )
                     

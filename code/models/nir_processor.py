@@ -3,7 +3,11 @@
 NIR Measurement Processor with Spatial Attention.
 
 This module implements optimized NIR measurement processing using spatial attention
-instead of simple mean pooling. The processor respects the spatial relationships
+instead of simple mean pooling. The processor         self.enhanced_projection = nn.Sequential(
+            nn.Linear(NIR_INPUT_DIM + TISSUE_CONTEXT_DIM, 48),    # 8 NIR + 8 tissue = 16D input
+            nn.ReLU(),
+            nn.Linear(48, SPATIAL_EMBED_DIM)
+        )cts the spatial relationships
 between source-detector pairs and can work with or without tissue context.
 
 Classes:
@@ -64,7 +68,7 @@ class PerMeasurementTissueEncoder(nn.Module):
     the NIR measurement features.
     """
     
-    def __init__(self, patch_size: int = 11, output_dim: int = 4):
+    def __init__(self, patch_size: int = 16, output_dim: int = 4):
         super().__init__()
         
         logger.info(f"🏗️  Initializing PerMeasurementTissueEncoder: patch_size={patch_size}, output_dim={output_dim}")
@@ -72,16 +76,51 @@ class PerMeasurementTissueEncoder(nn.Module):
         self.patch_size = patch_size
         self.output_dim = output_dim
         
-        # Lightweight CNN for 7³ patches (2 tissue property channels)
+        # Advanced CNN for 16³ patches (2 tissue property channels)
+        # Deep residual architecture with batch normalization and dropout
         self.patch_encoder = nn.Sequential(
-            nn.Conv3d(2, 8, 3, padding=1),      # 2 → 8 channels, 7³ → 7³
-            nn.ReLU(),
-            nn.MaxPool3d(2),                    # 7³ → 3³
-            nn.Conv3d(8, 16, 3, padding=1),     # 8 → 16 channels, 3³ → 3³
-            nn.ReLU(),
-            nn.AdaptiveAvgPool3d(1),            # 3³ → 1³
-            nn.Flatten(),                       # → 16D
-            nn.Linear(16, output_dim)           # → output_dim
+            # Stage 1: 16³ → 8³ (initial feature extraction)
+            nn.Conv3d(2, 16, kernel_size=3, padding=1, bias=False),   # 2 → 16 channels
+            nn.BatchNorm3d(16),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(16, 16, kernel_size=3, padding=1, bias=False),  # Residual-style depth
+            nn.BatchNorm3d(16),
+            nn.ReLU(inplace=True),
+            nn.MaxPool3d(kernel_size=2, stride=2),                   # 16³ → 8³
+            nn.Dropout3d(0.1),
+            
+            # Stage 2: 8³ → 4³ (intermediate features)
+            nn.Conv3d(16, 32, kernel_size=3, padding=1, bias=False), # 16 → 32 channels
+            nn.BatchNorm3d(32),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(32, 32, kernel_size=3, padding=1, bias=False), # Residual-style depth
+            nn.BatchNorm3d(32),
+            nn.ReLU(inplace=True),
+            nn.MaxPool3d(kernel_size=2, stride=2),                   # 8³ → 4³
+            nn.Dropout3d(0.1),
+            
+            # Stage 3: 4³ → 2³ (high-level features)
+            nn.Conv3d(32, 64, kernel_size=3, padding=1, bias=False), # 32 → 64 channels
+            nn.BatchNorm3d(64),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(64, 64, kernel_size=3, padding=1, bias=False), # Residual-style depth
+            nn.BatchNorm3d(64),
+            nn.ReLU(inplace=True),
+            nn.MaxPool3d(kernel_size=2, stride=2),                   # 4³ → 2³
+            nn.Dropout3d(0.15),
+            
+            # Global feature aggregation
+            nn.AdaptiveAvgPool3d(1),                                 # 2³ → 1³ (global pooling)
+            nn.Flatten(),                                            # → 64D feature vector
+            
+            # Feature projection with residual-style MLP
+            nn.Linear(64, 32),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.2),
+            nn.Linear(32, 16),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.1),
+            nn.Linear(16, output_dim)                                # → output_dim per patch
         )
         
         # Initialize weights
@@ -106,32 +145,32 @@ class PerMeasurementTissueEncoder(nn.Module):
         Forward pass through per-measurement tissue encoder.
         
         Args:
-            tissue_patches (torch.Tensor): Shape [batch, 2, 7^3*2]
+            tissue_patches (torch.Tensor): Shape [batch, 2, 16^3*2]
                 batch_size measurements × 2 patches (source + detector) × flattened patch data
-                where flattened patch data contains interleaved channels (μₐ, μₛ) for 7³ voxels
+                where flattened patch data contains interleaved channels (μₐ, μₛ) for 16³ voxels
         
         Returns:
-            torch.Tensor: Shape [batch, 16] (8D per source + 8D per detector)
+            torch.Tensor: Shape [batch, 8] (4D per source + 4D per detector)
         """
         logger.debug(f"🏃 PerMeasurementTissueEncoder forward: input shape {tissue_patches.shape}")
         
         batch_size, n_patches, flattened_size = tissue_patches.shape
         
-        # Reshape flattened patches back to 3D: [batch, 2, 7^3*2] → [batch, 2, 2, 7, 7, 7]
+        # Reshape flattened patches back to 3D: [batch, 2, 16^3*2] → [batch, 2, 2, 16, 16, 16]
         # The flattened data is interleaved: [ch0_vox0, ch1_vox0, ch0_vox1, ch1_vox1, ...]
         patch_volume = self.patch_size ** 3
         n_channels = 2  # absorption + scattering
         
         # Reshape to separate channels and spatial dimensions
         reshaped_patches = tissue_patches.view(batch_size, n_patches, patch_volume, n_channels)
-        # Reorder to [batch, 2, 2, 7*7*7] → [batch, 2, 2, 7, 7, 7]
+        # Reorder to [batch, 2, 2, 16*16*16] → [batch, 2, 2, 16, 16, 16]
         reshaped_patches = reshaped_patches.permute(0, 1, 3, 2)  # Move channels before spatial
         reshaped_patches = reshaped_patches.view(batch_size, n_patches, n_channels, 
                                                 self.patch_size, self.patch_size, self.patch_size)
         
         logger.debug(f"📦 Reshaped patches: {reshaped_patches.shape}")
         
-        # Reshape for batch processing: [batch×2, 2, 7, 7, 7]
+        # Reshape for batch processing: [batch×2, 2, 16, 16, 16]
         patches = reshaped_patches.view(-1, n_channels, self.patch_size, self.patch_size, self.patch_size)
         logger.debug(f"📦 Patches for CNN: {patches.shape}")
         
@@ -260,7 +299,7 @@ class SpatialAttentionNIRProcessor(nn.Module):
         
         Args:
             nir_measurements (torch.Tensor): Shape [batch, 8] (individual measurements)
-            tissue_patches (torch.Tensor, optional): Shape [batch, 2, 7^3*2] (individual tissue patches)
+            tissue_patches (torch.Tensor, optional): Shape [batch, 2, 16^3*2] (individual tissue patches)
             use_tissue_patches (bool): Whether to use tissue context
         
         Returns:
