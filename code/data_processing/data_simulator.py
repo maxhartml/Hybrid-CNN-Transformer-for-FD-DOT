@@ -1211,7 +1211,11 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
     # Solves: -∇·(D∇Φ) + [μₐ + iω/c]Φ = S for complex photon fluence Φ(r,ω)
     # Returns measurement data structure containing amplitude and phase at each detector
     simulation_start_time = time.time()
-    simulation_data, _ = phantom_mesh.femdata(fd_frequency_hz)  # Core NIRFASTer FEM solver
+    
+    # 🚀 ADAPTIVE SOLVER: Use best available solver (GPU preferred, CPU fallback)
+    best_solver = ff.utils.get_solver()  # Returns 'GPU' if available, 'CPU' otherwise
+    solver_options = ff.utils.SolverOptions(GPU=0 if best_solver == 'GPU' else -1)
+    simulation_data, _ = phantom_mesh.femdata(fd_frequency_hz, solver=best_solver, opt=solver_options)  # Adaptive NIRFASTer FEM solver
     simulation_time = time.time() - simulation_start_time
     
     # Extract amplitude and phase components from complex photon fluence solution
@@ -1662,6 +1666,39 @@ def main():
     logger.info(f"   Master seed: {master_seed} (for reproducible datasets)")
     logger.info(f"   Unique phantom seeds: {n_phantoms} generated")
     logger.info(f"   Reproducibility: ENABLED (same dataset every run)")
+    
+    # STEP 2.7: Hardware detection and capability logging for sanity checks
+    logger.info("🖥️  Hardware Detection & Capability Analysis:")
+    
+    # System basics
+    import platform
+    import psutil
+    logger.info(f"   System: {platform.system()} {platform.release()} ({platform.machine()})")
+    logger.info(f"   Python: {platform.python_version()}")
+    
+    # Memory analysis
+    memory = psutil.virtual_memory()
+    logger.info(f"   RAM: {memory.total / (1024**3):.1f} GB total, {memory.available / (1024**3):.1f} GB available")
+    
+    # CPU analysis
+    cpu_count = psutil.cpu_count()
+    logger.info(f"   CPU: {cpu_count} cores @ {psutil.cpu_freq().current:.0f} MHz" if psutil.cpu_freq() else f"   CPU: {cpu_count} cores")
+    
+    # NIRFASTer solver detection
+    try:
+        best_solver = ff.utils.get_solver()
+        logger.info(f"   NIRFASTer Solver: {best_solver} (preferred for FEM calculations)")
+        if best_solver == 'GPU':
+            logger.info(f"   🚀 GPU acceleration ENABLED - expect significant speedup")
+        else:
+            logger.info(f"   💻 CPU solver mode - reliable but slower than GPU")
+    except Exception as e:
+        logger.warning(f"   NIRFASTer solver detection failed: {e}")
+    
+    # Estimate computational requirements
+    fem_solves_total = n_phantoms * 50  # 50 strategic sources per phantom
+    logger.info(f"   Computational Load: {fem_solves_total:,} FEM solves planned")
+    logger.info(f"   Expected Runtime: ~{fem_solves_total * 0.5 / 60:.1f} minutes (est. 0.5s/solve)")
     
     # STEP 3: Execute iterative phantom generation with comprehensive quality control
     # Each phantom is generated independently with unique random seeds to ensure statistical diversity
