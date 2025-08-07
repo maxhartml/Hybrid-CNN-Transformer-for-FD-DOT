@@ -8,14 +8,7 @@ uses multi-head self-attention and positional encoding to capture long-range
 dependencies and temporal patterns in the data.
 
 The encoder is designed for stage 2 training in a two-stage hybrid approach,
-focusing on sequence modeling and contextual        return encoded_features, attention_weights
-    
-
-# ============= ATTENTION VISUALIZATION ============
-
-    def get_attention_maps(self, cnn_features: torch.Tensor,
-                          tissue_context: Optional[torch.Tensor] = None,
-                          use_tissue_patches: bool = False) -> Optional[torch.Tensor]:rstanding.
+focusing on sequence modeling and contextual understanding.
 
 Classes:
     PositionalEncoding: Sinusoidal positional encoding for sequences

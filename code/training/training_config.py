@@ -16,6 +16,13 @@ Date: August 2025
 """
 
 # =============================================================================
+# IMPORTS
+# =============================================================================
+
+import torch
+import psutil
+
+# =============================================================================
 # TRAINING CONTROL - SET WHICH STAGE TO RUN
 # =============================================================================
 
@@ -59,7 +66,6 @@ def get_device_optimized_batch_sizes():
 BATCH_SIZE_STAGE1, BATCH_SIZE_STAGE2 = get_device_optimized_batch_sizes()
 
 # Data Loading Configuration - OPTIMIZED FOR SERVER
-import psutil
 NUM_WORKERS = min(8, max(1, psutil.cpu_count(logical=False) - 2))  # Use most CPU cores
 PIN_MEMORY = torch.cuda.is_available()  # Enable GPU memory pinning if CUDA available
 PREFETCH_FACTOR = 4 if torch.cuda.is_available() else 2  # More prefetching on GPU systems
@@ -151,5 +157,7 @@ def get_optimal_batch_size(model, sample_input, max_memory_gb=35):
                 return max(1, batch_size // 2)
             else:
                 raise e
+    
+    return min(batch_size, 64)
     
     return min(batch_size, 64)

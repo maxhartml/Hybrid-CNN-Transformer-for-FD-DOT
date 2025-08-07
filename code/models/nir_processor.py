@@ -172,7 +172,7 @@ class SpatialAttentionNIRProcessor(nn.Module):
         )
         
         self.enhanced_projection = nn.Sequential(
-            nn.Linear(NIR_INPUT_DIM + TISSUE_CONTEXT_DIM, 48),  # 8 NIR + 16 tissue = 24
+            nn.Linear(NIR_INPUT_DIM + TISSUE_CONTEXT_DIM, 48),  # 8 NIR + 8 tissue = 16 total
             nn.ReLU(),
             nn.Linear(48, SPATIAL_EMBED_DIM)
         )
