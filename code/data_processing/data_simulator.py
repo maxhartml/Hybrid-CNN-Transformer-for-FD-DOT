@@ -1682,7 +1682,15 @@ def main():
     
     # CPU analysis
     cpu_count = psutil.cpu_count()
-    logger.info(f"   CPU: {cpu_count} cores @ {psutil.cpu_freq().current:.0f} MHz" if psutil.cpu_freq() else f"   CPU: {cpu_count} cores")
+    try:
+        cpu_freq_info = psutil.cpu_freq()
+        if cpu_freq_info and cpu_freq_info.current:
+            logger.info(f"   CPU: {cpu_count} cores @ {cpu_freq_info.current:.0f} MHz")
+        else:
+            logger.info(f"   CPU: {cpu_count} cores (frequency info unavailable)")
+    except (FileNotFoundError, AttributeError, OSError):
+        # Handle macOS ARM64 and other systems where CPU frequency is not accessible
+        logger.info(f"   CPU: {cpu_count} cores (frequency detection not supported on this system)")
     
     # NIRFASTer solver detection
     try:
