@@ -7,26 +7,12 @@ focusing on training transformer components while keeping the pre-trained
 CNN decoder frozen. This approach leverages the robust feature representations
 learned in Stage 1 while adding sophisticated spatial modeling capabilities.
 
-The tra            total_loss += loss.item()
-            num_batches += 1
-            
-            # Show batch progress at INFO level (every batch)
-            mode = "Enhanced" if self.use_tissue_patches else "Baseline"
-            logger.info(f"📈 Stage 2 {mode} Batch {batch_idx + 1}/{len(data_loader)}: Loss = {loss.item():.6f}, Avg = {total_loss/num_batches:.6f}")
-            
-            # Log GPU memory usage every 20 batches (only on GPU)
-            if torch.cuda.is_available() and batch_idx % 20 == 0:
-                log_gpu_stats()
-            
-            # Additional detailed logging at DEBUG level
-            if batch_idx % 5 == 0:  # Log every 5 batches during DEBUG
-                logger.debug(f"📊 Detailed: Stage 2 Batch {batch_idx}: Loss = {loss.item():.6f}, Running Avg = {total_loss/num_batches:.6f}")ess supports both baseline and enhanced modes:
+The training process supports both baseline and enhanced modes:
 - Baseline: Transformer training without tissue context
 - Enhanced: Transformer training with tissue patch integration for improved
   spatial awareness and context-sensitive reconstruction
 
 Classes:
-    RMSELoss: Root Mean Square Error loss function for reconstruction optimization
     Stage2Trainer: Complete training pipeline for transformer enhancement
 
 Features:
@@ -37,7 +23,7 @@ Features:
     - Support for both baseline and enhanced training modes
 
 Author: Max Hart
-Date: July 2025
+Date: August 2025
 """
 
 # =============================================================================
@@ -63,6 +49,7 @@ from datetime import datetime
 # Project imports
 from code.models.hybrid_model import HybridCNNTransformer
 from code.utils.logging_config import get_training_logger
+from code.utils.metrics import NIRDOTMetrics, create_metrics_for_stage, calculate_batch_metrics, RMSELoss
 from code.training.training_config import *  # Import all training config
 
 # =============================================================================
@@ -71,41 +58,6 @@ from code.training.training_config import *  # Import all training config
 
 # Initialize module logger
 logger = get_training_logger(__name__)
-
-# =============================================================================
-# LOSS FUNCTIONS
-# =============================================================================
-
-
-class RMSELoss(nn.Module):
-    """
-    Root Mean Square Error loss function for volumetric reconstruction.
-    
-    This loss function computes the RMSE between predicted and target volumes,
-    providing a measure of reconstruction accuracy that is sensitive to both
-    small and large errors. RMSE is particularly suitable for volumetric
-    reconstruction tasks where spatial accuracy is critical.
-    
-    The loss is computed as: sqrt(mean((pred - target)^2))
-    
-    Returns:
-        torch.Tensor: Scalar RMSE loss value for optimization
-    """
-    
-    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        """
-        Compute RMSE loss between input and target tensors.
-        
-        Args:
-            input (torch.Tensor): Predicted volume reconstruction
-            target (torch.Tensor): Ground truth volume data
-            
-        Returns:
-            torch.Tensor: RMSE loss value
-        """
-        mse = F.mse_loss(input, target)
-        return torch.sqrt(mse)
-
 
 # =============================================================================
 # TRAINING CLASSES
@@ -178,6 +130,9 @@ class Stage2Trainer:
         self.best_val_loss = float('inf')
         self.patience_counter = 0
         self.early_stopped = False
+        
+        # Initialize enhanced metrics for Stage 2 (includes feature analysis)
+        self.metrics = create_metrics_for_stage("stage2")
         
         # Initialize model
         self.model = HybridCNNTransformer(
@@ -363,7 +318,7 @@ class Stage2Trainer:
     
     def train_epoch(self, data_loader):
         """
-        Execute one complete training epoch for transformer components.
+        Execute one complete training epoch for transformer components with enhanced metrics.
         
         This method performs forward propagation through the hybrid model,
         with tissue patch integration when enabled. Only unfrozen transformer
@@ -374,12 +329,19 @@ class Stage2Trainer:
                         'measurements', 'volumes', and optionally 'tissue_patches'
         
         Returns:
-            float: Average training loss across all batches in the epoch
+            tuple: (Average training loss, metrics dictionary) across all batches
         """
         logger.debug("🔄 Starting Stage 2 training epoch...")
         self.model.train()
         total_loss = 0
         num_batches = 0
+        
+        # Initialize metrics tracking (includes feature analysis for Stage 2)
+        epoch_metrics = {
+            'ssim': 0.0, 'psnr': 0.0, 'rmse_overall': 0.0,
+            'rmse_absorption': 0.0, 'rmse_scattering': 0.0,
+            'feature_enhancement_ratio': 0.0, 'attention_entropy': 0.0
+        }
         
         logger.debug(f"📊 Processing {len(data_loader)} batches in Stage 2 training epoch")
         
@@ -410,11 +372,11 @@ class Stage2Trainer:
                 # The hybrid model handles: NIR measurements (batch, 256_subsampled, 8) → transformer → CNN decoder → reconstruction
                 # Note: 256 measurements are subsampled from 1000 generated measurements for data augmentation
                 outputs = self.model(nir_measurements, tissue_patches)
-                logger.debug(f"📤 Stage 2 model output shape: {outputs['reconstructed'].shape}")
+                logger.debug(f"📤 Stage 2 model output shape: {outputs['reconstruction'].shape}")
                 
                 # Compute loss
                 logger.debug("📏 Computing Stage 2 RMSE loss...")
-                loss = self.criterion(outputs['reconstructed'], targets)
+                loss = self.criterion(outputs['reconstruction'], targets)
                 logger.debug(f"💰 Stage 2 batch loss: {loss.item():.6f}")
             
             # Backward pass with mixed precision scaling
@@ -518,7 +480,7 @@ class Stage2Trainer:
     
     def validate(self, data_loader):
         """
-        Evaluate the hybrid model on the validation dataset.
+        Evaluate the hybrid model on the validation dataset with enhanced metrics.
         
         This method performs forward propagation without gradient computation
         to assess the performance of the enhanced model on unseen data.
@@ -529,27 +491,23 @@ class Stage2Trainer:
                         'nir_measurements', 'ground_truth', and optionally 'tissue_patches'
         
         Returns:
-            tuple: (average_validation_loss, transformer_metrics_dict)
-                - average_validation_loss (float): Average validation loss across all batches
-                - transformer_metrics_dict (dict): Dictionary containing transformer analysis metrics:
-                    - avg_cnn_feature_magnitude: Average magnitude of CNN features
-                    - avg_enhanced_feature_magnitude: Average magnitude of transformer-enhanced features  
-                    - avg_attention_entropy: Average entropy of attention distributions
-                    - feature_enhancement_ratio: Ratio of enhanced to original feature magnitudes
+            tuple: (average_validation_loss, metrics_dict)
         """
         logger.debug("🔍 Starting Stage 2 validation epoch...")
         self.model.eval()
         total_loss = 0
         num_batches = 0
         
+        # Initialize metrics tracking (includes feature analysis for Stage 2)
+        epoch_metrics = {
+            'ssim': 0.0, 'psnr': 0.0, 'rmse_overall': 0.0,
+            'rmse_absorption': 0.0, 'rmse_scattering': 0.0,
+            'feature_enhancement_ratio': 0.0, 'attention_entropy': 0.0
+        }
+        
         logger.debug(f"📊 Processing {len(data_loader)} Stage 2 validation batches")
         
         with torch.no_grad():
-            # Track transformer-specific metrics
-            cnn_feature_magnitudes = []
-            enhanced_feature_magnitudes = []
-            attention_entropies = []
-            
             for batch_idx, batch in enumerate(data_loader):
                 logger.debug(f"🔍 Validating Stage 2 batch {batch_idx + 1}/{len(data_loader)}")
                 
@@ -569,49 +527,39 @@ class Stage2Trainer:
                 logger.debug("⚡ Stage 2 validation forward pass (no gradients)...")
                 with autocast():
                     outputs = self.model(nir_measurements, tissue_patches)
-                    loss = self.criterion(outputs['reconstructed'], targets)
+                    loss = self.criterion(outputs['reconstruction'], targets)
                     logger.debug(f"💰 Stage 2 validation batch loss: {loss.item():.6f}")
+                
+                # Calculate enhanced metrics including feature analysis
+                batch_metrics = calculate_batch_metrics(
+                    self.metrics, outputs, targets, "stage2"
+                )
+                
+                # Accumulate metrics
+                for key, value in batch_metrics.items():
+                    if key in epoch_metrics:
+                        epoch_metrics[key] += value
                 
                 total_loss += loss.item()
                 num_batches += 1
                 
-                # Collect transformer metrics for analysis
-                if 'cnn_features' in outputs and 'enhanced_features' in outputs:
-                    cnn_mag = torch.norm(outputs['cnn_features'], dim=1).mean().item()
-                    enhanced_mag = torch.norm(outputs['enhanced_features'], dim=1).mean().item()
-                    cnn_feature_magnitudes.append(cnn_mag)
-                    enhanced_feature_magnitudes.append(enhanced_mag)
-                
-                # Attention entropy analysis (if available)
-                if 'attention_weights' in outputs and outputs['attention_weights'] is not None:
-                    attention = outputs['attention_weights']
-                    # Calculate entropy of attention distribution (higher = more uniform, lower = more focused)
-                    entropy = -torch.sum(attention * torch.log(attention + 1e-8), dim=-1).mean().item()
-                    attention_entropies.append(entropy)
-                
-                # Show validation batch progress at INFO level (every batch)
+                # Show validation batch progress with enhanced metrics
                 mode = "Enhanced" if self.use_tissue_patches else "Baseline"
-                logger.info(f"🔍 Stage 2 {mode} Val Batch {batch_idx + 1}/{len(data_loader)}: Loss = {loss.item():.6f}, Avg = {total_loss/num_batches:.6f}")
+                logger.info(f"🔍 Stage 2 {mode} Val Batch {batch_idx + 1}/{len(data_loader)}: "
+                           f"Loss = {loss.item():.6f}, SSIM = {batch_metrics.get('ssim', 0):.4f}, "
+                           f"Enhancement = {batch_metrics.get('feature_enhancement_ratio', 0):.4f}")
         
         avg_loss = total_loss / num_batches
         
-        # Calculate average transformer metrics
-        transformer_metrics = {}
-        if cnn_feature_magnitudes:
-            transformer_metrics['avg_cnn_feature_magnitude'] = sum(cnn_feature_magnitudes) / len(cnn_feature_magnitudes)
-        if enhanced_feature_magnitudes:
-            transformer_metrics['avg_enhanced_feature_magnitude'] = sum(enhanced_feature_magnitudes) / len(enhanced_feature_magnitudes)
-        if attention_entropies:
-            transformer_metrics['avg_attention_entropy'] = sum(attention_entropies) / len(attention_entropies)
-        
-        # Calculate feature enhancement ratio
-        if cnn_feature_magnitudes and enhanced_feature_magnitudes:
-            avg_cnn = transformer_metrics['avg_cnn_feature_magnitude']
-            avg_enhanced = transformer_metrics['avg_enhanced_feature_magnitude']
-            transformer_metrics['feature_enhancement_ratio'] = avg_enhanced / avg_cnn if avg_cnn > 0 else 1.0
+        # Average metrics across epoch
+        for key in epoch_metrics:
+            epoch_metrics[key] /= num_batches
         
         logger.debug(f"✅ Stage 2 validation completed. Average loss: {avg_loss:.6f}")
-        return avg_loss
+        logger.info(f"📊 Stage 2 val metrics - SSIM: {epoch_metrics['ssim']:.4f}, "
+                   f"PSNR: {epoch_metrics['psnr']:.2f}dB, Enhancement: {epoch_metrics['feature_enhancement_ratio']:.4f}")
+        
+        return avg_loss, epoch_metrics
     
     def train(self, data_loaders, epochs=EPOCHS_STAGE2):
         """
@@ -648,24 +596,38 @@ class Stage2Trainer:
             
             # Train: Update transformer parameters (CNN decoder frozen)
             logger.debug(f"🏋️  Beginning Stage 2 training phase for epoch {epoch+1}")
-            train_loss = self.train_epoch(data_loaders['train'])
+            train_loss, train_metrics = self.train_epoch(data_loaders['train'])
             logger.info(f"🏋️  Stage 2 Training completed - Average Loss: {train_loss:.6f}")
             
             # Validate: Evaluate hybrid model on unseen data (no parameter updates)
             logger.debug(f"🔍 Beginning Stage 2 validation phase for epoch {epoch+1}")
-            val_loss = self.validate(data_loaders['val'])
+            val_loss, val_metrics = self.validate(data_loaders['val'])
             logger.info(f"🔍 Stage 2 Validation completed - Average Loss: {val_loss:.6f}")
             
-            # Log to W&B with organized structure (simplified - no transformer complexity)
+            # Log enhanced metrics to W&B
             if self.use_wandb:
                 mode = "Enhanced" if self.use_tissue_patches else "Baseline"
+                
+                # Log training metrics
+                train_metrics['loss'] = train_loss
+                self.metrics.log_to_wandb(train_metrics, epoch + 1, "train", self.use_wandb)
+                
+                # Log validation metrics
+                val_metrics['loss'] = val_loss
+                self.metrics.log_to_wandb(val_metrics, epoch + 1, "val", self.use_wandb)
+                
+                # Legacy charts for backward compatibility
                 wandb.log({
                     "Charts/train_loss": train_loss,
                     "Charts/val_loss": val_loss,
                     "Charts/learning_rate": self.optimizer.param_groups[0]['lr'],
                     "Charts/train_val_loss_ratio": train_loss / val_loss if val_loss > 0 else 0,
+                    "Charts/ssim_diff": val_metrics['ssim'] - train_metrics['ssim'],
+                    "Charts/psnr_diff": val_metrics['psnr'] - train_metrics['psnr'],
+                    "Charts/enhancement_ratio": val_metrics['feature_enhancement_ratio'],
+                    "Charts/attention_entropy": val_metrics['attention_entropy'],
                     "System/mode": mode,
-                }, step=epoch + 1)  # Use step parameter for proper epoch axis
+                }, step=epoch + 1)
                 
                 # Log reconstruction images periodically (and always on first/last epoch)
                 should_log_images = (epoch % LOG_IMAGES_EVERY == 0) or (epoch == 0) or (epoch == epochs - 1)
@@ -681,7 +643,7 @@ class Stage2Trainer:
                         
                         with torch.no_grad():
                             outputs = self.model(measurements, tissue_patches)
-                        self._log_reconstruction_images(outputs['reconstructed'], targets, measurements, epoch + 1)
+                        self._log_reconstruction_images(outputs['reconstruction'], targets, measurements, epoch + 1)
                     except Exception as e:
                         logger.warning(f"⚠️ Failed to log Stage 2 images at epoch {epoch + 1}: {e}")
             

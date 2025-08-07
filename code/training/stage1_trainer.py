@@ -49,6 +49,7 @@ from datetime import datetime
 # Project imports
 from code.models.hybrid_model import HybridCNNTransformer
 from code.utils.logging_config import get_training_logger
+from code.utils.metrics import NIRDOTMetrics, create_metrics_for_stage, calculate_batch_metrics, RMSELoss
 from code.training.training_config import *  # Import all training config
 
 # =============================================================================
@@ -57,41 +58,6 @@ from code.training.training_config import *  # Import all training config
 
 # Initialize module logger
 logger = get_training_logger(__name__)
-
-# =============================================================================
-# LOSS FUNCTIONS
-# =============================================================================
-
-
-class RMSELoss(nn.Module):
-    """
-    Root Mean Square Error loss function for volumetric reconstruction.
-    
-    This loss function computes the RMSE between predicted and target volumes,
-    providing a measure of reconstruction accuracy that is sensitive to both
-    small and large errors. RMSE is particularly suitable for volumetric
-    reconstruction tasks where spatial accuracy is critical.
-    
-    The loss is computed as: sqrt(mean((pred - target)^2))
-    
-    Returns:
-        torch.Tensor: Scalar RMSE loss value for optimization
-    """
-    
-    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        """
-        Compute RMSE loss between input and target tensors.
-        
-        Args:
-            input (torch.Tensor): Predicted volume reconstruction
-            target (torch.Tensor): Ground truth volume data
-            
-        Returns:
-            torch.Tensor: RMSE loss value
-        """
-        mse = F.mse_loss(input, target)
-        return torch.sqrt(mse)
-
 
 # =============================================================================
 # TRAINING CLASSES
@@ -147,6 +113,9 @@ class Stage1Trainer:
         self.best_val_loss = float('inf')
         self.patience_counter = 0
         self.early_stopped = False
+        
+        # Initialize enhanced metrics for Stage 1
+        self.metrics = create_metrics_for_stage("stage1")
         
         # Initialize model (stage 1: CNN autoencoder only, no tissue patches)
         # NOTE: Full hybrid model is initialized (including transformer) because:
@@ -244,7 +213,7 @@ class Stage1Trainer:
     
     def train_epoch(self, data_loader):
         """
-        Execute one complete training epoch over the dataset.
+        Execute one complete training epoch over the dataset with enhanced metrics.
         
         This method performs forward propagation, loss computation, and
         backpropagation for all batches in the training dataset. The model
@@ -261,6 +230,12 @@ class Stage1Trainer:
         self.model.train()
         total_loss = 0
         num_batches = 0
+        
+        # Initialize metrics tracking
+        epoch_metrics = {
+            'ssim': 0.0, 'psnr': 0.0, 'rmse_overall': 0.0,
+            'rmse_absorption': 0.0, 'rmse_scattering': 0.0
+        }
         
         logger.debug(f"📊 Processing {len(data_loader)} batches in training epoch")
         
@@ -279,11 +254,11 @@ class Stage1Trainer:
             if self.scaler:  # Mixed precision training
                 with autocast():
                     outputs = self.model(ground_truth, tissue_patches=None)
-                    logger.debug(f"📤 Model output shape: {outputs['reconstructed'].shape}")
+                    logger.debug(f"📤 Model output shape: {outputs['reconstruction'].shape}")
                     
                     # Compute loss - reconstruction vs original
                     logger.debug("📏 Computing RMSE loss...")
-                    loss = self.criterion(outputs['reconstructed'], ground_truth)
+                    loss = self.criterion(outputs['reconstruction'], ground_truth)
                 
                 # Backward pass with gradient scaling
                 self.scaler.scale(loss).backward()
@@ -291,11 +266,11 @@ class Stage1Trainer:
                 self.scaler.update()
             else:  # Standard precision training (CPU fallback)
                 outputs = self.model(ground_truth, tissue_patches=None)
-                logger.debug(f"📤 Model output shape: {outputs['reconstructed'].shape}")
+                logger.debug(f"📤 Model output shape: {outputs['reconstruction'].shape}")
                 
                 # Compute loss - reconstruction vs original
                 logger.debug("📏 Computing RMSE loss...")
-                loss = self.criterion(outputs['reconstructed'], ground_truth)
+                loss = self.criterion(outputs['reconstruction'], ground_truth)
                 
                 # Standard backward pass
                 loss.backward()
@@ -304,11 +279,24 @@ class Stage1Trainer:
             logger.debug(f"💰 Batch loss: {loss.item():.6f}")
             logger.debug("✅ Optimizer step completed")
             
+            # Calculate enhanced metrics for this batch
+            with torch.no_grad():
+                batch_metrics = calculate_batch_metrics(
+                    self.metrics, outputs, ground_truth, "stage1"
+                )
+                
+                # Accumulate metrics
+                for key, value in batch_metrics.items():
+                    if key in epoch_metrics:
+                        epoch_metrics[key] += value
+            
             total_loss += loss.item()
             num_batches += 1
             
-            # Show batch progress at INFO level (every batch)
-            logger.info(f"📈 Stage 1 Batch {batch_idx + 1}/{len(data_loader)}: Loss = {loss.item():.6f}, Avg = {total_loss/num_batches:.6f}")
+            # Show batch progress with enhanced metrics
+            logger.info(f"📈 Stage 1 Batch {batch_idx + 1}/{len(data_loader)}: "
+                       f"Loss = {loss.item():.6f}, SSIM = {batch_metrics.get('ssim', 0):.4f}, "
+                       f"PSNR = {batch_metrics.get('psnr', 0):.2f}dB")
             
             # Log GPU memory usage every 20 batches (only on GPU)
             if torch.cuda.is_available() and batch_idx % 20 == 0:
@@ -316,11 +304,20 @@ class Stage1Trainer:
             
             # Additional detailed logging at DEBUG level
             if batch_idx % BATCH_LOG_INTERVAL == 0:  # Log every 5 batches during DEBUG
-                logger.debug(f"🔍 Detailed: Batch {batch_idx}: Loss = {loss.item():.6f}, Running Avg = {total_loss/num_batches:.6f}")
+                logger.debug(f"🔍 Detailed: Batch {batch_idx}: Loss = {loss.item():.6f}, "
+                           f"Running Avg = {total_loss/num_batches:.6f}")
         
         avg_loss = total_loss / num_batches
+        
+        # Average metrics across epoch
+        for key in epoch_metrics:
+            epoch_metrics[key] /= num_batches
+        
         logger.debug(f"✅ Training epoch completed. Average loss: {avg_loss:.6f}")
-        return avg_loss
+        logger.info(f"📊 Epoch metrics - SSIM: {epoch_metrics['ssim']:.4f}, "
+                   f"PSNR: {epoch_metrics['psnr']:.2f}dB, RMSE: {epoch_metrics['rmse_overall']:.6f}")
+        
+        return avg_loss, epoch_metrics
     
     def _log_reconstruction_images(self, predictions, targets, epoch):
         """Log 3D reconstruction slices to W&B for visualization."""
@@ -416,7 +413,7 @@ class Stage1Trainer:
     
     def validate(self, data_loader):
         """
-        Evaluate the model on the validation dataset.
+        Evaluate the model on the validation dataset with enhanced metrics.
         
         This method performs forward propagation without gradient computation
         to assess model performance on unseen data. Used for monitoring
@@ -434,6 +431,12 @@ class Stage1Trainer:
         total_loss = 0
         num_batches = 0
         
+        # Initialize metrics tracking
+        epoch_metrics = {
+            'ssim': 0.0, 'psnr': 0.0, 'rmse_overall': 0.0,
+            'rmse_absorption': 0.0, 'rmse_scattering': 0.0
+        }
+        
         logger.debug(f"📊 Processing {len(data_loader)} validation batches")
         
         with torch.no_grad():
@@ -448,19 +451,42 @@ class Stage1Trainer:
                 if self.scaler:  # Mixed precision validation
                     with autocast():
                         outputs = self.model(ground_truth, tissue_patches=None)
-                        loss = self.criterion(outputs['reconstructed'], ground_truth)
+                        loss = self.criterion(outputs['reconstruction'], ground_truth)
                 else:  # Standard precision validation
                     outputs = self.model(ground_truth, tissue_patches=None)
-                    loss = self.criterion(outputs['reconstructed'], ground_truth)
+                    loss = self.criterion(outputs['reconstruction'], ground_truth)
                     
                 logger.debug(f"💰 Validation batch loss: {loss.item():.6f}")
+                
+                # Calculate enhanced metrics for this batch
+                batch_metrics = calculate_batch_metrics(
+                    self.metrics, outputs, ground_truth, "stage1"
+                )
+                
+                # Accumulate metrics
+                for key, value in batch_metrics.items():
+                    if key in epoch_metrics:
+                        epoch_metrics[key] += value
                 
                 total_loss += loss.item()
                 num_batches += 1
                 
-                # Show validation batch progress at INFO level (every batch)
-                logger.info(f"🔍 Stage 1 Val Batch {batch_idx + 1}/{len(data_loader)}: Loss = {loss.item():.6f}, Avg = {total_loss/num_batches:.6f}")
+                # Show validation batch progress with enhanced metrics
+                logger.info(f"🔍 Stage 1 Val Batch {batch_idx + 1}/{len(data_loader)}: "
+                           f"Loss = {loss.item():.6f}, SSIM = {batch_metrics.get('ssim', 0):.4f}, "
+                           f"PSNR = {batch_metrics.get('psnr', 0):.2f}dB")
         
+        avg_loss = total_loss / num_batches
+        
+        # Average metrics across epoch
+        for key in epoch_metrics:
+            epoch_metrics[key] /= num_batches
+        
+        logger.debug(f"✅ Validation completed. Average loss: {avg_loss:.6f}")
+        logger.info(f"📊 Val metrics - SSIM: {epoch_metrics['ssim']:.4f}, "
+                   f"PSNR: {epoch_metrics['psnr']:.2f}dB, RMSE: {epoch_metrics['rmse_overall']:.6f}")
+        
+        return avg_loss, epoch_metrics
         avg_loss = total_loss / num_batches
         logger.debug(f"✅ Validation completed. Average loss: {avg_loss:.6f}")
         return avg_loss
@@ -496,23 +522,34 @@ class Stage1Trainer:
             
             # Train: Update model parameters using training data
             logger.debug(f"🏋️  Beginning training phase for epoch {epoch+1}")
-            train_loss = self.train_epoch(data_loaders['train'])
+            train_loss, train_metrics = self.train_epoch(data_loaders['train'])
             logger.info(f"🏋️  Training completed - Average Loss: {train_loss:.6f}")
             
             # Validate: Evaluate on unseen data (no parameter updates) 
             # We validate every epoch to: 1) Monitor overfitting, 2) Save best models, 3) Track progress
             logger.debug(f"🔍 Beginning validation phase for epoch {epoch+1}")
-            val_loss = self.validate(data_loaders['val'])
+            val_loss, val_metrics = self.validate(data_loaders['val'])
             logger.info(f"🔍 Validation completed - Average Loss: {val_loss:.6f}")
             
-            # Log to W&B with organized structure
+            # Log enhanced metrics to W&B
             if self.use_wandb:
+                # Log training metrics
+                train_metrics['loss'] = train_loss
+                self.metrics.log_to_wandb(train_metrics, epoch + 1, "train", self.use_wandb)
+                
+                # Log validation metrics
+                val_metrics['loss'] = val_loss
+                self.metrics.log_to_wandb(val_metrics, epoch + 1, "val", self.use_wandb)
+                
+                # Legacy charts for backward compatibility
                 wandb.log({
                     "Charts/train_loss": train_loss,
                     "Charts/val_loss": val_loss,
                     "Charts/learning_rate": self.optimizer.param_groups[0]['lr'],
                     "Charts/train_val_loss_ratio": train_loss / val_loss if val_loss > 0 else 0,
-                }, step=epoch + 1)  # Use step parameter instead of logging epoch as data
+                    "Charts/ssim_diff": val_metrics['ssim'] - train_metrics['ssim'],
+                    "Charts/psnr_diff": val_metrics['psnr'] - train_metrics['psnr'],
+                }, step=epoch + 1)
                 
                 # Log reconstruction images periodically (and always on first/last epoch)
                 should_log_images = (epoch % LOG_IMAGES_EVERY == 0) or (epoch == 0) or (epoch == epochs - 1)
@@ -523,7 +560,7 @@ class Stage1Trainer:
                         ground_truth = sample_batch['ground_truth'].to(self.device)
                         with torch.no_grad():
                             outputs = self.model(ground_truth, tissue_patches=None)
-                        self._log_reconstruction_images(outputs['reconstructed'], ground_truth, epoch + 1)
+                        self._log_reconstruction_images(outputs['reconstruction'], ground_truth, epoch + 1)
                     except Exception as e:
                         logger.warning(f"⚠️ Failed to log images at epoch {epoch + 1}: {e}")
             

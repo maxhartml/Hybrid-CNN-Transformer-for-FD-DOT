@@ -272,41 +272,6 @@ class SimplifiedNIRProcessor(nn.Module):
                 tissue_patches: Optional[torch.Tensor] = None, 
                 use_tissue_patches: bool = False) -> Dict[str, torch.Tensor]:
         """
-        Forward pass through spatial attention NIR processor.
-        
-        Args:
-            nir_measurements (torch.Tensor): Shape [batch, 8] (individual measurements)
-            tissue_patches (torch.Tensor, optional): Shape [batch, 2, 16^3*2] (individual tissue patches)
-            use_tissue_patches (bool): Whether to use tissue context
-        
-        Returns:
-            Dict[str, torch.Tensor]: Dictionary containing:
-                - 'features': Aggregated features [batch, CNN_FEATURE_DIM]
-                - 'attention_weights': None (no spatial attention for individual measurements)
-                - 'projected_measurements': Projected measurements [batch, SPATIAL_EMBED_DIM]
-        """
-        logger.debug(f"🏃 SpatialAttentionNIRProcessor forward: nir_measurements {nir_measurements.shape}")
-        
-        batch_size = nir_measurements.shape[0]
-        
-        if use_tissue_patches and tissue_patches is not None:
-            logger.debug("📦 Enhanced mode: processing tissue context")
-            # Enhanced mode: append tissue context to each measurement
-            tissue_contexts = self.tissue_encoder(tissue_patches)  # [batch, 16]
-            enhanced_measurements = torch.cat([nir_measurements, tissue_contexts], dim=1)  # [batch, 24]
-            projected = self.enhanced_projection(enhanced_measurements)  # [batch, 256]
-        else:
-            logger.debug("📦 Baseline mode: NIR measurements only")
-            # Baseline mode: NIR measurements only
-            projected = self.baseline_projection(nir_measurements)  # [batch, 256]
-        
-        logger.debug(f"📦 Projected measurements: {projected.shape}")
-        
-            
-    def forward(self, nir_measurements: torch.Tensor, 
-                tissue_patches: Optional[torch.Tensor] = None, 
-                use_tissue_patches: bool = False) -> Dict[str, torch.Tensor]:
-        """
         Simplified forward pass through NIR processor.
         
         Args:
