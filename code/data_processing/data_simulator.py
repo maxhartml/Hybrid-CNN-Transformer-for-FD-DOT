@@ -72,163 +72,12 @@ else:
 # NIRFASTer-FF imports (after path configuration)
 import nirfasterff as ff  # type: ignore
 
-def detect_system_hardware():
-    """
-    Detect and log system hardware capabilities for NIR phantom generation.
-    
-    This function provides comprehensive hardware detection for:
-    • CPU cores (physical and logical)
-    • GPU availability (NVIDIA, Apple Silicon, PyTorch)
-    • Memory information
-    • Platform details
-    • NIRFASTer backend status
-    
-    IMPORTANT CLARIFICATION ABOUT GPU USAGE:
-    • CGAL mesh generation: CPU-ONLY (no GPU acceleration available)
-    • NIRFASTer FEM solving: CPU-ONLY (finite element method on CPU)
-    • GPU is reserved for neural network training (PyTorch/TensorFlow)
-    
-    Returns:
-        dict: Hardware information dictionary
-    """
-    logger = get_data_logger(__name__)
-    hardware_info = {}
-    
-    logger.info("="*60)
-    logger.info("🖥️  SYSTEM HARDWARE DETECTION & CONFIGURATION")
-    logger.info("="*60)
-    
-    # CPU Detection
-    try:
-        import psutil
-        physical_cores = psutil.cpu_count(logical=False)
-        logical_cores = psutil.cpu_count(logical=True)
-        memory_gb = psutil.virtual_memory().total / (1024**3)
-        
-        logger.info(f"CPU Cores: {physical_cores} physical, {logical_cores} logical")
-        logger.info(f"System Memory: {memory_gb:.1f} GB")
-        
-        hardware_info.update({
-            'physical_cores': physical_cores,
-            'logical_cores': logical_cores,
-            'memory_gb': memory_gb
-        })
-    except ImportError:
-        import multiprocessing
-        logical_cores = multiprocessing.cpu_count()
-        logger.info(f"CPU Cores: {logical_cores} logical (psutil not available)")
-        hardware_info['logical_cores'] = logical_cores
-    
-    # Platform Detection
-    import platform
-    system_info = f"{platform.system()} {platform.release()}"
-    logger.info(f"Platform: {system_info}")
-    hardware_info['platform'] = system_info
-    
-    # GPU Detection
-    logger.info("-" * 40)
-    logger.info("🎮 GPU DETECTION:")
-    gpu_available = False
-    gpu_info = "None detected"
-    
-    # Check for NVIDIA GPU
-    try:
-        import subprocess
-        result = subprocess.run(['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'], 
-                              capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
-            gpu_names = result.stdout.strip().split('\n')
-            gpu_info = f"NVIDIA: {', '.join(gpu_names)}"
-            gpu_available = True
-            logger.info(f"✅ NVIDIA GPU: {', '.join(gpu_names)}")
-    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    
-    # Check for Apple Silicon GPU
-    if platform.system() == "Darwin" and "arm" in platform.machine().lower():
-        gpu_info = "Apple Silicon GPU (Metal)"
-        gpu_available = True
-        logger.info("✅ Apple Silicon GPU detected")
-    
-    # Check PyTorch GPU support
-    pytorch_gpu = False
-    try:
-        import torch
-        if torch.cuda.is_available():
-            pytorch_gpu = True
-            torch_gpu_name = torch.cuda.get_device_name(0)
-            logger.info(f"✅ PyTorch CUDA: {torch_gpu_name}")
-        elif torch.backends.mps.is_available():
-            pytorch_gpu = True
-            logger.info("✅ PyTorch MPS (Apple Silicon)")
-        else:
-            logger.info("❌ PyTorch: CPU only")
-    except ImportError:
-        logger.info("❌ PyTorch: Not installed")
-    
-    if not gpu_available and not pytorch_gpu:
-        logger.info("❌ No GPU detected")
-    
-    hardware_info.update({
-        'gpu_available': gpu_available,
-        'gpu_info': gpu_info,
-        'pytorch_gpu': pytorch_gpu
-    })
-    
-    # CRITICAL CLARIFICATION ABOUT GPU USAGE
-    logger.info("-" * 40)
-    logger.info("⚠️  IMPORTANT: GPU USAGE CLARIFICATION")
-    logger.info("-" * 40)
-    logger.info("🔧 CGAL Mesh Generation: CPU-ONLY")
-    logger.info("   • CGAL tetrahedral mesher runs on CPU cores")
-    logger.info("   • No GPU acceleration available for mesh generation")
-    logger.info("   • Performance scales with CPU core count")
-    
-    logger.info("🔬 NIRFASTer FEM Solving: CPU-ONLY") 
-    logger.info("   • Finite element diffusion equation solving")
-    logger.info("   • Uses CPU cores for matrix assembly and solving")
-    logger.info("   • No GPU acceleration in NIRFASTer-FF")
-    
-    logger.info("🧠 GPU Reserved for: Neural Network Training")
-    logger.info("   • PyTorch/TensorFlow model training")
-    logger.info("   • CNN/Transformer inference")
-    logger.info("   • NOT used for phantom generation")
-    
-    # NIRFASTer Backend Detection
-    logger.info("-" * 40)
-    logger.info("📊 NIRFASTer-FF Backend Status:")
-    try:
-        # Check if NIRFASTer was imported successfully
-        logger.info(f"✅ NIRFASTer-FF imported successfully")
-        logger.info(f"   Module path: {ff.__file__}")
-        hardware_info['nirfaster_available'] = True
-    except Exception as e:
-        logger.error(f"❌ NIRFASTer-FF import issue: {e}")
-        hardware_info['nirfaster_available'] = False
-    
-    # Performance Recommendations
-    logger.info("-" * 40)
-    logger.info("🚀 PERFORMANCE RECOMMENDATIONS:")
-    if hardware_info.get('logical_cores', 1) >= 8:
-        logger.info("✅ Good CPU core count - consider parallel phantom generation")
-    else:
-        logger.info("⚠️  Limited CPU cores - sequential generation recommended")
-    
-    if hardware_info.get('memory_gb', 0) >= 16:
-        logger.info("✅ Sufficient RAM for large phantom datasets")
-    else:
-        logger.info("⚠️  Limited RAM - consider smaller batch sizes")
-    
-    logger.info("="*60)
-    
-    return hardware_info
-
 # Project imports
 from code.utils.logging_config import get_data_logger, NIRDOTLogger
 
 # Constants for phantom generation
 MASTER_RANDOM_SEED = 42                      # Master seed for reproducible datasets (change for different datasets)
-DEFAULT_N_PHANTOMS = 10                   # Number of phantoms to generate for dataset
+DEFAULT_N_PHANTOMS = 5                   # Number of phantoms to generate for dataset
 DEFAULT_PHANTOM_SHAPE = (64, 64, 64)        # Default cubic phantom dimensions in voxels (power of 2)
 DEFAULT_TISSUE_RADIUS_RANGE = (25, 30)      # Healthy tissue ellipsoid semi-axis range (25-30mm with 1mm voxels)
 DEFAULT_TUMOR_RADIUS_RANGE = (5, 10)        # Tumor ellipsoid semi-axis range (5-10mm with 1mm voxels)
@@ -1794,9 +1643,6 @@ def main():
     logger.info(f"Logs directory: {logs_dir.absolute()}")  # Show where logs are actually stored
     logger.info(f"Project root: {project_root.absolute()}")  # Show project root for reference
     logger.info("Visualizations: ENABLED (static PNG images generated for all phantoms)")
-
-    # STEP 1.5: Detect and log system hardware capabilities for optimal performance
-    hardware_info = detect_system_hardware()
 
     # STEP 2: Configure OPTIMIZED dataset generation parameters for machine learning training requirements
     # **NEW STRATEGY: Generate fewer phantoms with MORE measurements each for better data augmentation**
