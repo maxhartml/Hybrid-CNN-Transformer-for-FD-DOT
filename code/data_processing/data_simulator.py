@@ -79,8 +79,8 @@ from code.utils.logging_config import get_data_logger, NIRDOTLogger
 MASTER_RANDOM_SEED = 42                      # Master seed for reproducible datasets (change for different datasets)
 DEFAULT_N_PHANTOMS = 3000                    # Number of phantoms to generate for dataset (10 hours @ 12 sec/phantom)
 DEFAULT_PHANTOM_SHAPE = (64, 64, 64)        # Default cubic phantom dimensions in voxels (power of 2)
-DEFAULT_TISSUE_RADIUS_RANGE = (25, 30)      # Healthy tissue ellipsoid semi-axis range (25-30mm with 1mm voxels)
-DEFAULT_TUMOR_RADIUS_RANGE = (5, 10)        # Tumor ellipsoid semi-axis range (5-10mm with 1mm voxels)
+DEFAULT_TISSUE_RADIUS_RANGE = (23, 31)      # Healthy tissue ellipsoid semi-axis range (23-31mm with 1mm voxels)
+DEFAULT_TUMOR_RADIUS_RANGE = (5, 15)        # Tumor ellipsoid semi-axis range (5-15mm with 1mm voxels)
 DEFAULT_MAX_TUMORS = 5                       # Maximum number of tumors per phantom
 DEFAULT_N_MEASUREMENTS = 256                # Number of measurements for training (subsampled from generated 1000)
 DEFAULT_N_GENERATED_MEASUREMENTS = 1000      # Number of measurements generated per phantom (50 sources × 20 detectors)
@@ -105,9 +105,9 @@ TUMOR_MUA_MULTIPLIER_RANGE = (1.5, 3.5)     # Tumor absorption enhancement facto
 TUMOR_MUSP_MULTIPLIER_RANGE = (1.5, 2.5)    # Tumor scattering enhancement factor
 TISSUE_REFRACTIVE_INDEX = 1.33               # Fixed refractive index for biological tissues
 
-# Measurement noise parameters (conservative clean values for high SNR)
-AMPLITUDE_NOISE_PERCENTAGE = 0.001           # 0.1% relative amplitude noise (ultra-clean, SNR ~60dB) 
-PHASE_NOISE_STD_DEGREES = 0.1               # ±0.1° phase noise (precision research systems)
+# Measurement noise parameters (conservative clinical values for realistic SNR)
+AMPLITUDE_NOISE_PERCENTAGE = 0.005           # 0.5% relative amplitude noise (clinical systems, SNR ~46dB) 
+PHASE_NOISE_STD_DEGREES = 0.5               # ±0.5° phase noise (clinical precision systems)
 
 # Tumor placement algorithm parameters
 MAX_TUMOR_PLACEMENT_ATTEMPTS = 50            # Maximum iterations for tumor placement rejection sampling
@@ -1233,13 +1233,13 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
     
     # Amplitude noise: Multiplicative relative noise proportional to signal magnitude
     # Models detector shot noise, electronic noise, and ambient light interference
-    # Clinical NIR systems typically achieve 40-60 dB SNR corresponding to 1-3% relative noise
+    # Clinical NIR systems typically achieve 40-50 dB SNR corresponding to 0.3-1% relative noise
     amplitude_noise_std = AMPLITUDE_NOISE_PERCENTAGE * np.mean(raw_amplitude)
     noisy_amplitude = raw_amplitude + noise_rng.normal(0, amplitude_noise_std, raw_amplitude.shape)
     
     # Phase noise: Additive Gaussian noise independent of signal magnitude
     # Models lock-in amplifier precision, timing jitter, and temperature drift
-    # Commercial systems typically achieve ±1-3 degree phase precision
+    # Commercial systems typically achieve ±0.5-2 degree phase precision
     noisy_phase = raw_phase + noise_rng.normal(0, PHASE_NOISE_STD_DEGREES, raw_phase.shape)
     
     # FIX: Ensure physical validity by clamping phase to [0°, 360°) range
