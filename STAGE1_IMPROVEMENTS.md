@@ -10,29 +10,79 @@
 
 ## 🎯 **Priority 1: Critical Improvements (High Impact)**
 
-### 1. ⚡ **Learning Rate Scheduling Implementation** ✅ **COMPLETED**
-**Issue**: Flat learning rate throughout training (5e-5 constant)
-**Status**: ✅ **IMPLEMENTED** - ReduceLROnPlateau scheduler active
+### 1. ⚡ **Learning Rate Scheduling Implementation**
+**Current Issue**: Flat learning rate throughout training (5e-5 constant)
+**Problem**: Missing adaptive learning that could improve convergence
 
-**Current Implementation:**
+**Solutions to Implement:**
+
+#### A. **ReduceLROnPlateau Scheduler** ⭐ **RECOMMENDED**
 ```python
+# Add to training_config.py
 LR_SCHEDULER_PATIENCE = 3        # Reduce LR after 3 epochs without improvement
 LR_SCHEDULER_FACTOR = 0.6        # Reduce LR by 40% when triggered
 LR_MIN = 1e-7                    # Minimum learning rate floor
 ```
-**Expected improvement**: 5-15% better final RMSE when plateaus occur
+**Why it helps**: Automatically reduces LR when validation loss plateaus, enabling finer convergence
+**Expected improvement**: 5-15% better final RMSE
 
-### 2. � **Batch Size Optimization** ✅ **COMPLETED**
-**Issue**: Batch size 32 with significant GPU headroom
-**Status**: ✅ **IMPLEMENTED** - Increased to 64 for both stages
+#### B. **Cosine Annealing with Warm Restarts**
+```python
+scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+    optimizer, T_0=10, T_mult=2, eta_min=1e-7
+)
+```
+**Why it helps**: Periodic LR restarts help escape local minima
+**Expected improvement**: Better exploration, potentially 3-8% RMSE improvement
 
-**Current Implementation:**
-- **Batch Size**: 64 (both Stage 1 & Stage 2)
-- **GPU Utilization**: Better A100 40GB utilization
-- **Training Stability**: Improved gradient estimates
-- **Consistency**: Same batch size across both stages
+### 2. 🔄 **Data Augmentation Enhancement**
+**Current**: Basic measurement subsampling (1000→256 measurements)
+**Opportunity**: Add more sophisticated augmentation
 
+**Solutions to Implement:**
+
+#### A. **Advanced Measurement Subsampling** ⭐ **RECOMMENDED**
+```python
+# Add different sampling strategies
+- Random geometric patterns (circular, linear, clustered)
+- SNR-weighted sampling (favor high-quality measurements)
+- Adaptive sampling based on tissue regions
+```
+**Why it helps**: More diverse training patterns improve generalization
+**Expected improvement**: 10-20% better SSIM, reduced overfitting
+
+#### B. **Spatial Augmentation**
+```python
+# Add to data loader
+- Small rotations (±5 degrees)
+- Gaussian noise injection (σ=0.01)
+- Elastic deformations (mild)
+```
+**Why it helps**: Improves robustness to real-world variations
+**Expected improvement**: 5-10% better generalization
+
+### 3. 📊 **Batch Size Optimization**
+**Current**: 32 (good utilization)
+**Opportunity**: Your A100 has headroom for larger batches
+
+**Solutions to Implement:**
+
+#### A. **Gradient Accumulation** ⭐ **RECOMMENDED**
+```python
+# Effective batch size = 64 with gradient accumulation
+BATCH_SIZE = 32
+ACCUMULATION_STEPS = 2
+```
+**Why it helps**: Larger effective batch size improves gradient estimates
 **Expected improvement**: More stable training, 3-7% better convergence
+
+#### B. **Dynamic Batch Sizing**
+```python
+# Auto-detect optimal batch size based on memory
+optimal_batch = get_optimal_batch_size(model, sample_input, max_memory_gb=35)
+```
+**Why it helps**: Maximizes hardware utilization
+**Expected improvement**: Faster training, better memory efficiency
 
 ---
 
