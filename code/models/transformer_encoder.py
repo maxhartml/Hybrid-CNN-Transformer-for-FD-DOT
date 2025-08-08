@@ -485,9 +485,120 @@ class TransformerEncoder(nn.Module):
         logger.debug(f"📦 Final transformer output: {enhanced_features.shape}")
         
         # Combine attention weights from all layers for analysis
-        attention_weights = torch.stack(attention_weights_list, dim=1) if attention_weights_list else None
+        if attention_weights_list:
+            attention_weights = torch.stack(attention_weights_list, dim=1)  # [B, L, H, S, S]
+            logger.debug(f"📊 Stacked attention weights shape: {attention_weights.shape}")
+        else:
+            attention_weights = None
+            logger.debug("⚠️ No attention weights collected")
         logger.debug(f"✅ Transformer Encoder forward pass completed")
         
+        return enhanced_features, attention_weights
+    
+    def forward_sequence(self, measurement_features: torch.Tensor, 
+                        tissue_context: Optional[torch.Tensor] = None,
+                        use_tissue_patches: bool = False) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        """
+        Forward pass through transformer encoder for multiple measurement tokens.
+        
+        Processes multiple NIR measurement features as separate tokens, allowing
+        the transformer to learn spatial relationships and attention patterns
+        across different measurement locations.
+        
+        Args:
+            measurement_features (torch.Tensor): Measurement features of shape 
+                (batch_size, n_measurements, cnn_feature_dim)
+            tissue_context (torch.Tensor, optional): Tissue context features. Defaults to None.
+            use_tissue_patches (bool, optional): Toggle for tissue context inclusion. 
+                Defaults to False.
+        
+        Returns:
+            Tuple[torch.Tensor, Optional[torch.Tensor]]: 
+                - Aggregated enhanced features of shape (batch_size, cnn_feature_dim)
+                - Attention weights from all layers (optional)
+        """
+        batch_size, n_measurements, feature_dim = measurement_features.shape
+        device = measurement_features.device
+        logger.debug(f"🏃 Transformer Encoder sequence forward: {measurement_features.shape}, use_tissue_patches={use_tissue_patches}")
+        
+        # Project each measurement to transformer embedding space
+        # measurement_features: [B, N, 256] -> [B, N, embed_dim]
+        measurement_embedded = []
+        for i in range(n_measurements):
+            embedded = self.cnn_projection(measurement_features[:, i, :]).unsqueeze(1)  # [B, 1, embed_dim]
+            measurement_embedded.append(embedded)
+        
+        # Stack all measurement embeddings: [B, N, embed_dim]
+        token_sequence = torch.cat(measurement_embedded, dim=1)
+        logger.debug(f"📦 Measurement token sequence: {token_sequence.shape}")
+        
+        # Add tissue context if available
+        if use_tissue_patches and tissue_context is not None and self.tissue_projection is not None:
+            logger.debug(f"🧬 Adding tissue context to sequence: {tissue_context.shape}")
+            
+            # Project tissue context to embedding dimension
+            tissue_embedded = self.tissue_projection(tissue_context).unsqueeze(1)  # [B, 1, embed_dim]
+            logger.debug(f"📦 Tissue embedded: {tissue_embedded.shape}")
+            
+            # Concatenate measurements and tissue features
+            token_sequence = torch.cat([token_sequence, tissue_embedded], dim=1)  # [B, N+1, embed_dim]
+            logger.debug(f"📦 Full token sequence with tissue: {token_sequence.shape}")
+            
+            # Add token type embeddings
+            n_total_tokens = n_measurements + 1
+            token_types = torch.cat([
+                torch.zeros(n_measurements, device=device, dtype=torch.long),  # Measurement tokens
+                torch.ones(1, device=device, dtype=torch.long)                # Tissue token
+            ]).unsqueeze(0).expand(batch_size, -1)
+            
+            token_type_emb = self.token_type_embedding(token_types)
+            token_sequence = token_sequence + token_type_emb
+            logger.debug(f"📦 After token type embedding: {token_sequence.shape}")
+        else:
+            # Add token type embeddings for measurement-only mode
+            token_types = torch.zeros(n_measurements, device=device, dtype=torch.long)
+            token_types = token_types.unsqueeze(0).expand(batch_size, -1)
+            token_type_emb = self.token_type_embedding(token_types)
+            token_sequence = token_sequence + token_type_emb
+            logger.debug(f"📦 Measurement-only token sequence: {token_sequence.shape}")
+        
+        # Process through transformer layers
+        logger.debug(f"🔄 Processing through {len(self.layers)} transformer layers...")
+        attention_weights_list = []
+        x = token_sequence
+        
+        for i, layer in enumerate(self.layers):
+            logger.debug(f"🔄 Processing layer {i+1}/{len(self.layers)}...")
+            x, attn_weights = layer(x)
+            attention_weights_list.append(attn_weights)
+            logger.debug(f"📦 Layer {i+1} output: {x.shape}")
+        
+        # Apply final layer normalization
+        logger.debug("🧼 Applying final layer normalization...")
+        x = self.layer_norm(x)
+        logger.debug(f"📦 After final layer norm: {x.shape}")
+        
+        # Aggregate enhanced features across all measurement tokens
+        # Use attention-based aggregation instead of simple mean
+        enhanced_token_features = x[:, :n_measurements, :]  # [B, N, embed_dim] - exclude tissue if present
+        
+        # Simple mean aggregation for now (can be enhanced with learned attention later)
+        aggregated_features = enhanced_token_features.mean(dim=1)  # [B, embed_dim]
+        logger.debug(f"📦 Aggregated features: {aggregated_features.shape}")
+        
+        # Project back to original CNN feature space
+        enhanced_features = self.output_projection(aggregated_features)  # [B, cnn_feature_dim]
+        logger.debug(f"📦 Final enhanced features: {enhanced_features.shape}")
+        
+        # Combine attention weights from all layers for analysis
+        if attention_weights_list:
+            attention_weights = torch.stack(attention_weights_list, dim=1)  # [B, L, H, S, S]
+            logger.debug(f"📊 Stacked attention weights shape: {attention_weights.shape}")
+        else:
+            attention_weights = None
+            logger.debug("⚠️ No attention weights collected")
+        
+        logger.debug(f"✅ Transformer Encoder sequence forward pass completed")
         return enhanced_features, attention_weights
     
     def get_attention_maps(self, cnn_features: torch.Tensor,

@@ -7,29 +7,7 @@ focusing on training transformer components while keeping the pre-trained
 CNN decoder frozen. This approach leverages the robust feature representations
 learned in Stage 1 while adding sophisticated spatial modeling capabilities.
 
-The trainin            # Show batch progress with standardized metrics format
-            mode = "Enhanced" if self.use_tissue_patches else "Baseline"
-            logger.info(f"🏋️  TRAIN | Batch {batch_idx + 1:2d}/{len(data_loader):2d} |        mode = ENHANCED_MODE if self.use_tissue_patches else BASELINE_MODE
-        logger.info(f"")
-        logger.info(f"{'='*80}")
-        logger.info(f"🚀 STARTING STAGE 2 TRAINING ({mode}) | {epochs} Epochs")
-        logger.info(f"{'='*80}")
-        logger.debug(f"📊 Training configuration: device={self.device}, lr={self.learning_rate}, epochs={epochs}")
-        logger.debug(f"📈 Data loaders: train_batches={len(data_loaders['train'])}, val_batches={len(data_loaders['val'])}")
-        
-        best_val_loss = float('inf')
-        
-        for epoch in range(epochs):
-            logger.info(f"")
-            logger.info(f"📅 EPOCH {epoch + 1}/{epochs}")
-            logger.info(f"{'-'*40}")                 f"RMSE: {loss.item():.4f} | Mode: {mode}")
-            
-            # Log gradient norm at debug level for monitoring training health
-            logger.debug(f"🔧 Batch {batch_idx + 1} | Gradient Norm: {grad_norm:.3f}")
-            
-            # Additional detailed logging at DEBUG level
-            if batch_idx % 5 == 0:  # Log every 5 batches during DEBUG
-                logger.debug(f"🔍 Detailed: Stage 2 Batch {batch_idx}: Loss = {loss.item():.6f}, Running Avg = {total_loss/num_batches:.6f}")s supports both baseline and enhanced modes:
+The training pipeline supports both baseline and enhanced modes:
 - Baseline: Transformer training without tissue context
 - Enhanced: Transformer training with tissue patch integration for improved
   spatial awareness and context-sensitive reconstruction
@@ -177,13 +155,13 @@ class Stage2Trainer:
             weight_decay=weight_decay  # L2 regularization
         )
         
-        # Learning rate scheduler
+        # Learning rate scheduler (ReduceLROnPlateau for adaptive learning)
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer,
-            mode='min',
-            factor=LR_SCHEDULER_FACTOR,           # Reduce LR by half
-            patience=LR_SCHEDULER_PATIENCE,      # Wait 5 epochs before reducing
-            min_lr=LR_MIN          # Minimum learning rate
+            mode='min',                           # Monitor validation loss (minimize)
+            factor=LR_SCHEDULER_FACTOR,           # Reduce LR by 40% (0.6 factor)
+            patience=LR_SCHEDULER_PATIENCE,      # Wait 3 epochs before reducing
+            min_lr=LR_MIN                         # Minimum learning rate floor (1e-7)
         )
         
         # Mixed precision training for A100 optimization (2x speedup + memory savings)
@@ -192,11 +170,12 @@ class Stage2Trainer:
         mode = ENHANCED_MODE if use_tissue_patches else BASELINE_MODE
         logger.info(f"")
         logger.info(f"{'='*80}")
-        logger.info(f"🚀 STAGE 2 TRAINING INITIALIZATION ({mode})")
+        logger.info(f"🚀 TRANSFORMER TRAINING INITIALIZATION ({mode})")
         logger.info(f"{'='*80}")
         logger.info(f"🖥️  Device: {self.device}")
         logger.info(f"📈 Learning Rate: {learning_rate}")
-        logger.info(f"🔒 L2 Regularization: {weight_decay}")
+        logger.info(f"� LR Scheduler: ReduceLROnPlateau (patience={LR_SCHEDULER_PATIENCE}, factor={LR_SCHEDULER_FACTOR})")
+        logger.info(f"�🔒 L2 Regularization: {weight_decay}")
         logger.info(f"⏰ Early Stopping Patience: {early_stopping_patience}")
         logger.info(f"🧬 Tissue Patches: {use_tissue_patches}")
         if self.scaler:
@@ -231,7 +210,7 @@ class Stage2Trainer:
             config={
                 # Model architecture
                 "stage": "Transformer_Enhancement",
-                "model_type": "Hybrid_CNN_Transformer",
+                "model_type": "Hybrid_CNN_Transformer", 
                 "training_stage": TRAINING_STAGE2,
                 "mode": ENHANCED_MODE if self.use_tissue_patches else BASELINE_MODE,
                 
@@ -241,7 +220,7 @@ class Stage2Trainer:
                 "optimizer": "Adam",
                 "loss_function": "RMSE",
                 
-                # Model specifications (Stage 2: NIR measurements → transformer → decoder)
+                # Model specifications (Transformer: NIR measurements → transformer → decoder)
                 "input_data": "nir_measurements",
                 "input_measurements": "256_subsampled_from_1000",
                 "input_shape": "256_measurements_per_phantom_subsampled",
@@ -449,14 +428,18 @@ class Stage2Trainer:
                     if key in epoch_metrics:
                         epoch_metrics[key] += value
             
-            # Show batch progress at INFO level (every batch)
-            mode = "Enhanced" if self.use_tissue_patches else "Baseline"
-            logger.info(f"📈 Stage 2 {mode} Batch {batch_idx + 1}/{len(data_loader)}: "
-                       f"Loss = {loss.item():.6f}, Avg = {total_loss/num_batches:.6f}, GradNorm = {grad_norm:.4f}")
+            # Show batch progress with standardized metrics format (match Stage 1)
+            logger.info(f"🏋️ TRAIN | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
+                       f"RMSE: {loss.item():.4f} | SSIM: {batch_metrics.get('ssim', 0):.4f} | "
+                       f"PSNR: {batch_metrics.get('psnr', 0):.1f}dB")
+            
+            # Log gradient norm at debug level for monitoring training health (match Stage 1)
+            logger.debug(f"🔧 Batch {batch_idx + 1} | Gradient Norm: {grad_norm:.3f}")
             
             # Additional detailed logging at DEBUG level
-            if batch_idx % 5 == 0:  # Log every 5 batches during DEBUG
-                logger.debug(f"� Detailed: Stage 2 Batch {batch_idx}: Loss = {loss.item():.6f}, Running Avg = {total_loss/num_batches:.6f}")
+            if batch_idx % BATCH_LOG_INTERVAL == 0:  # Log every 5 batches during DEBUG
+                logger.debug(f"🔍 Detailed: Batch {batch_idx}: Loss = {loss.item():.6f}, "
+                           f"Running Avg = {total_loss/num_batches:.6f}")
         
         avg_loss = total_loss / num_batches
         
@@ -466,12 +449,13 @@ class Stage2Trainer:
         
         logger.debug(f"✅ Stage 2 training epoch completed. Average loss: {avg_loss:.6f}")
         logger.info(f"📊 TRAIN SUMMARY | RMSE: {avg_loss:.4f} | SSIM: {epoch_metrics['ssim']:.4f} | "
-                   f"PSNR: {epoch_metrics['psnr']:.1f}dB | Enhancement: {epoch_metrics['feature_enhancement_ratio']:.4f}")
+                   f"PSNR: {epoch_metrics['psnr']:.1f}dB | Abs: {epoch_metrics['rmse_absorption']:.4f} | "
+                   f"Scat: {epoch_metrics['rmse_scattering']:.4f}")
         
         return avg_loss, epoch_metrics
     
     def _log_reconstruction_images(self, predictions, targets, nir_measurements, epoch):
-        """Log 3D reconstruction slices to W&B for Stage 2 visualization."""
+        """Log 3D reconstruction slices to W&B for visualization (match Stage 1 style)."""
         if not self.use_wandb:
             return
             
@@ -493,49 +477,67 @@ class Stage2Trainer:
                     normalized = np.zeros_like(data)
                 return normalized.astype(np.uint8)
             
-            # Log slices from different dimensions (absorption coefficient channel)
-            absorption_channel = 0
+            # Log slices from different dimensions for BOTH channels (match Stage 1)
+            absorption_channel = 0  # μₐ (absorption coefficient)
+            scattering_channel = 1  # μ′s (reduced scattering coefficient)
             
-            # XY plane (Z=32) - middle slice in Z dimension
-            pred_xy = pred_batch[absorption_channel, :, :, pred_batch.shape[-1]//2]
-            target_xy = target_batch[absorption_channel, :, :, target_batch.shape[-1]//2]
+            # XY plane (Z=32) - middle slice in Z dimension - ABSORPTION
+            pred_xy_abs = pred_batch[absorption_channel, :, :, pred_batch.shape[-1]//2]
+            target_xy_abs = target_batch[absorption_channel, :, :, target_batch.shape[-1]//2]
             
-            # XZ plane (Y=32) - middle slice in Y dimension
-            pred_xz = pred_batch[absorption_channel, :, pred_batch.shape[-2]//2, :]
-            target_xz = target_batch[absorption_channel, :, target_batch.shape[-2]//2, :]
+            # XY plane (Z=32) - middle slice in Z dimension - SCATTERING  
+            pred_xy_scat = pred_batch[scattering_channel, :, :, pred_batch.shape[-1]//2]
+            target_xy_scat = target_batch[scattering_channel, :, :, target_batch.shape[-1]//2]
             
-            # YZ plane (X=32) - middle slice in X dimension
-            pred_yz = pred_batch[absorption_channel, pred_batch.shape[-3]//2, :, :]
-            target_yz = target_batch[absorption_channel, target_batch.shape[-3]//2, :, :]
+            # XZ plane (Y=32) - middle slice in Y dimension - ABSORPTION
+            pred_xz_abs = pred_batch[absorption_channel, :, pred_batch.shape[-2]//2, :]
+            target_xz_abs = target_batch[absorption_channel, :, target_batch.shape[-2]//2, :]
             
-            # Calculate reconstruction error map for analysis
-            error_xy = np.abs(pred_xy - target_xy)
-            error_xz = np.abs(pred_xz - target_xz) 
-            error_yz = np.abs(pred_yz - target_yz)
+            # XZ plane (Y=32) - middle slice in Y dimension - SCATTERING
+            pred_xz_scat = pred_batch[scattering_channel, :, pred_batch.shape[-2]//2, :]
+            target_xz_scat = target_batch[scattering_channel, :, target_batch.shape[-2]//2, :]
+            
+            # YZ plane (X=32) - middle slice in X dimension - ABSORPTION
+            pred_yz_abs = pred_batch[absorption_channel, pred_batch.shape[-3]//2, :, :]
+            target_yz_abs = target_batch[absorption_channel, pred_batch.shape[-3]//2, :, :]
+            
+            # YZ plane (X=32) - middle slice in X dimension - SCATTERING
+            pred_yz_scat = pred_batch[scattering_channel, pred_batch.shape[-3]//2, :, :]
+            target_yz_scat = target_batch[scattering_channel, pred_batch.shape[-3]//2, :, :]
             
             # Normalize all images for proper W&B display
-            pred_xy_norm = normalize_for_display(pred_xy)
-            target_xy_norm = normalize_for_display(target_xy)
-            error_xy_norm = normalize_for_display(error_xy)
-            pred_xz_norm = normalize_for_display(pred_xz)
-            target_xz_norm = normalize_for_display(target_xz)
-            error_xz_norm = normalize_for_display(error_xz)
-            pred_yz_norm = normalize_for_display(pred_yz)
-            target_yz_norm = normalize_for_display(target_yz)
-            error_yz_norm = normalize_for_display(error_yz)
+            pred_xy_abs_norm = normalize_for_display(pred_xy_abs)
+            target_xy_abs_norm = normalize_for_display(target_xy_abs)
+            pred_xy_scat_norm = normalize_for_display(pred_xy_scat)
+            target_xy_scat_norm = normalize_for_display(target_xy_scat)
             
-            mode = "Enhanced" if self.use_tissue_patches else "Baseline"
+            pred_xz_abs_norm = normalize_for_display(pred_xz_abs)
+            target_xz_abs_norm = normalize_for_display(target_xz_abs)
+            pred_xz_scat_norm = normalize_for_display(pred_xz_scat)
+            target_xz_scat_norm = normalize_for_display(target_xz_scat)
+            
+            pred_yz_abs_norm = normalize_for_display(pred_yz_abs)
+            target_yz_abs_norm = normalize_for_display(target_yz_abs)
+            pred_yz_scat_norm = normalize_for_display(pred_yz_scat)
+            target_yz_scat_norm = normalize_for_display(target_yz_scat)
+            
             wandb.log({
-                f"Reconstructions/epoch_{epoch}/predicted_xy_slice": wandb.Image(pred_xy_norm),
-                f"Reconstructions/epoch_{epoch}/target_xy_slice": wandb.Image(target_xy_norm),
-                f"Reconstructions/epoch_{epoch}/error_xy_slice": wandb.Image(error_xy_norm),
-                f"Reconstructions/epoch_{epoch}/predicted_xz_slice": wandb.Image(pred_xz_norm),
-                f"Reconstructions/epoch_{epoch}/target_xz_slice": wandb.Image(target_xz_norm),
-                f"Reconstructions/epoch_{epoch}/error_xz_slice": wandb.Image(error_xz_norm),
-                f"Reconstructions/epoch_{epoch}/predicted_yz_slice": wandb.Image(pred_yz_norm),
-                f"Reconstructions/epoch_{epoch}/target_yz_slice": wandb.Image(target_yz_norm),
-                f"Reconstructions/epoch_{epoch}/error_yz_slice": wandb.Image(error_yz_norm),
-            })
+                # Absorption channel (μₐ) - match Stage 1 exactly
+                f"Reconstructions/Absorption/predicted_xy_slice": wandb.Image(pred_xy_abs_norm, caption=f"Epoch {epoch} - Predicted μₐ XY slice (z=32)"),
+                f"Reconstructions/Absorption/target_xy_slice": wandb.Image(target_xy_abs_norm, caption=f"Epoch {epoch} - Ground Truth μₐ XY slice (z=32)"),
+                f"Reconstructions/Absorption/predicted_xz_slice": wandb.Image(pred_xz_abs_norm, caption=f"Epoch {epoch} - Predicted μₐ XZ slice (y=32)"),
+                f"Reconstructions/Absorption/target_xz_slice": wandb.Image(target_xz_abs_norm, caption=f"Epoch {epoch} - Ground Truth μₐ XZ slice (y=32)"),
+                f"Reconstructions/Absorption/predicted_yz_slice": wandb.Image(pred_yz_abs_norm, caption=f"Epoch {epoch} - Predicted μₐ YZ slice (x=32)"),
+                f"Reconstructions/Absorption/target_yz_slice": wandb.Image(target_yz_abs_norm, caption=f"Epoch {epoch} - Ground Truth μₐ YZ slice (x=32)"),
+                
+                # Scattering channel (μ′s) - match Stage 1 exactly
+                f"Reconstructions/Scattering/predicted_xy_slice": wandb.Image(pred_xy_scat_norm, caption=f"Epoch {epoch} - Predicted μ′s XY slice (z=32)"),
+                f"Reconstructions/Scattering/target_xy_slice": wandb.Image(target_xy_scat_norm, caption=f"Epoch {epoch} - Ground Truth μ′s XY slice (z=32)"),
+                f"Reconstructions/Scattering/predicted_xz_slice": wandb.Image(pred_xz_scat_norm, caption=f"Epoch {epoch} - Predicted μ′s XZ slice (y=32)"),
+                f"Reconstructions/Scattering/target_xz_slice": wandb.Image(target_xz_scat_norm, caption=f"Epoch {epoch} - Ground Truth μ′s XZ slice (y=32)"),
+                f"Reconstructions/Scattering/predicted_yz_slice": wandb.Image(pred_yz_scat_norm, caption=f"Epoch {epoch} - Predicted μ′s YZ slice (x=32)"),
+                f"Reconstructions/Scattering/target_yz_slice": wandb.Image(target_yz_scat_norm, caption=f"Epoch {epoch} - Ground Truth μ′s YZ slice (x=32)"),
+            }, step=epoch)  # KEY: Use step=epoch for sliders!
             
             logger.debug(f"✅ Successfully logged Stage 2 reconstruction images for epoch {epoch}")
             
@@ -608,11 +610,10 @@ class Stage2Trainer:
                 total_loss += loss.item()
                 num_batches += 1
                 
-                # Show validation batch progress with standardized format
-                mode = "Enhanced" if self.use_tissue_patches else "Baseline"
+                # Show validation batch progress with standardized format (match Stage 1)
                 logger.info(f"🔍 VALID | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
                            f"RMSE: {loss.item():.4f} | SSIM: {batch_metrics.get('ssim', 0):.4f} | "
-                           f"Mode: {mode}")
+                           f"PSNR: {batch_metrics.get('psnr', 0):.1f}dB")
         
         avg_loss = total_loss / num_batches
         
@@ -622,7 +623,8 @@ class Stage2Trainer:
         
         logger.debug(f"✅ Stage 2 validation completed. Average loss: {avg_loss:.6f}")
         logger.info(f"📊 VALID SUMMARY | RMSE: {avg_loss:.4f} | SSIM: {epoch_metrics['ssim']:.4f} | "
-                   f"PSNR: {epoch_metrics['psnr']:.1f}dB | Enhancement: {epoch_metrics['feature_enhancement_ratio']:.4f}")
+                   f"PSNR: {epoch_metrics['psnr']:.1f}dB | Abs: {epoch_metrics['rmse_absorption']:.4f} | "
+                   f"Scat: {epoch_metrics['rmse_scattering']:.4f}")
         
         return avg_loss, epoch_metrics
     
@@ -650,22 +652,22 @@ class Stage2Trainer:
             >>> trainer.train(data_loaders, epochs=150)
         """
         mode = ENHANCED_MODE if self.use_tissue_patches else BASELINE_MODE
-        logger.info(f"🏋️ Starting Stage 2 training ({mode}) for {epochs} epochs")
+        logger.info(f"🏋️ Starting Transformer training ({mode}) for {epochs} epochs")
         logger.debug(f"📊 Stage 2 configuration: device={self.device}, lr={self.learning_rate}, tissue_patches={self.use_tissue_patches}")
         logger.debug(f"📈 Stage 2 data loaders: train_batches={len(data_loaders['train'])}, val_batches={len(data_loaders['val'])}")
         
         best_val_loss = float('inf')
         
         for epoch in range(epochs):
-            logger.info(f"📅 Starting Stage 2 Epoch {epoch + 1}/{epochs}")
+            logger.info(f"📅 Starting Transformer Epoch {epoch + 1}/{epochs}")
             
             # Train: Update transformer parameters (CNN decoder frozen)
-            logger.debug(f"🏋️  Beginning Stage 2 training phase for epoch {epoch+1}")
+            logger.debug(f"🏋️  Beginning transformer training phase for epoch {epoch+1}")
             train_loss, train_metrics = self.train_epoch(data_loaders['train'])
             logger.info(f"🏋️  TRAIN COMPLETE | Avg RMSE: {train_loss:.4f}")
             
             # Validate: Evaluate hybrid model on unseen data (no parameter updates)
-            logger.debug(f"🔍 Beginning Stage 2 validation phase for epoch {epoch+1}")
+            logger.debug(f"🔍 Beginning transformer validation phase for epoch {epoch+1}")
             val_loss, val_metrics = self.validate(data_loaders['val'])
             logger.info(f"🔍 VALID COMPLETE | Avg RMSE: {val_loss:.4f}")
             
@@ -685,11 +687,11 @@ class Stage2Trainer:
                     "Metrics/PSNR_Train": train_metrics['psnr'],
                     "Metrics/PSNR_Valid": val_metrics['psnr'],
                     
-                    # === STAGE 2 SPECIFIC METRICS ===
-                    "Stage2/Feature_Enhancement_Train": train_metrics['feature_enhancement_ratio'],
-                    "Stage2/Feature_Enhancement_Valid": val_metrics['feature_enhancement_ratio'],
-                    "Stage2/Attention_Entropy_Train": train_metrics['attention_entropy'],
-                    "Stage2/Attention_Entropy_Valid": val_metrics['attention_entropy'],
+                    # === TRANSFORMER SPECIFIC METRICS ===
+                    "Transformer/Feature_Enhancement_Train": train_metrics['feature_enhancement_ratio'],
+                    "Transformer/Feature_Enhancement_Valid": val_metrics['feature_enhancement_ratio'],
+                    "Transformer/Attention_Entropy_Train": train_metrics['attention_entropy'],
+                    "Transformer/Attention_Entropy_Valid": val_metrics['attention_entropy'],
                     
                     # === DETAILED RMSE BREAKDOWN ===
                     "RMSE_Details/Absorption_Train": train_metrics['rmse_absorption'],
@@ -735,12 +737,19 @@ class Stage2Trainer:
                 logger.info(f"📈 Train RMSE: {train_loss:.4f} | Valid RMSE: {val_loss:.4f} | LR: {self.optimizer.param_groups[0]['lr']:.2e}")
                 logger.info(f"📊 Train SSIM: {train_metrics['ssim']:.4f} | Valid SSIM: {val_metrics['ssim']:.4f}")
                 logger.info(f"📊 Train PSNR: {train_metrics['psnr']:.1f}dB | Valid PSNR: {val_metrics['psnr']:.1f}dB")
-                logger.info(f"🧬 Enhancement: {val_metrics['feature_enhancement_ratio']:.4f} | Mode: {mode}")
+                logger.info(f"🔮 Feature Enhancement: {val_metrics['feature_enhancement_ratio']:.4f} | Attention: {val_metrics['attention_entropy']:.4f} | Mode: {mode}")
                 logger.info(f"{'='*80}")
                 
                 # Log GPU stats every progress log interval
                 if torch.cuda.is_available():
                     log_gpu_stats()
+            
+            # Learning rate scheduling (update after validation)
+            old_lr = self.optimizer.param_groups[0]['lr']
+            self.scheduler.step(val_loss)
+            new_lr = self.optimizer.param_groups[0]['lr']
+            if new_lr < old_lr:
+                logger.info(f"📉 Learning Rate Reduced: {old_lr:.2e} → {new_lr:.2e}")
             
             # Save best model
             if val_loss < best_val_loss:
@@ -758,7 +767,7 @@ class Stage2Trainer:
         mode = "Enhanced" if self.use_tissue_patches else "Baseline"
         logger.info(f"")
         logger.info(f"{'='*80}")
-        logger.info(f"✅ STAGE 2 TRAINING COMPLETED ({mode})")
+        logger.info(f"✅ TRANSFORMER TRAINING COMPLETED ({mode})")
         logger.info(f"🏆 Best RMSE Loss: {best_val_loss:.4f}")
         logger.info(f"📊 Total Epochs: {epochs}")
         logger.info(f"{'='*80}")

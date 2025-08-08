@@ -287,12 +287,12 @@ class HybridCNNTransformer(nn.Module):
                 # Stack all measurement features: [batch, n_measurements, 256]
                 all_features = torch.stack(measurement_features, dim=1)
                 
-                # Use spatial attention to aggregate features across measurements
-                # For now, use mean pooling (can be enhanced with learned attention later)
-                cnn_features = torch.mean(all_features, dim=1)  # [batch, 256]
-                attention_weights = None  # Could add measurement-level attention here
+                # Pass ALL measurements as separate tokens to transformer for attention learning
+                # This is the CORRECT approach - transformer should attend across measurements
+                cnn_features = all_features  # [batch, n_measurements, 256]
+                attention_weights = None  # Transformer will provide these
                 
-                logger.debug(f"📦 Aggregated features from {n_measurements} measurements: {cnn_features.shape}")
+                logger.debug(f"📦 Multiple measurement tokens for transformer: {cnn_features.shape}")
                 
             else:
                 logger.debug(f"🔍 Processing ground truth volumes: {dot_measurements.shape}")
@@ -301,18 +301,31 @@ class HybridCNNTransformer(nn.Module):
                     cnn_features = self.cnn_autoencoder.encode(dot_measurements)  # (batch, 256)
                 attention_weights = None
             
-            # Transform features using transformer (expecting 256D CNN features)
+            # Transform features using transformer
             if not cnn_features.requires_grad:
                 cnn_features = cnn_features.detach().requires_grad_(True)
             
-            # Transformer expects 2D CNN features
-            enhanced_features, transformer_attention = self.transformer_encoder(
-                cnn_features,  # [batch, 256] - already correct shape
-                tissue_context=None,  # Tissue context already handled by NIR processor
-                use_tissue_patches=False  # Already integrated in NIR processor
-            )
+            # Handle both single token and multi-token sequences
+            if len(cnn_features.shape) == 2:
+                # Single token case: [batch, 256] (e.g., ground truth input)
+                logger.debug(f"🔧 Single token transformer input: {cnn_features.shape}")
+                enhanced_features, transformer_attention = self.transformer_encoder(
+                    cnn_features,  # [batch, 256]
+                    tissue_context=None,
+                    use_tissue_patches=False
+                )
+            elif len(cnn_features.shape) == 3:
+                # Multi-token case: [batch, n_measurements, 256] (NIR measurements)
+                logger.debug(f"🔧 Multi-token transformer input: {cnn_features.shape}")
+                enhanced_features, transformer_attention = self.transformer_encoder.forward_sequence(
+                    cnn_features,  # [batch, n_measurements, 256]
+                    tissue_context=None,
+                    use_tissue_patches=False
+                )
+            else:
+                raise ValueError(f"Unsupported CNN features shape: {cnn_features.shape}")
             
-            # enhanced_features is already [batch, 256] from transformer
+            # enhanced_features should be [batch, 256] from transformer
             
             # Decode using frozen CNN decoder
             reconstructed = self.cnn_autoencoder.decode(enhanced_features)
@@ -328,7 +341,7 @@ class HybridCNNTransformer(nn.Module):
             if attention_weights is not None:
                 outputs['attention_weights'] = attention_weights
             if transformer_attention is not None:
-                outputs['transformer_attention'] = transformer_attention
+                outputs['attention_weights'] = transformer_attention  # Use attention_weights key for consistency
         
         else:
             # Enhanced error handling with input shape information

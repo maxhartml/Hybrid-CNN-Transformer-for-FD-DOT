@@ -306,19 +306,26 @@ class FeatureEnhancementRatio(nn.Module):
         
         Args:
             enhanced_features (torch.Tensor): Transformer-enhanced features [B, D]
-            cnn_features (torch.Tensor): Original CNN features [B, D]
+            cnn_features (torch.Tensor): Original CNN features [B, D] or [B, N, D] (multi-token)
             
         Returns:
             torch.Tensor: Enhancement ratio value
         """
         logger.debug(f"🏃 Enhancement ratio: enhanced {enhanced_features.shape}, cnn {cnn_features.shape}")
         
+        # Handle multi-token CNN features by aggregating to single vector
+        if len(cnn_features.shape) == 3:  # [B, N, D] -> [B, D]
+            cnn_features_agg = cnn_features.mean(dim=1)
+            logger.debug(f"📦 Aggregated multi-token CNN features: {cnn_features.shape} → {cnn_features_agg.shape}")
+        else:  # [B, D]
+            cnn_features_agg = cnn_features
+        
         # Calculate feature differences
-        feature_diff = enhanced_features - cnn_features
+        feature_diff = enhanced_features - cnn_features_agg
         diff_norm = torch.norm(feature_diff, dim=-1)  # [B]
         
         # Calculate CNN feature magnitude
-        cnn_norm = torch.norm(cnn_features, dim=-1)  # [B]
+        cnn_norm = torch.norm(cnn_features_agg, dim=-1)  # [B]
         
         # Calculate ratio with numerical stability
         ratio = diff_norm / (cnn_norm + ENHANCEMENT_RATIO_EPS)
@@ -360,11 +367,11 @@ class AttentionEntropy(nn.Module):
         
         logger.debug(f"🏃 Attention entropy calculation: weights {attention_weights.shape}")
         
-        # Ensure probabilities are valid (sum to 1 and non-negative)
-        attention_probs = F.softmax(attention_weights, dim=-1)
+        # Attention weights are already probabilities from softmax in transformer
+        attention_probs = attention_weights
         
-        # Add small epsilon for numerical stability
-        attention_probs = attention_probs + ENTROPY_EPS
+        # Add small epsilon for numerical stability (avoid log(0))
+        attention_probs = torch.clamp(attention_probs, min=ENTROPY_EPS, max=1.0)
         
         # Calculate entropy: -sum(p * log(p))
         entropy = -torch.sum(attention_probs * torch.log(attention_probs), dim=-1)
@@ -470,9 +477,11 @@ class NIRDOTMetrics:
         
         # Calculate attention entropy if available
         if attention_weights is not None:
+            logger.debug(f"🎯 Calculating attention entropy with weights shape: {attention_weights.shape}")
             attention_entropy = self.attention_entropy_metric(attention_weights)
             metrics['attention_entropy'] = attention_entropy.item()
         else:
+            logger.debug("⚠️ No attention weights available - setting entropy to 0.0")
             metrics['attention_entropy'] = 0.0
         
         logger.debug(f"📊 Feature metrics: {metrics}")

@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Training Control - Set which stage to run
-CURRENT_TRAINING_STAGE = "stage1"       # Set to "stage1" or "stage2" to control which stage runs
+CURRENT_TRAINING_STAGE = "stage2"       # Set to "stage1" or "stage2" to control which stage runs
 STAGE1_CHECKPOINT_PATH = "checkpoints/stage1_best.pth"  # Path to Stage 1 checkpoint for Stage 2
 
 # W&B Control
@@ -41,33 +41,34 @@ USE_WANDB_LOGGING = True                # Enable/disable Weights & Biases loggin
 # TRAINING HYPERPARAMETERS
 # =============================================================================
 
-# Learning Rates
-LEARNING_RATE_STAGE1 = 5e-5             # CNN autoencoder learning rate
-LEARNING_RATE_STAGE2 = 3e-5             # Transformer learning rate (lower for stability)
+# Learning Rates (optimized for two-stage training)
+LEARNING_RATE_STAGE1 = 5e-5             # CNN autoencoder learning rate (higher for initial feature learning)
+LEARNING_RATE_STAGE2 = 3e-5             # Transformer learning rate (lower for stable fine-tuning on frozen CNN)
 
 # Training Duration
-EPOCHS_STAGE1 = 50                      # Increase for better convergence (was 10)
-EPOCHS_STAGE2 = 100                     # Default epochs for Stage 2
+EPOCHS_STAGE1 = 50                      # Increased for better convergence 
+EPOCHS_STAGE2 = 50                     # Default epochs for Stage 2
 
-# Batch Sizes - AUTO-DETECTED BASED ON HARDWARE
-import torch
-import psutil
-def get_device_optimized_batch_sizes():
-    """Auto-detect optimal batch sizes based on available hardware."""
+# Batch Sizes - CONSISTENT ACROSS BOTH STAGES & AUTO-DETECTED
+def get_optimized_batch_size():
+    """Auto-detect optimal batch size based on available hardware (same for both stages)."""
     if torch.cuda.is_available():
         gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
         if gpu_memory > 30:  # A100 40GB or similar
-            return 32, 16    # Stage1, Stage2
+            return 64        # Increased for better stability and A100 utilization
         elif gpu_memory > 15:  # RTX 3080/4080 class
-            return 16, 8
+            return 32
         elif gpu_memory > 8:   # Smaller GPU
-            return 8, 4
+            return 16
         else:
-            return 4, 4      # Very small GPU
+            return 8         # Very small GPU
     else:
-        return 4, 4          # CPU - your current settings
+        return 4             # CPU fallback
 
-BATCH_SIZE_STAGE1, BATCH_SIZE_STAGE2 = get_device_optimized_batch_sizes()
+# Use consistent batch size for both stages (better for comparison and simplicity)
+BATCH_SIZE = get_optimized_batch_size()
+BATCH_SIZE_STAGE1 = BATCH_SIZE           # Same batch size for both stages
+BATCH_SIZE_STAGE2 = BATCH_SIZE           # Same batch size for both stages
 
 # Data Loading Configuration - OPTIMIZED FOR SERVER
 NUM_WORKERS = min(8, max(1, psutil.cpu_count(logical=False) - 2))  # Use most CPU cores
@@ -83,10 +84,10 @@ EARLY_STOPPING_PATIENCE = 8            # Early stopping patience (epochs)
 GRADIENT_CLIP_MAX_NORM = 1.0            # Maximum gradient norm for clipping (prevents explosion)
 GRADIENT_MONITOR_THRESHOLD = 10.0       # Log warning if gradient norm exceeds this
 
-# Learning Rate Scheduling
-LR_SCHEDULER_PATIENCE = 5               # Learning rate scheduler patience  
-LR_SCHEDULER_FACTOR = 0.5               # Learning rate reduction factor
-LR_MIN = 1e-7                          # Minimum learning rate
+# Learning Rate Scheduling (ReduceLROnPlateau for both Stage 1 & 2)
+LR_SCHEDULER_PATIENCE = 3               # Learning rate scheduler patience (reduce after 3 epochs without improvement)
+LR_SCHEDULER_FACTOR = 0.6               # Learning rate reduction factor (reduce by 40%)
+LR_MIN = 1e-7                          # Minimum learning rate floor
 
 # Progress Logging
 PROGRESS_LOG_INTERVAL = 10              # Log progress every N epochs
@@ -118,7 +119,7 @@ CPU_DEVICE = "cpu"                      # CPU device identifier
 TRAINING_STAGE1 = "stage1"              # Stage 1 identifier
 TRAINING_STAGE2 = "stage2"              # Stage 2 identifier
 USE_TISSUE_PATCHES_STAGE1 = False       # Stage 1 doesn't use tissue patches
-USE_TISSUE_PATCHES_STAGE2 = True        # Stage 2 default tissue patch usage (set to False for baseline mode)
+USE_TISSUE_PATCHES_STAGE2 = False       # Stage 2 BASELINE mode (no tissue patches)
 
 # Mode Configuration
 BASELINE_MODE = "Baseline"              # Baseline training mode name
@@ -142,30 +143,3 @@ def log_gpu_stats():
             logger.warning("⚠️ GPU memory usage >90% - consider reducing batch size")
         elif reserved/total > 0.8:
             logger.warning("⚠️ GPU memory reservation >80% - monitor for potential issues")
-
-def get_optimal_batch_size(model, sample_input, max_memory_gb=35):
-    """Find optimal batch size for given model and GPU memory."""
-    if not torch.cuda.is_available():
-        return 4  # Safe CPU default
-    
-    batch_size = 1
-    while batch_size <= 64:  # Reasonable upper limit
-        try:
-            # Test memory usage with this batch size
-            test_batch = sample_input.repeat(batch_size, 1, 1, 1, 1)
-            
-            torch.cuda.empty_cache()
-            _ = model(test_batch)
-            
-            memory_used = torch.cuda.memory_allocated() / 1024**3
-            if memory_used > max_memory_gb:
-                return batch_size - 1
-                
-            batch_size *= 2
-        except RuntimeError as e:
-            if "out of memory" in str(e):
-                return max(1, batch_size // 2)
-            else:
-                raise e
-    
-    return min(batch_size, 64)

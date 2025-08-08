@@ -136,13 +136,13 @@ class Stage1Trainer:
             weight_decay=weight_decay  # L2 regularization
         )
         
-        # Learning rate scheduler
+        # Learning rate scheduler (ReduceLROnPlateau for adaptive learning)
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer,
-            mode='min',
-            factor=LR_SCHEDULER_FACTOR,           # Reduce LR by half
-            patience=LR_SCHEDULER_PATIENCE,      # Wait 5 epochs before reducing
-            min_lr=LR_MIN          # Minimum learning rate
+            mode='min',                           # Monitor validation loss (minimize)
+            factor=LR_SCHEDULER_FACTOR,           # Reduce LR by 40% (0.6 factor)
+            patience=LR_SCHEDULER_PATIENCE,      # Wait 3 epochs before reducing
+            min_lr=LR_MIN                         # Minimum learning rate floor (1e-7)
         )
         
         # Mixed precision training for A100 optimization (2x speedup + memory savings)
@@ -154,7 +154,8 @@ class Stage1Trainer:
         logger.info(f"{'='*80}")
         logger.info(f"🖥️  Device: {self.device}")
         logger.info(f"📈 Learning Rate: {learning_rate}")
-        logger.info(f"🔒 L2 Regularization: {weight_decay}")
+        logger.info(f"� LR Scheduler: ReduceLROnPlateau (patience={LR_SCHEDULER_PATIENCE}, factor={LR_SCHEDULER_FACTOR})")
+        logger.info(f"�🔒 L2 Regularization: {weight_decay}")
         logger.info(f"⏰ Early Stopping Patience: {early_stopping_patience}")
         if self.scaler:
             logger.info(f"🚀 Mixed Precision: Enabled (A100 Optimized)")
@@ -168,11 +169,6 @@ class Stage1Trainer:
             gpu_name = torch.cuda.get_device_name(0)
             gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
             logger.info(f"🖥️  GPU: {gpu_name} ({gpu_memory:.1f}GB)")
-            
-            # Log optimal batch size detection
-            sample_input = torch.randn(1, 2, 64, 64, 64).to(self.device)
-            optimal_batch = get_optimal_batch_size(self.model, sample_input)
-            logger.info(f"🎯 Optimal Batch Size: {optimal_batch}")
             logger.info(f"🔧 Current Batch Size: {BATCH_SIZE_STAGE1}")
         else:
             logger.info(f"💻 CPU Mode: Enabled")
