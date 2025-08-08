@@ -77,7 +77,7 @@ from code.utils.logging_config import get_data_logger, NIRDOTLogger
 
 # Constants for phantom generation
 MASTER_RANDOM_SEED = 42                      # Master seed for reproducible datasets (change for different datasets)
-DEFAULT_N_PHANTOMS = 3000                    # Number of phantoms to generate for dataset (10 hours @ 12 sec/phantom)
+DEFAULT_N_PHANTOMS = 100                    # Number of phantoms to generate for dataset (10 hours @ 12 sec/phantom)
 DEFAULT_PHANTOM_SHAPE = (64, 64, 64)        # Default cubic phantom dimensions in voxels (power of 2)
 DEFAULT_TISSUE_RADIUS_RANGE = (23, 31)      # Healthy tissue ellipsoid semi-axis range (23-31mm with 1mm voxels)
 DEFAULT_TUMOR_RADIUS_RANGE = (5, 15)        # Tumor ellipsoid semi-axis range (5-15mm with 1mm voxels)

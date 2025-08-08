@@ -36,12 +36,76 @@ source /home/ubuntu/NIR-DOT/venv_diss/bin/activate
 
 ---
 
+## 📺 Tmux Setup (Persistent Sessions)
+
+### Why Use Tmux?
+- ✅ **Survives SSH disconnections** - your job keeps running
+- ✅ **Reconnect anytime** to check progress  
+- ✅ **No interruptions** from network issues
+
+### Basic Tmux Commands
+```bash
+# Create new persistent session
+tmux new -s phantom_generation
+
+# Inside tmux - run your long job
+python -m code.data_processing.data_simulator --count 5000
+
+# DETACH (leave it running): Press Ctrl+B, then D
+# You can now safely disconnect SSH
+
+# Later - reconnect to check progress
+ssh ubuntu@your-server
+tmux attach -t phantom_generation  # Back to your running job!
+
+# List all sessions
+tmux list-sessions
+
+# Kill session when done
+tmux kill-session -t phantom_generation
+```
+
+### Quick Reference
+| Action | Command |
+|--------|---------|
+| **Create session** | `tmux new -s name` |
+| **Detach (keep running)** | `Ctrl+B, then D` |
+| **Reconnect** | `tmux attach -t name` |
+| **List sessions** | `tmux list-sessions` |
+| **Kill session** | `tmux kill-session -t name` |
+
+---
+
 ## 🧬 Phantom Generation
 
-### Generate Training Phantoms
+### Generate Training Phantoms (Long-Running Job)
 ```bash
+# For long phantom generation runs, use tmux for persistence
+tmux new -s phantom_run
+
+# Activate environment inside tmux
+source /home/ubuntu/NIR-DOT/venv_diss/bin/activate
+
 # Generate phantoms for training (adjust count as needed)
-python -m code.data_processing.data_simulator --count 1000 --output_dir data/phantoms/
+python -m code.data_processing.data_simulator --count 5000 --output_dir data/phantoms/
+
+# DETACH to leave running: Ctrl+B, then D
+# Your phantoms will generate even if SSH disconnects!
+```
+
+### Quick Phantom Generation (No Tmux Needed)
+```bash
+# For short runs (< 1 hour)
+python -m code.data_processing.data_simulator --count 100 --output_dir data/phantoms/
+```
+
+### Check Running Jobs
+```bash
+# Reconnect to phantom generation
+tmux attach -t phantom_run
+
+# Or check if running without attaching
+ps aux | grep data_simulator
 ```
 
 ### NIRFASTer Backend Options
@@ -167,10 +231,16 @@ After initial setup, just activate and train:
 ```bash
 source /home/ubuntu/NIR-DOT/venv_diss/bin/activate
 
+# For long training runs, use tmux:
+tmux new -s training_run
+
 # Choose your training mode:
 python -m code.training.stage1_trainer    # Stage 1 only
 python -m code.training.stage2_trainer    # Stage 2 only  
 python -m code.training.train_hybrid_model # Full pipeline
+
+# Detach: Ctrl+B, then D
+# Reconnect later: tmux attach -t training_run
 ```
 
 ---
@@ -200,6 +270,18 @@ nvidia-smi
 htop
 ```
 
+### Tmux Issues
+```bash
+# List all tmux sessions
+tmux list-sessions
+
+# Force kill stuck session
+tmux kill-session -t session_name
+
+# Kill all tmux sessions
+tmux kill-server
+```
+
 ---
 
 ## 💡 Pro Tips
@@ -209,6 +291,9 @@ htop
 - 📊 **Use W&B dashboard** to compare baseline vs enhanced models
 - 🎯 **Start with small phantom counts** (100-200) for testing
 - 🔄 **Toggle tissue patches** via config file - no code changes needed!
+- 📺 **Use tmux for ALL long-running jobs** (>30 minutes)
+- 🔌 **Tmux sessions survive SSH disconnections** - perfect for overnight runs
+- 💰 **Remember to terminate Lambda Labs instance** when completely done!
 
 ---
 
