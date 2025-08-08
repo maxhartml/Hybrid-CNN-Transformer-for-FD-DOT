@@ -148,16 +148,20 @@ class Stage1Trainer:
         # Mixed precision training for A100 optimization (2x speedup + memory savings)
         self.scaler = GradScaler() if self.device.type == 'cuda' else None
         
-        logger.info(f"🏋️  Stage 1 Trainer initialized on {self.device}")
-        logger.info(f"📈 Learning rate: {learning_rate}")
-        logger.info(f"🔒 L2 regularization (weight decay): {weight_decay}")
-        logger.info(f"⏰ Early stopping patience: {early_stopping_patience}")
+        logger.info(f"")
+        logger.info(f"{'='*80}")
+        logger.info(f"🚀 STAGE 1 TRAINING INITIALIZATION")
+        logger.info(f"{'='*80}")
+        logger.info(f"🖥️  Device: {self.device}")
+        logger.info(f"📈 Learning Rate: {learning_rate}")
+        logger.info(f"🔒 L2 Regularization: {weight_decay}")
+        logger.info(f"⏰ Early Stopping Patience: {early_stopping_patience}")
         if self.scaler:
-            logger.info(f"🚀 Mixed precision training enabled for A100 optimization!")
+            logger.info(f"🚀 Mixed Precision: Enabled (A100 Optimized)")
         
         # Log model info
         total_params = sum(p.numel() for p in self.model.parameters())
-        logger.info(f"📊 Model parameters: {total_params:,}")
+        logger.info(f"📊 Model Parameters: {total_params:,}")
         
         # Log GPU info if available
         if torch.cuda.is_available():
@@ -168,10 +172,11 @@ class Stage1Trainer:
             # Log optimal batch size detection
             sample_input = torch.randn(1, 2, 64, 64, 64).to(self.device)
             optimal_batch = get_optimal_batch_size(self.model, sample_input)
-            logger.info(f"🎯 Optimal batch size detected: {optimal_batch}")
-            logger.info(f"🔧 Current batch size: {BATCH_SIZE_STAGE1}")
+            logger.info(f"🎯 Optimal Batch Size: {optimal_batch}")
+            logger.info(f"🔧 Current Batch Size: {BATCH_SIZE_STAGE1}")
         else:
-            logger.info(f"💻 Running on CPU")
+            logger.info(f"💻 CPU Mode: Enabled")
+        logger.info(f"{'='*80}")
         
         # Initialize Weights & Biases
         if self.use_wandb:
@@ -254,11 +259,11 @@ class Stage1Trainer:
             if self.scaler:  # Mixed precision training
                 with autocast():
                     outputs = self.model(ground_truth, tissue_patches=None)
-                    logger.debug(f"📤 Model output shape: {outputs['reconstruction'].shape}")
+                    logger.debug(f"📤 Model output shape: {outputs['reconstructed'].shape}")
                     
                     # Compute loss - reconstruction vs original
                     logger.debug("📏 Computing RMSE loss...")
-                    loss = self.criterion(outputs['reconstruction'], ground_truth)
+                    loss = self.criterion(outputs['reconstructed'], ground_truth)
                 
                 # Backward pass with gradient scaling
                 self.scaler.scale(loss).backward()
@@ -275,11 +280,11 @@ class Stage1Trainer:
                 self.scaler.update()
             else:  # Standard precision training (CPU fallback)
                 outputs = self.model(ground_truth, tissue_patches=None)
-                logger.debug(f"📤 Model output shape: {outputs['reconstruction'].shape}")
+                logger.debug(f"📤 Model output shape: {outputs['reconstructed'].shape}")
                 
                 # Compute loss - reconstruction vs original
                 logger.debug("📏 Computing RMSE loss...")
-                loss = self.criterion(outputs['reconstruction'], ground_truth)
+                loss = self.criterion(outputs['reconstructed'], ground_truth)
                 
                 # Standard backward pass
                 loss.backward()
@@ -310,14 +315,13 @@ class Stage1Trainer:
             total_loss += loss.item()
             num_batches += 1
             
-            # Show batch progress with enhanced metrics
-            logger.info(f"📈 Stage 1 Batch {batch_idx + 1}/{len(data_loader)}: "
-                       f"Loss = {loss.item():.6f}, SSIM = {batch_metrics.get('ssim', 0):.4f}, "
-                       f"PSNR = {batch_metrics.get('psnr', 0):.2f}dB, GradNorm = {grad_norm:.4f}")
+            # Show batch progress with standardized metrics format
+            logger.info(f"🏋️  TRAIN | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
+                       f"RMSE: {loss.item():.4f} | SSIM: {batch_metrics.get('ssim', 0):.4f} | "
+                       f"PSNR: {batch_metrics.get('psnr', 0):.1f}dB")
             
-            # Log GPU memory usage every 20 batches (only on GPU)
-            if torch.cuda.is_available() and batch_idx % 20 == 0:
-                log_gpu_stats()
+            # Log gradient norm at debug level for monitoring training health
+            logger.debug(f"🔧 Batch {batch_idx + 1} | Gradient Norm: {grad_norm:.3f}")
             
             # Additional detailed logging at DEBUG level
             if batch_idx % BATCH_LOG_INTERVAL == 0:  # Log every 5 batches during DEBUG
@@ -331,8 +335,9 @@ class Stage1Trainer:
             epoch_metrics[key] /= num_batches
         
         logger.debug(f"✅ Training epoch completed. Average loss: {avg_loss:.6f}")
-        logger.info(f"📊 Epoch metrics - SSIM: {epoch_metrics['ssim']:.4f}, "
-                   f"PSNR: {epoch_metrics['psnr']:.2f}dB, RMSE: {epoch_metrics['rmse_overall']:.6f}")
+        logger.info(f"📊 TRAIN SUMMARY | RMSE: {avg_loss:.4f} | SSIM: {epoch_metrics['ssim']:.4f} | "
+                   f"PSNR: {epoch_metrics['psnr']:.1f}dB | Abs: {epoch_metrics['rmse_absorption']:.4f} | "
+                   f"Scat: {epoch_metrics['rmse_scattering']:.4f}")
         
         return avg_loss, epoch_metrics
     
@@ -468,10 +473,10 @@ class Stage1Trainer:
                 if self.scaler:  # Mixed precision validation
                     with autocast():
                         outputs = self.model(ground_truth, tissue_patches=None)
-                        loss = self.criterion(outputs['reconstruction'], ground_truth)
+                        loss = self.criterion(outputs['reconstructed'], ground_truth)
                 else:  # Standard precision validation
                     outputs = self.model(ground_truth, tissue_patches=None)
-                    loss = self.criterion(outputs['reconstruction'], ground_truth)
+                    loss = self.criterion(outputs['reconstructed'], ground_truth)
                     
                 logger.debug(f"💰 Validation batch loss: {loss.item():.6f}")
                 
@@ -488,10 +493,10 @@ class Stage1Trainer:
                 total_loss += loss.item()
                 num_batches += 1
                 
-                # Show validation batch progress with enhanced metrics
-                logger.info(f"🔍 Stage 1 Val Batch {batch_idx + 1}/{len(data_loader)}: "
-                           f"Loss = {loss.item():.6f}, SSIM = {batch_metrics.get('ssim', 0):.4f}, "
-                           f"PSNR = {batch_metrics.get('psnr', 0):.2f}dB")
+                # Show validation batch progress with standardized format
+                logger.info(f"🔍 VALID | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
+                           f"RMSE: {loss.item():.4f} | SSIM: {batch_metrics.get('ssim', 0):.4f} | "
+                           f"PSNR: {batch_metrics.get('psnr', 0):.1f}dB")
         
         avg_loss = total_loss / num_batches
         
@@ -500,8 +505,9 @@ class Stage1Trainer:
             epoch_metrics[key] /= num_batches
         
         logger.debug(f"✅ Validation completed. Average loss: {avg_loss:.6f}")
-        logger.info(f"📊 Val metrics - SSIM: {epoch_metrics['ssim']:.4f}, "
-                   f"PSNR: {epoch_metrics['psnr']:.2f}dB, RMSE: {epoch_metrics['rmse_overall']:.6f}")
+        logger.info(f"📊 VALID SUMMARY | RMSE: {avg_loss:.4f} | SSIM: {epoch_metrics['ssim']:.4f} | "
+                   f"PSNR: {epoch_metrics['psnr']:.1f}dB | Abs: {epoch_metrics['rmse_absorption']:.4f} | "
+                   f"Scat: {epoch_metrics['rmse_scattering']:.4f}")
         
         return avg_loss, epoch_metrics
         avg_loss = total_loss / num_batches
@@ -528,45 +534,61 @@ class Stage1Trainer:
             >>> results = trainer.train(data_loaders, epochs=100)
             >>> print(f"Training completed with best loss: {results['best_val_loss']}")
         """
-        logger.info(f"🚀 Starting Stage 1 training for {epochs} epochs")
+        logger.info(f"")
+        logger.info(f"{'='*80}")
+        logger.info(f"🚀 STARTING STAGE 1 TRAINING | {epochs} Epochs")
+        logger.info(f"{'='*80}")
         logger.debug(f"📊 Training configuration: device={self.device}, lr={self.learning_rate}, epochs={epochs}")
         logger.debug(f"📈 Data loaders: train_batches={len(data_loaders['train'])}, val_batches={len(data_loaders['val'])}")
         
         best_val_loss = float('inf')
         
         for epoch in range(epochs):
-            logger.info(f"📅 Starting Epoch {epoch + 1}/{epochs}")
+            logger.info(f"")
+            logger.info(f"📅 EPOCH {epoch + 1}/{epochs}")
+            logger.info(f"{'-'*40}")
             
             # Train: Update model parameters using training data
             logger.debug(f"🏋️  Beginning training phase for epoch {epoch+1}")
             train_loss, train_metrics = self.train_epoch(data_loaders['train'])
-            logger.info(f"🏋️  Training completed - Average Loss: {train_loss:.6f}")
+            logger.info(f"🏋️  TRAIN COMPLETE | Avg RMSE: {train_loss:.4f}")
             
             # Validate: Evaluate on unseen data (no parameter updates) 
             # We validate every epoch to: 1) Monitor overfitting, 2) Save best models, 3) Track progress
             logger.debug(f"🔍 Beginning validation phase for epoch {epoch+1}")
             val_loss, val_metrics = self.validate(data_loaders['val'])
-            logger.info(f"🔍 Validation completed - Average Loss: {val_loss:.6f}")
+            logger.info(f"🔍 VALID COMPLETE | Avg RMSE: {val_loss:.4f}")
             
             # Log enhanced metrics to W&B
             if self.use_wandb:
-                # Log training metrics
-                train_metrics['loss'] = train_loss
-                self.metrics.log_to_wandb(train_metrics, epoch + 1, "train", self.use_wandb)
+                # Use consistent step value throughout this epoch (epoch + 1)
+                current_step = epoch + 1
                 
-                # Log validation metrics
-                val_metrics['loss'] = val_loss
-                self.metrics.log_to_wandb(val_metrics, epoch + 1, "val", self.use_wandb)
-                
-                # Legacy charts for backward compatibility
+                # Log comprehensive metrics in organized format
                 wandb.log({
-                    "Charts/train_loss": train_loss,
-                    "Charts/val_loss": val_loss,
-                    "Charts/learning_rate": self.optimizer.param_groups[0]['lr'],
-                    "Charts/train_val_loss_ratio": train_loss / val_loss if val_loss > 0 else 0,
-                    "Charts/ssim_diff": val_metrics['ssim'] - train_metrics['ssim'],
-                    "Charts/psnr_diff": val_metrics['psnr'] - train_metrics['psnr'],
-                }, step=epoch + 1)
+                    # === PRIMARY METRICS (most important) ===
+                    "Metrics/RMSE_Overall_Train": train_loss,
+                    "Metrics/RMSE_Overall_Valid": val_loss,
+                    "Metrics/SSIM_Train": train_metrics['ssim'],
+                    "Metrics/SSIM_Valid": val_metrics['ssim'],
+                    "Metrics/PSNR_Train": train_metrics['psnr'],
+                    "Metrics/PSNR_Valid": val_metrics['psnr'],
+                    
+                    # === DETAILED RMSE BREAKDOWN ===
+                    "RMSE_Details/Absorption_Train": train_metrics['rmse_absorption'],
+                    "RMSE_Details/Absorption_Valid": val_metrics['rmse_absorption'],
+                    "RMSE_Details/Scattering_Train": train_metrics['rmse_scattering'],
+                    "RMSE_Details/Scattering_Valid": val_metrics['rmse_scattering'],
+                    
+                    # === TRAINING SYSTEM ===
+                    "System/Learning_Rate": self.optimizer.param_groups[0]['lr'],
+                    "System/Epoch": current_step,
+                    
+                    # === ANALYSIS METRICS ===
+                    "Analysis/Train_Valid_RMSE_Ratio": train_loss / val_loss if val_loss > 0 else 0,
+                    "Analysis/SSIM_Improvement": val_metrics['ssim'] - train_metrics['ssim'],
+                    "Analysis/PSNR_Improvement": val_metrics['psnr'] - train_metrics['psnr'],
+                }, step=current_step)
                 
                 # Log reconstruction images periodically (and always on first/last epoch)
                 should_log_images = (epoch % LOG_IMAGES_EVERY == 0) or (epoch == 0) or (epoch == epochs - 1)
@@ -577,21 +599,31 @@ class Stage1Trainer:
                         ground_truth = sample_batch['ground_truth'].to(self.device)
                         with torch.no_grad():
                             outputs = self.model(ground_truth, tissue_patches=None)
-                        self._log_reconstruction_images(outputs['reconstruction'], ground_truth, epoch + 1)
+                        self._log_reconstruction_images(outputs['reconstructed'], ground_truth, current_step)
                     except Exception as e:
                         logger.warning(f"⚠️ Failed to log images at epoch {epoch + 1}: {e}")
             
-            # Print progress
+            # Print epoch summary with clear visual formatting
             if epoch % PROGRESS_LOG_INTERVAL == 0 or epoch == epochs - FINAL_EPOCH_OFFSET:
-                logger.info(f"📈 Epoch {epoch+1:3d}/{epochs}: Train Loss: {train_loss:.6f}, "
-                           f"Val Loss: {val_loss:.6f}, LR: {self.optimizer.param_groups[0]['lr']:.2e}")
+                logger.info(f"")
+                logger.info(f"{'='*80}")
+                logger.info(f"� EPOCH {epoch+1:3d}/{epochs} SUMMARY")
+                logger.info(f"{'='*80}")
+                logger.info(f"📈 Train RMSE: {train_loss:.4f} | Valid RMSE: {val_loss:.4f} | LR: {self.optimizer.param_groups[0]['lr']:.2e}")
+                logger.info(f"📊 Train SSIM: {train_metrics['ssim']:.4f} | Valid SSIM: {val_metrics['ssim']:.4f}")
+                logger.info(f"📊 Train PSNR: {train_metrics['psnr']:.1f}dB | Valid PSNR: {val_metrics['psnr']:.1f}dB")
+                logger.info(f"{'='*80}")
+                
+                # Log GPU stats every progress log interval
+                if torch.cuda.is_available():
+                    log_gpu_stats()
             
             # Learning rate scheduling
             old_lr = self.optimizer.param_groups[0]['lr']
             self.scheduler.step(val_loss)
             new_lr = self.optimizer.param_groups[0]['lr']
             if new_lr < old_lr:
-                logger.info(f"📉 Learning rate reduced: {old_lr:.2e} → {new_lr:.2e}")
+                logger.info(f"� Learning Rate Reduced: {old_lr:.2e} → {new_lr:.2e}")
             
             # Early stopping and best model tracking
             if val_loss < self.best_val_loss:
@@ -599,7 +631,7 @@ class Stage1Trainer:
                 self.best_val_loss = val_loss
                 self.patience_counter = 0  # Reset patience counter
                 checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_STAGE1}"
-                logger.info(f"🎉 New best model! Improvement: {improvement:.6f} → Best validation loss: {self.best_val_loss:.6f}")
+                logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best RMSE: {self.best_val_loss:.4f}")
                 logger.debug(f"💾 Checkpoint path: {checkpoint_path}")
                 self.save_checkpoint(checkpoint_path, epoch, val_loss)
                 logger.debug(f"💾 New best model saved at epoch {epoch+1}")
@@ -609,23 +641,29 @@ class Stage1Trainer:
                 
                 # Check for early stopping
                 if self.patience_counter >= self.early_stopping_patience:
-                    logger.info(f"🛑 Early stopping triggered at epoch {epoch+1}")
+                    logger.info(f"")
+                    logger.info(f"🛑 EARLY STOPPING TRIGGERED")
                     logger.info(f"🔄 No improvement for {self.early_stopping_patience} epochs")
-                    logger.info(f"🏆 Best validation loss: {self.best_val_loss:.6f}")
+                    logger.info(f"🏆 Best RMSE achieved: {self.best_val_loss:.4f}")
                     self.early_stopped = True
                     break
         
         # Training completion message
+        logger.info(f"")
+        logger.info(f"{'='*80}")
         if self.early_stopped:
-            logger.info(f"✅ Stage 1 training stopped early! Best val loss: {self.best_val_loss:.6f}")
+            logger.info(f"✅ STAGE 1 TRAINING COMPLETED (Early Stopped)")
         else:
-            logger.info(f"✅ Stage 1 training complete! Best val loss: {self.best_val_loss:.6f}")
+            logger.info(f"✅ STAGE 1 TRAINING COMPLETED (Full {epochs} Epochs)")
+        logger.info(f"🏆 Best RMSE Loss: {self.best_val_loss:.4f}")
+        logger.info(f"📊 Final Epoch: {epoch+1}")
+        logger.info(f"{'='*80}")
         
         logger.debug(f"🏁 Training summary: Completed epochs: {epoch+1}, Final best loss: {self.best_val_loss:.6f}")
         
         # Finish W&B run
         if self.use_wandb:
-            wandb.log({"System/final_best_val_loss": self.best_val_loss, "System/early_stopped": self.early_stopped})
+            wandb.log({"System/final_best_val_loss": self.best_val_loss, "System/early_stopped": self.early_stopped}, commit=False)
             wandb.finish()
             logger.info("🔬 W&B experiment finished")
         

@@ -7,7 +7,29 @@ focusing on training transformer components while keeping the pre-trained
 CNN decoder frozen. This approach leverages the robust feature representations
 learned in Stage 1 while adding sophisticated spatial modeling capabilities.
 
-The training process supports both baseline and enhanced modes:
+The trainin            # Show batch progress with standardized metrics format
+            mode = "Enhanced" if self.use_tissue_patches else "Baseline"
+            logger.info(f"🏋️  TRAIN | Batch {batch_idx + 1:2d}/{len(data_loader):2d} |        mode = ENHANCED_MODE if self.use_tissue_patches else BASELINE_MODE
+        logger.info(f"")
+        logger.info(f"{'='*80}")
+        logger.info(f"🚀 STARTING STAGE 2 TRAINING ({mode}) | {epochs} Epochs")
+        logger.info(f"{'='*80}")
+        logger.debug(f"📊 Training configuration: device={self.device}, lr={self.learning_rate}, epochs={epochs}")
+        logger.debug(f"📈 Data loaders: train_batches={len(data_loaders['train'])}, val_batches={len(data_loaders['val'])}")
+        
+        best_val_loss = float('inf')
+        
+        for epoch in range(epochs):
+            logger.info(f"")
+            logger.info(f"📅 EPOCH {epoch + 1}/{epochs}")
+            logger.info(f"{'-'*40}")                 f"RMSE: {loss.item():.4f} | Mode: {mode}")
+            
+            # Log gradient norm at debug level for monitoring training health
+            logger.debug(f"🔧 Batch {batch_idx + 1} | Gradient Norm: {grad_norm:.3f}")
+            
+            # Additional detailed logging at DEBUG level
+            if batch_idx % 5 == 0:  # Log every 5 batches during DEBUG
+                logger.debug(f"🔍 Detailed: Stage 2 Batch {batch_idx}: Loss = {loss.item():.6f}, Running Avg = {total_loss/num_batches:.6f}")s supports both baseline and enhanced modes:
 - Baseline: Transformer training without tissue context
 - Enhanced: Transformer training with tissue patch integration for improved
   spatial awareness and context-sensitive reconstruction
@@ -168,22 +190,27 @@ class Stage2Trainer:
         self.scaler = GradScaler() if self.device.type == 'cuda' else None
         
         mode = ENHANCED_MODE if use_tissue_patches else BASELINE_MODE
-        logger.info(f"🏋️  Stage 2 Trainer initialized on {self.device} ({mode})")
-        logger.info(f"📈 Learning rate: {learning_rate}")
-        logger.info(f"🔒 L2 regularization (weight decay): {weight_decay}")
-        logger.info(f"⏰ Early stopping patience: {early_stopping_patience}")
-        logger.info(f"🧬 Use tissue patches: {use_tissue_patches}")
+        logger.info(f"")
+        logger.info(f"{'='*80}")
+        logger.info(f"🚀 STAGE 2 TRAINING INITIALIZATION ({mode})")
+        logger.info(f"{'='*80}")
+        logger.info(f"🖥️  Device: {self.device}")
+        logger.info(f"📈 Learning Rate: {learning_rate}")
+        logger.info(f"🔒 L2 Regularization: {weight_decay}")
+        logger.info(f"⏰ Early Stopping Patience: {early_stopping_patience}")
+        logger.info(f"🧬 Tissue Patches: {use_tissue_patches}")
         if self.scaler:
-            logger.info(f"🚀 Mixed precision training enabled for A100 optimization!")
+            logger.info(f"🚀 Mixed Precision: Enabled (A100 Optimized)")
         
         # Log GPU info if available
         if torch.cuda.is_available():
             gpu_name = torch.cuda.get_device_name(0)
             gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
             logger.info(f"🖥️  GPU: {gpu_name} ({gpu_memory:.1f}GB)")
-            logger.info(f"🔧 Current batch size: {BATCH_SIZE_STAGE2}")
+            logger.info(f"🔧 Current Batch Size: {BATCH_SIZE_STAGE2}")
         else:
-            logger.info(f"💻 Running on CPU")
+            logger.info(f"💻 CPU Mode: Enabled")
+        logger.info(f"{'='*80}")
         
         # Initialize Weights & Biases
         if self.use_wandb:
@@ -381,11 +408,11 @@ class Stage2Trainer:
                 # The hybrid model handles: NIR measurements (batch, 256_subsampled, 8) → transformer → CNN decoder → reconstruction
                 # Note: 256 measurements are subsampled from 1000 generated measurements for data augmentation
                 outputs = self.model(nir_measurements, tissue_patches)
-                logger.debug(f"📤 Stage 2 model output shape: {outputs['reconstruction'].shape}")
+                logger.debug(f"📤 Stage 2 model output shape: {outputs['reconstructed'].shape}")
                 
                 # Compute loss
                 logger.debug("📏 Computing Stage 2 RMSE loss...")
-                loss = self.criterion(outputs['reconstruction'], targets)
+                loss = self.criterion(outputs['reconstructed'], targets)
                 logger.debug(f"💰 Stage 2 batch loss: {loss.item():.6f}")
             
             # Backward pass with mixed precision scaling
@@ -411,6 +438,17 @@ class Stage2Trainer:
             total_loss += loss.item()
             num_batches += 1
             
+            # Calculate enhanced metrics for this batch
+            with torch.no_grad():
+                batch_metrics = calculate_batch_metrics(
+                    self.metrics, outputs, targets, "stage2"
+                )
+                
+                # Accumulate metrics
+                for key, value in batch_metrics.items():
+                    if key in epoch_metrics:
+                        epoch_metrics[key] += value
+            
             # Show batch progress at INFO level (every batch)
             mode = "Enhanced" if self.use_tissue_patches else "Baseline"
             logger.info(f"📈 Stage 2 {mode} Batch {batch_idx + 1}/{len(data_loader)}: "
@@ -421,8 +459,16 @@ class Stage2Trainer:
                 logger.debug(f"� Detailed: Stage 2 Batch {batch_idx}: Loss = {loss.item():.6f}, Running Avg = {total_loss/num_batches:.6f}")
         
         avg_loss = total_loss / num_batches
+        
+        # Average metrics across epoch
+        for key in epoch_metrics:
+            epoch_metrics[key] /= num_batches
+        
         logger.debug(f"✅ Stage 2 training epoch completed. Average loss: {avg_loss:.6f}")
-        return avg_loss
+        logger.info(f"📊 TRAIN SUMMARY | RMSE: {avg_loss:.4f} | SSIM: {epoch_metrics['ssim']:.4f} | "
+                   f"PSNR: {epoch_metrics['psnr']:.1f}dB | Enhancement: {epoch_metrics['feature_enhancement_ratio']:.4f}")
+        
+        return avg_loss, epoch_metrics
     
     def _log_reconstruction_images(self, predictions, targets, nir_measurements, epoch):
         """Log 3D reconstruction slices to W&B for Stage 2 visualization."""
@@ -546,7 +592,7 @@ class Stage2Trainer:
                 logger.debug("⚡ Stage 2 validation forward pass (no gradients)...")
                 with autocast():
                     outputs = self.model(nir_measurements, tissue_patches)
-                    loss = self.criterion(outputs['reconstruction'], targets)
+                    loss = self.criterion(outputs['reconstructed'], targets)
                     logger.debug(f"💰 Stage 2 validation batch loss: {loss.item():.6f}")
                 
                 # Calculate enhanced metrics including feature analysis
@@ -562,11 +608,11 @@ class Stage2Trainer:
                 total_loss += loss.item()
                 num_batches += 1
                 
-                # Show validation batch progress with enhanced metrics
+                # Show validation batch progress with standardized format
                 mode = "Enhanced" if self.use_tissue_patches else "Baseline"
-                logger.info(f"🔍 Stage 2 {mode} Val Batch {batch_idx + 1}/{len(data_loader)}: "
-                           f"Loss = {loss.item():.6f}, SSIM = {batch_metrics.get('ssim', 0):.4f}, "
-                           f"Enhancement = {batch_metrics.get('feature_enhancement_ratio', 0):.4f}")
+                logger.info(f"🔍 VALID | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
+                           f"RMSE: {loss.item():.4f} | SSIM: {batch_metrics.get('ssim', 0):.4f} | "
+                           f"Mode: {mode}")
         
         avg_loss = total_loss / num_batches
         
@@ -575,8 +621,8 @@ class Stage2Trainer:
             epoch_metrics[key] /= num_batches
         
         logger.debug(f"✅ Stage 2 validation completed. Average loss: {avg_loss:.6f}")
-        logger.info(f"📊 Stage 2 val metrics - SSIM: {epoch_metrics['ssim']:.4f}, "
-                   f"PSNR: {epoch_metrics['psnr']:.2f}dB, Enhancement: {epoch_metrics['feature_enhancement_ratio']:.4f}")
+        logger.info(f"📊 VALID SUMMARY | RMSE: {avg_loss:.4f} | SSIM: {epoch_metrics['ssim']:.4f} | "
+                   f"PSNR: {epoch_metrics['psnr']:.1f}dB | Enhancement: {epoch_metrics['feature_enhancement_ratio']:.4f}")
         
         return avg_loss, epoch_metrics
     
@@ -616,37 +662,51 @@ class Stage2Trainer:
             # Train: Update transformer parameters (CNN decoder frozen)
             logger.debug(f"🏋️  Beginning Stage 2 training phase for epoch {epoch+1}")
             train_loss, train_metrics = self.train_epoch(data_loaders['train'])
-            logger.info(f"🏋️  Stage 2 Training completed - Average Loss: {train_loss:.6f}")
+            logger.info(f"🏋️  TRAIN COMPLETE | Avg RMSE: {train_loss:.4f}")
             
             # Validate: Evaluate hybrid model on unseen data (no parameter updates)
             logger.debug(f"🔍 Beginning Stage 2 validation phase for epoch {epoch+1}")
             val_loss, val_metrics = self.validate(data_loaders['val'])
-            logger.info(f"🔍 Stage 2 Validation completed - Average Loss: {val_loss:.6f}")
+            logger.info(f"🔍 VALID COMPLETE | Avg RMSE: {val_loss:.4f}")
             
             # Log enhanced metrics to W&B
             if self.use_wandb:
                 mode = "Enhanced" if self.use_tissue_patches else "Baseline"
+                # Use consistent step value throughout this epoch (epoch + 1)
+                current_step = epoch + 1
                 
-                # Log training metrics
-                train_metrics['loss'] = train_loss
-                self.metrics.log_to_wandb(train_metrics, epoch + 1, "train", self.use_wandb)
-                
-                # Log validation metrics
-                val_metrics['loss'] = val_loss
-                self.metrics.log_to_wandb(val_metrics, epoch + 1, "val", self.use_wandb)
-                
-                # Legacy charts for backward compatibility
+                # Log comprehensive metrics in organized format
                 wandb.log({
-                    "Charts/train_loss": train_loss,
-                    "Charts/val_loss": val_loss,
-                    "Charts/learning_rate": self.optimizer.param_groups[0]['lr'],
-                    "Charts/train_val_loss_ratio": train_loss / val_loss if val_loss > 0 else 0,
-                    "Charts/ssim_diff": val_metrics['ssim'] - train_metrics['ssim'],
-                    "Charts/psnr_diff": val_metrics['psnr'] - train_metrics['psnr'],
-                    "Charts/enhancement_ratio": val_metrics['feature_enhancement_ratio'],
-                    "Charts/attention_entropy": val_metrics['attention_entropy'],
-                    "System/mode": mode,
-                }, step=epoch + 1)
+                    # === PRIMARY METRICS (most important) ===
+                    "Metrics/RMSE_Overall_Train": train_loss,
+                    "Metrics/RMSE_Overall_Valid": val_loss,
+                    "Metrics/SSIM_Train": train_metrics['ssim'],
+                    "Metrics/SSIM_Valid": val_metrics['ssim'],
+                    "Metrics/PSNR_Train": train_metrics['psnr'],
+                    "Metrics/PSNR_Valid": val_metrics['psnr'],
+                    
+                    # === STAGE 2 SPECIFIC METRICS ===
+                    "Stage2/Feature_Enhancement_Train": train_metrics['feature_enhancement_ratio'],
+                    "Stage2/Feature_Enhancement_Valid": val_metrics['feature_enhancement_ratio'],
+                    "Stage2/Attention_Entropy_Train": train_metrics['attention_entropy'],
+                    "Stage2/Attention_Entropy_Valid": val_metrics['attention_entropy'],
+                    
+                    # === DETAILED RMSE BREAKDOWN ===
+                    "RMSE_Details/Absorption_Train": train_metrics['rmse_absorption'],
+                    "RMSE_Details/Absorption_Valid": val_metrics['rmse_absorption'],
+                    "RMSE_Details/Scattering_Train": train_metrics['rmse_scattering'],
+                    "RMSE_Details/Scattering_Valid": val_metrics['rmse_scattering'],
+                    
+                    # === TRAINING SYSTEM ===
+                    "System/Learning_Rate": self.optimizer.param_groups[0]['lr'],
+                    "System/Epoch": current_step,
+                    "System/Mode": mode,
+                    
+                    # === ANALYSIS METRICS ===
+                    "Analysis/Train_Valid_RMSE_Ratio": train_loss / val_loss if val_loss > 0 else 0,
+                    "Analysis/SSIM_Improvement": val_metrics['ssim'] - train_metrics['ssim'],
+                    "Analysis/PSNR_Improvement": val_metrics['psnr'] - train_metrics['psnr'],
+                }, step=current_step)
                 
                 # Log reconstruction images periodically (and always on first/last epoch)
                 should_log_images = (epoch % LOG_IMAGES_EVERY == 0) or (epoch == 0) or (epoch == epochs - 1)
@@ -662,13 +722,25 @@ class Stage2Trainer:
                         
                         with torch.no_grad():
                             outputs = self.model(measurements, tissue_patches)
-                        self._log_reconstruction_images(outputs['reconstruction'], targets, measurements, epoch + 1)
+                        self._log_reconstruction_images(outputs['reconstructed'], targets, measurements, current_step)
                     except Exception as e:
                         logger.warning(f"⚠️ Failed to log Stage 2 images at epoch {epoch + 1}: {e}")
             
-            # Print progress
-            if epoch % PROGRESS_LOG_INTERVAL == 0 or epoch == epochs - 1:
-                logger.info(f"📈 Stage 2 Epoch {epoch+1:3d}/{epochs}: Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}")
+            # Print epoch summary with clear visual formatting
+            if epoch % PROGRESS_LOG_INTERVAL == 0 or epoch == epochs - FINAL_EPOCH_OFFSET:
+                logger.info(f"")
+                logger.info(f"{'='*80}")
+                logger.info(f"🚀 EPOCH {epoch+1:3d}/{epochs} SUMMARY")
+                logger.info(f"{'='*80}")
+                logger.info(f"📈 Train RMSE: {train_loss:.4f} | Valid RMSE: {val_loss:.4f} | LR: {self.optimizer.param_groups[0]['lr']:.2e}")
+                logger.info(f"📊 Train SSIM: {train_metrics['ssim']:.4f} | Valid SSIM: {val_metrics['ssim']:.4f}")
+                logger.info(f"📊 Train PSNR: {train_metrics['psnr']:.1f}dB | Valid PSNR: {val_metrics['psnr']:.1f}dB")
+                logger.info(f"🧬 Enhancement: {val_metrics['feature_enhancement_ratio']:.4f} | Mode: {mode}")
+                logger.info(f"{'='*80}")
+                
+                # Log GPU stats every progress log interval
+                if torch.cuda.is_available():
+                    log_gpu_stats()
             
             # Save best model
             if val_loss < best_val_loss:
@@ -676,21 +748,26 @@ class Stage2Trainer:
                 best_val_loss = val_loss
                 checkpoint_filename = CHECKPOINT_STAGE2_ENHANCED if self.use_tissue_patches else CHECKPOINT_STAGE2_BASELINE
                 checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{checkpoint_filename}"
-                logger.info(f"🎉 New best Stage 2 model! Improvement: {improvement:.6f} -> Saving checkpoint")
+                logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best RMSE: {best_val_loss:.4f}")
                 logger.debug(f"💾 Stage 2 checkpoint path: {checkpoint_path}")
                 self.save_checkpoint(checkpoint_path, epoch, val_loss)
                 logger.debug(f"💾 New best Stage 2 model saved at epoch {epoch}")
             else:
                 logger.debug(f"📊 Stage 2 no improvement. Current: {val_loss:.6f}, Best: {best_val_loss:.6f}")
         
-        logger.info(f"✅ Stage 2 training complete! Best val loss: {best_val_loss:.6f}")
+        mode = "Enhanced" if self.use_tissue_patches else "Baseline"
+        logger.info(f"")
+        logger.info(f"{'='*80}")
+        logger.info(f"✅ STAGE 2 TRAINING COMPLETED ({mode})")
+        logger.info(f"🏆 Best RMSE Loss: {best_val_loss:.4f}")
+        logger.info(f"📊 Total Epochs: {epochs}")
+        logger.info(f"{'='*80}")
+        
         logger.debug(f"🏁 Stage 2 training summary: Total epochs: {epochs}, Final best loss: {best_val_loss:.6f}")
         
         # Finish W&B run
         if self.use_wandb:
-            mode = "enhanced" if self.use_tissue_patches else "baseline"
-            mode = "Enhanced" if self.use_tissue_patches else "Baseline"
-            wandb.log({f"System/final_best_val_loss": best_val_loss, f"System/final_mode": mode})
+            wandb.log({f"System/final_best_val_loss": best_val_loss, f"System/final_mode": mode}, commit=False)
             wandb.finish()
             logger.info("🔬 W&B Stage 2 experiment finished")
         

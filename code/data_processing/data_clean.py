@@ -478,8 +478,9 @@ class DatasetCleaner:
 def main():
     """Main execution function"""
     
-    # Configure data directory
-    data_directory = Path("/Users/maxhart/Documents/MSc_AI_ML/Dissertation/mah422/data")
+    # Configure data directory (auto-detect based on script location)
+    script_dir = Path(__file__).parent.parent.parent  # Go up to NIR-DOT root
+    data_directory = script_dir / "data"
     
     if not data_directory.exists():
         logger.error(f"Data directory not found: {data_directory}")

@@ -162,8 +162,12 @@ class SSIMMetric(nn.Module):
             pred_c = pred[:, c:c+1, ...]  # [B, 1, D, H, W]
             target_c = target[:, c:c+1, ...]  # [B, 1, D, H, W]
             
-            # Ensure same device
-            window = self.window.to(pred_c.device)
+            # Ensure same device and dtype for mixed precision compatibility
+            # Convert both to the same dtype (prefer float32 for stability)
+            common_dtype = torch.float32
+            pred_c = pred_c.to(dtype=common_dtype)
+            target_c = target_c.to(dtype=common_dtype)
+            window = self.window.to(pred_c.device, dtype=common_dtype)
             
             # Constants for SSIM
             c1 = (self.k1 * self.data_range) ** 2
@@ -534,8 +538,8 @@ class NIRDOTMetrics:
             # Add epoch
             formatted_metrics["epoch"] = epoch
             
-            # Log to W&B
-            wandb.log(formatted_metrics)
+            # Log to W&B with step parameter to maintain consistency
+            wandb.log(formatted_metrics, step=epoch)
             logger.debug(f"📤 Logged metrics to W&B: {mode} epoch {epoch}")
             
         except ImportError:
@@ -575,7 +579,7 @@ def calculate_batch_metrics(metrics: NIRDOTMetrics, outputs: Dict[str, torch.Ten
     Returns:
         Dict[str, float]: Batch metrics
     """
-    pred = outputs['reconstruction']
+    pred = outputs['reconstructed']
     
     if stage == "stage1":
         return metrics.calculate_reconstruction_metrics(pred, targets)

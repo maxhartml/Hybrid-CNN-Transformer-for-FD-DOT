@@ -58,8 +58,8 @@ DROP_INCOMPLETE_BATCHES = True
 H5_KEYS = {
     'log_amplitude': 'log_amplitude',
     'phase': 'phase',
-    'source_pos': 'source_pos',
-    'det_pos': 'det_pos',
+    'source_pos': 'source_positions',
+    'det_pos': 'detector_positions',
     'ground_truth': 'ground_truth'
 }
 
@@ -107,14 +107,25 @@ def extract_tissue_patches_from_measurements(ground_truth: np.ndarray,
     voxel_size_mm = 1.0
     vol_center_mm = vol_extent_mm / 2
     
+    # Debug: Check position ranges
+    src_min, src_max = source_positions[measurement_indices].min(axis=0), source_positions[measurement_indices].max(axis=0)
+    det_min, det_max = detector_positions[measurement_indices].min(axis=0), detector_positions[measurement_indices].max(axis=0)
+    logger.debug(f"Source position range: {src_min} to {src_max}")
+    logger.debug(f"Detector position range: {det_min} to {det_max}")
+    
     for i, meas_idx in enumerate(measurement_indices):
         # Get source and detector positions for this measurement (in mm)
         src_pos_mm = source_positions[meas_idx]  # [x, y, z] in mm
         det_pos_mm = detector_positions[meas_idx]  # [x, y, z] in mm
         
         # Convert positions from mm to voxel indices (assuming volume centered at origin)
+        # Clamp to ensure positions are within volume bounds
         src_voxel = np.round(src_pos_mm + vol_center_mm).astype(int)  # Center at (32, 32, 32)
         det_voxel = np.round(det_pos_mm + vol_center_mm).astype(int)
+        
+        # Clamp positions to volume bounds
+        src_voxel = np.clip(src_voxel, 0, vol_extent_mm - 1)
+        det_voxel = np.clip(det_voxel, 0, vol_extent_mm - 1)
         
         positions = [src_voxel, det_voxel]
         
@@ -162,6 +173,16 @@ def extract_tissue_patches_from_measurements(ground_truth: np.ndarray,
             # Convert concatenated format to interleaved format for compatibility
             absorption_flat = patch_absorption.flatten()  # 16^3 values
             scattering_flat = patch_scattering.flatten()   # 16^3 values
+            
+            # Debug: Check if patches have meaningful content
+            if i == 0 and patch_idx == 0:  # Log for first patch only
+                absorption_nonzero = np.count_nonzero(absorption_flat)
+                scattering_nonzero = np.count_nonzero(scattering_flat)
+                total_voxels = len(absorption_flat)
+                logger.debug(f"First patch content: absorption {absorption_nonzero}/{total_voxels} nonzero, "
+                           f"scattering {scattering_nonzero}/{total_voxels} nonzero")
+                logger.debug(f"Patch stats: abs range [{absorption_flat.min():.4f}, {absorption_flat.max():.4f}], "
+                           f"scat range [{scattering_flat.min():.4f}, {scattering_flat.max():.4f}]")
             
             # Create interleaved format: [μ_a[0], μ_s[0], μ_a[1], μ_s[1], ...]
             interleaved_patch = np.zeros(patch_volume * 2, dtype=np.float32)
@@ -333,10 +354,10 @@ class NIRPhantomDataset(Dataset):
                 # 📊 TISSUE PATCH QUALITY MONITORING: Basic sanity check
                 tissue_tensor = torch.tensor(tissue_patches, dtype=torch.float32)
                 zero_ratio = (tissue_tensor == 0).float().mean()
-                if zero_ratio > 0.85:
-                    logger.warning(f"⚠️ High zero content in tissue patches: {zero_ratio:.1%} for phantom {phantom_id}")
+                if zero_ratio > 0.98:  # Only warn for extremely high zero content (>98%)
+                    logger.debug(f"⚠️ Very high zero content in tissue patches: {zero_ratio:.1%} for phantom {phantom_id}")
                 elif zero_ratio < 0.3:
-                    logger.info(f"📍 Unusually low zero content: {zero_ratio:.1%} for phantom {phantom_id}")
+                    logger.debug(f"📍 Unusually low zero content: {zero_ratio:.1%} for phantom {phantom_id}")
                 else:
                     logger.debug(f"✅ Normal tissue patch quality: {zero_ratio:.1%} zeros for phantom {phantom_id}")
                 

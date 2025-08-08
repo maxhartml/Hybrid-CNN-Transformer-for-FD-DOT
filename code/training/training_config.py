@@ -21,6 +21,10 @@ Date: August 2025
 
 import torch
 import psutil
+import logging
+
+# Get logger for this module
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # TRAINING CONTROL - SET WHICH STAGE TO RUN
@@ -131,11 +135,13 @@ def log_gpu_stats():
         reserved = torch.cuda.memory_reserved() / 1024**3
         total = torch.cuda.get_device_properties(0).total_memory / 1024**3
         
-        print(f"🖥️  GPU Memory: {allocated:.1f}GB allocated, {reserved:.1f}GB reserved, {total:.1f}GB total")
-        print(f"📊 GPU Utilization: {allocated/total*100:.1f}%")
+        logger.info(f"🖥️  GPU Memory: {allocated:.1f}GB allocated, {reserved:.1f}GB reserved, {total:.1f}GB total")
+        logger.info(f"📊 GPU Utilization: {allocated/total*100:.1f}%")
         
         if allocated/total > 0.9:
-            print("⚠️ GPU memory usage >90% - consider reducing batch size")
+            logger.warning("⚠️ GPU memory usage >90% - consider reducing batch size")
+        elif reserved/total > 0.8:
+            logger.warning("⚠️ GPU memory reservation >80% - monitor for potential issues")
 
 def get_optimal_batch_size(model, sample_input, max_memory_gb=35):
     """Find optimal batch size for given model and GPU memory."""
@@ -161,7 +167,5 @@ def get_optimal_batch_size(model, sample_input, max_memory_gb=35):
                 return max(1, batch_size // 2)
             else:
                 raise e
-    
-    return min(batch_size, 64)
     
     return min(batch_size, 64)
