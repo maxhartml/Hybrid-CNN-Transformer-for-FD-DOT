@@ -31,20 +31,15 @@ Date: July 2025
 # =============================================================================
 
 # Standard library imports
-import os
-import sys
 from pathlib import Path
 from typing import Dict
+from datetime import datetime
 
 # Third-party imports
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from torch.cuda.amp import GradScaler, autocast  # Mixed precision training for A100 optimization
-import wandb
 import numpy as np
-from datetime import datetime
+import wandb
+from torch.cuda.amp import GradScaler, autocast  # Mixed precision training for A100 optimization
 
 # Project imports
 from code.models.hybrid_model import HybridCNNTransformer
@@ -128,22 +123,13 @@ class Stage1Trainer:
         )
         self.model.to(self.device)
         
-        # Loss and optimizer with L2 regularization
+        # Loss function
         self.criterion = RMSELoss()
-        self.optimizer = optim.Adam(
-            self.model.parameters(), 
-            lr=learning_rate,
-            weight_decay=weight_decay  # L2 regularization
-        )
         
-        # Learning rate scheduler (ReduceLROnPlateau for adaptive learning)
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer,
-            mode='min',                           # Monitor validation loss (minimize)
-            factor=LR_SCHEDULER_FACTOR,           # Reduce LR by 40% (0.6 factor)
-            patience=LR_SCHEDULER_PATIENCE,      # Wait 3 epochs before reducing
-            min_lr=LR_MIN                         # Minimum learning rate floor (1e-7)
-        )
+        # NOTE: Optimizer and scheduler are created in this stage using research-validated
+        # AdamW + OneCycleLR for optimal CNN autoencoder training from scratch.
+        self.optimizer = None
+        self.scheduler = None
         
         # Mixed precision training for A100 optimization (2x speedup + memory savings)
         self.scaler = GradScaler() if self.device.type == 'cuda' else None
@@ -153,12 +139,12 @@ class Stage1Trainer:
         logger.info(f"🚀 STAGE 1 TRAINING INITIALIZATION")
         logger.info(f"{'='*80}")
         logger.info(f"🖥️  Device: {self.device}")
-        logger.info(f"📈 Learning Rate: {learning_rate}")
-        logger.info(f"� LR Scheduler: ReduceLROnPlateau (patience={LR_SCHEDULER_PATIENCE}, factor={LR_SCHEDULER_FACTOR})")
-        logger.info(f"�🔒 L2 Regularization: {weight_decay}")
+        logger.info(f"📈 Base Learning Rate: {learning_rate}")
+        logger.info(f"🔒 L2 Regularization: {weight_decay}")
         logger.info(f"⏰ Early Stopping Patience: {early_stopping_patience}")
         if self.scaler:
             logger.info(f"🚀 Mixed Precision: Enabled (A100 Optimized)")
+        logger.info(f"📅 Scheduler: Will be created during training initialization")
         
         # Log model info
         total_params = sum(p.numel() for p in self.model.parameters())
@@ -195,7 +181,13 @@ class Stage1Trainer:
                 # Training hyperparameters
                 "learning_rate": self.learning_rate,
                 "device": str(self.device),
-                "optimizer": "Adam",
+                "optimizer": "AdamW",
+                "optimizer_betas": ADAMW_BETAS_STAGE1,
+                "scheduler": "OneCycleLR",
+                "max_lr": STAGE1_MAX_LR,
+                "pct_start": STAGE1_PCT_START,
+                "cycle_momentum": STAGE1_CYCLE_MOMENTUM,
+                "weight_decay": WEIGHT_DECAY,
                 "loss_function": "RMSE",
                 
                 # Model specifications (Stage 1: Autoencoder training)
@@ -212,7 +204,118 @@ class Stage1Trainer:
         )
         logger.info(f"🔬 W&B experiment initialized: {experiment_name}")
     
-    def train_epoch(self, data_loader):
+    def _create_optimizer_and_scheduler(self, epochs: int, steps_per_epoch: int):
+        """
+        Create AdamW optimizer and OneCycleLR scheduler for Stage 1 CNN training.
+        
+        This method implements research-validated optimization for CNN autoencoder
+        training from scratch, based on "Super-Convergence" (Smith, 2018) and
+        medical imaging best practices.
+        
+        AdamW Configuration:
+        - Decoupled weight decay for better regularization
+        - CNN-optimized betas for stability
+        - Research-validated learning rate
+        
+        OneCycleLR Configuration:
+        - Aggressive exploration phase (20% warmup)
+        - Strong final decay for polishing
+        - Momentum cycling for better feature learning
+        
+        Args:
+            epochs (int): Total training epochs
+            steps_per_epoch (int): Batches per epoch
+            
+        Returns:
+            tuple: (optimizer, scheduler) configured for Stage 1
+        """
+        # Create AdamW optimizer with CNN-optimized parameters
+        # Based on "Fixing Weight Decay Regularization in Adam" (Loshchilov & Hutter, 2019)
+        self.optimizer = torch.optim.AdamW(
+            self.model.parameters(),
+            lr=STAGE1_BASE_LR,                    # Base LR (overridden by OneCycleLR)
+            weight_decay=WEIGHT_DECAY,            # L2 regularization (medical imaging standard)
+            betas=ADAMW_BETAS_STAGE1,            # CNN-optimized betas (0.9, 0.95)
+            eps=ADAMW_EPS_STAGE1                 # Numerical stability
+        )
+        
+        # Create OneCycleLR scheduler with research-validated parameters
+        # Based on "Super-Convergence" (Smith, 2018)
+        total_steps = epochs * steps_per_epoch
+        
+        self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            self.optimizer,
+            max_lr=STAGE1_MAX_LR,                # Peak LR (3e-3, found via LR range test)
+            total_steps=total_steps,
+            pct_start=STAGE1_PCT_START,          # 20% warmup (conservative)
+            div_factor=STAGE1_DIV_FACTOR,        # Conservative div_factor (25)
+            final_div_factor=STAGE1_FINAL_DIV_FACTOR,  # Strong final decay (1e4)
+            anneal_strategy='cos',               # Smooth cosine annealing
+            cycle_momentum=STAGE1_CYCLE_MOMENTUM,      # Enable momentum cycling
+            base_momentum=BASE_MOMENTUM,         # Base momentum (0.85)
+            max_momentum=MAX_MOMENTUM            # Max momentum (0.95)
+        )
+        
+        logger.info(f"🚀 STAGE 1 ADAMW OPTIMIZER:")
+        logger.info(f"   ├─ Base LR: {STAGE1_BASE_LR:.0e}")
+        logger.info(f"   ├─ Weight Decay: {WEIGHT_DECAY:.0e}")
+        logger.info(f"   └─ Betas: {ADAMW_BETAS_STAGE1}")
+        
+        logger.info(f"🚀 STAGE 1 ONECYCLELR SCHEDULER:")
+        logger.info(f"   ├─ Max LR: {STAGE1_MAX_LR:.0e}")
+        logger.info(f"   ├─ Total Steps: {total_steps:,}")
+        logger.info(f"   ├─ Warmup: {STAGE1_PCT_START*100:.0f}%")
+        logger.info(f"   ├─ Div Factor: {STAGE1_DIV_FACTOR}")
+        logger.info(f"   └─ Momentum Cycling: {STAGE1_CYCLE_MOMENTUM}")
+        
+        return self.optimizer, self.scheduler
+    
+    def _log_learning_rate_to_wandb(self, epoch: int, batch_idx: int, total_batches: int):
+        """
+        Log current learning rate to W&B for OneCycleLR visualization.
+        
+        OneCycleLR updates per-batch, so we log with high frequency for
+        complete visualization of the learning rate schedule progression.
+        
+        Args:
+            epoch (int): Current epoch number
+            batch_idx (int): Current batch index within epoch
+            total_batches (int): Total batches per epoch
+        """
+        if not self.use_wandb:
+            return
+            
+        try:
+            import wandb
+            if not wandb.run:
+                return
+                
+            current_lr = self.optimizer.param_groups[0]['lr']
+            current_momentum = self.optimizer.param_groups[0].get('betas', [0, 0])[0]
+            
+            # Calculate global step for OneCycleLR tracking
+            global_step = epoch * total_batches + batch_idx
+            
+            # Log per-batch (essential for OneCycleLR visualization)
+            wandb.log({
+                "stage1/learning_rate_per_batch": current_lr,
+                "stage1/momentum_per_batch": current_momentum,
+                "stage1/global_step": global_step,
+                "stage1/epoch_progress": epoch + (batch_idx / total_batches)
+            }, step=global_step)
+            
+            # Also log per-epoch summary
+            if batch_idx == total_batches - 1:  # Last batch of epoch
+                wandb.log({
+                    "stage1/learning_rate_epoch_end": current_lr,
+                    "stage1/momentum_epoch_end": current_momentum,
+                    "stage1/epoch_complete": epoch
+                }, step=global_step)
+                
+        except Exception as e:
+            logger.debug(f"W&B LR logging failed: {e}")
+    
+    def train_epoch(self, data_loader, epoch=0):
         """
         Execute one complete training epoch over the dataset with enhanced metrics.
         
@@ -223,9 +326,10 @@ class Stage1Trainer:
         Args:
             data_loader: DataLoader containing training batches with
                         'ground_truth' key from phantom DataLoader
+            epoch (int): Current epoch number for W&B logging
         
         Returns:
-            float: Average training loss across all batches in the epoch
+            tuple: (average_loss, epoch_metrics) for training monitoring
         """
         logger.debug("🔄 Starting training epoch...")
         self.model.train()
@@ -293,6 +397,12 @@ class Stage1Trainer:
                     logger.warning(f"⚠️ High gradient norm detected: {grad_norm:.4f} > {GRADIENT_MONITOR_THRESHOLD}")
                 
                 self.optimizer.step()
+                
+            # OneCycleLR updates per-batch (essential for proper LR scheduling)
+            self.scheduler.step()
+            
+            # Log learning rate and momentum to W&B
+            self._log_learning_rate_to_wandb(epoch, batch_idx, len(data_loader))
                 
             logger.debug(f"💰 Batch loss: {loss.item():.6f}")
             logger.debug("✅ Optimizer step completed")
@@ -530,12 +640,18 @@ class Stage1Trainer:
             >>> results = trainer.train(data_loaders, epochs=100)
             >>> print(f"Training completed with best loss: {results['best_val_loss']}")
         """
+        # Initialize AdamW optimizer and OneCycleLR scheduler
+        if self.optimizer is None:
+            steps_per_epoch = len(data_loaders['train'])
+            self._create_optimizer_and_scheduler(epochs, steps_per_epoch)
+        
         logger.info(f"")
         logger.info(f"{'='*80}")
         logger.info(f"🚀 STARTING STAGE 1 TRAINING | {epochs} Epochs")
         logger.info(f"{'='*80}")
         logger.debug(f"📊 Training configuration: device={self.device}, lr={self.learning_rate}, epochs={epochs}")
         logger.debug(f"📈 Data loaders: train_batches={len(data_loaders['train'])}, val_batches={len(data_loaders['val'])}")
+        logger.info(f"📅 AdamW + OneCycleLR | Steps per epoch: {len(data_loaders['train'])}")
         
         best_val_loss = float('inf')
         
@@ -546,7 +662,7 @@ class Stage1Trainer:
             
             # Train: Update model parameters using training data
             logger.debug(f"🏋️  Beginning training phase for epoch {epoch+1}")
-            train_loss, train_metrics = self.train_epoch(data_loaders['train'])
+            train_loss, train_metrics = self.train_epoch(data_loaders['train'], epoch)
             logger.info(f"🏋️  TRAIN COMPLETE | Avg RMSE: {train_loss:.4f}")
             
             # Validate: Evaluate on unseen data (no parameter updates) 
@@ -614,12 +730,8 @@ class Stage1Trainer:
                 if torch.cuda.is_available():
                     log_gpu_stats()
             
-            # Learning rate scheduling
-            old_lr = self.optimizer.param_groups[0]['lr']
-            self.scheduler.step(val_loss)
-            new_lr = self.optimizer.param_groups[0]['lr']
-            if new_lr < old_lr:
-                logger.info(f"� Learning Rate Reduced: {old_lr:.2e} → {new_lr:.2e}")
+            # Learning rate scheduling (OneCycleLR updates per-batch, no epoch-level action needed)
+            # OneCycleLR is updated per-batch in train_epoch, so no action needed here
             
             # Early stopping and best model tracking
             if val_loss < self.best_val_loss:

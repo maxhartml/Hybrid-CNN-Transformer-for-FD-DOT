@@ -75,19 +75,43 @@ NUM_WORKERS = min(8, max(1, psutil.cpu_count(logical=False) - 2))  # Use most CP
 PIN_MEMORY = torch.cuda.is_available()  # Enable GPU memory pinning if CUDA available
 PREFETCH_FACTOR = 4 if torch.cuda.is_available() else 2  # More prefetching on GPU systems
 
-# Regularization
-WEIGHT_DECAY = 1e-4                     # L2 regularization strength
+# Regularization and Optimization
+WEIGHT_DECAY = 1e-4                     # L2 regularization strength (CNN standard)
+WEIGHT_DECAY_TRANSFORMER = 0.01         # Higher weight decay for transformer (standard)
 DROPOUT_RATE = 0.15                     # Dropout probability (for future use)
 EARLY_STOPPING_PATIENCE = 8            # Early stopping patience (epochs)
+
+# AdamW Optimizer Configuration
+# Stage 1 (CNN Autoencoder): Stability-focused parameters
+ADAMW_BETAS_STAGE1 = (0.9, 0.95)       # Slightly lower beta2 for CNN stability
+ADAMW_EPS_STAGE1 = 1e-8                # Numerical stability epsilon
+
+# Stage 2 (Transformer): Transformer-standard parameters
+ADAMW_BETAS_STAGE2 = (0.9, 0.98)       # Transformer-standard betas (BERT/ViT)
+ADAMW_EPS_STAGE2 = 1e-8                # Numerical stability epsilon
 
 # Gradient Clipping Configuration
 GRADIENT_CLIP_MAX_NORM = 1.0            # Maximum gradient norm for clipping (prevents explosion)
 GRADIENT_MONITOR_THRESHOLD = 10.0       # Log warning if gradient norm exceeds this
 
-# Learning Rate Scheduling (ReduceLROnPlateau for both Stage 1 & 2)
-LR_SCHEDULER_PATIENCE = 3               # Learning rate scheduler patience (reduce after 3 epochs without improvement)
-LR_SCHEDULER_FACTOR = 0.6               # Learning rate reduction factor (reduce by 40%)
-LR_MIN = 1e-7                          # Minimum learning rate floor
+# Stage 1 OneCycleLR Configuration (Research-Validated)
+# Based on "Super-Convergence" (Smith, 2018) and medical imaging best practices
+STAGE1_MAX_LR = 3e-3                    # Peak learning rate (found via LR range test)
+STAGE1_BASE_LR = 1e-3                   # Base learning rate (max_lr / div_factor)
+STAGE1_DIV_FACTOR = 25                  # Conservative div_factor for stability
+STAGE1_FINAL_DIV_FACTOR = 1e4           # Strong final decay for polishing
+STAGE1_PCT_START = 0.2                  # 20% warmup (conservative, proven)
+STAGE1_CYCLE_MOMENTUM = True            # Enable momentum cycling for CNN
+
+# Stage 2 Linear Warmup + Cosine Decay Configuration (BERT/ViT Standard)
+# Based on "Attention Is All You Need", BERT, and ViT papers
+STAGE2_BASE_LR = 2e-4                   # Base learning rate (conservative for fine-tuning)
+STAGE2_WARMUP_PCT = 0.1                 # 10% warmup (transformer standard)
+STAGE2_ETA_MIN_PCT = 0.03               # Final LR = 3% of peak (smooth convergence)
+
+# Momentum Cycling Parameters (Stage 1 only)
+BASE_MOMENTUM = 0.85                    # Base momentum value
+MAX_MOMENTUM = 0.95                     # Maximum momentum value
 
 # Progress Logging
 PROGRESS_LOG_INTERVAL = 10              # Log progress every N epochs

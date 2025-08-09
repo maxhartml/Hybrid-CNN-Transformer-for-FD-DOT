@@ -31,20 +31,16 @@ Date: August 2025
 # =============================================================================
 
 # Standard library imports
-import os
-import sys
+import math
 from pathlib import Path
 from typing import Dict
+from datetime import datetime
 
 # Third-party imports
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from torch.cuda.amp import GradScaler, autocast  # Mixed precision training for A100 optimization
-import wandb
 import numpy as np
-from datetime import datetime
+import wandb
+from torch.cuda.amp import GradScaler, autocast  # Mixed precision training for A100 optimization
 
 # Project imports
 from code.models.hybrid_model import HybridCNNTransformer
@@ -147,22 +143,13 @@ class Stage2Trainer:
         # Freeze CNN decoder (Robin Dale's approach)
         self.freeze_cnn_decoder()
         
-        # Loss and optimizer (only for unfrozen parameters) with L2 regularization
+        # Loss function
         self.criterion = RMSELoss()
-        self.optimizer = optim.Adam(
-            [p for p in self.model.parameters() if p.requires_grad], 
-            lr=learning_rate,
-            weight_decay=weight_decay  # L2 regularization
-        )
         
-        # Learning rate scheduler (ReduceLROnPlateau for adaptive learning)
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer,
-            mode='min',                           # Monitor validation loss (minimize)
-            factor=LR_SCHEDULER_FACTOR,           # Reduce LR by 40% (0.6 factor)
-            patience=LR_SCHEDULER_PATIENCE,      # Wait 3 epochs before reducing
-            min_lr=LR_MIN                         # Minimum learning rate floor (1e-7)
-        )
+        # NOTE: Optimizer and scheduler are created in this stage using research-validated
+        # AdamW + Linear Warmup + Cosine Decay for optimal transformer fine-tuning.
+        self.optimizer = None
+        self.scheduler = None
         
         # Mixed precision training for A100 optimization (2x speedup + memory savings)
         self.scaler = GradScaler() if self.device.type == 'cuda' else None
@@ -173,13 +160,13 @@ class Stage2Trainer:
         logger.info(f"🚀 TRANSFORMER TRAINING INITIALIZATION ({mode})")
         logger.info(f"{'='*80}")
         logger.info(f"🖥️  Device: {self.device}")
-        logger.info(f"📈 Learning Rate: {learning_rate}")
-        logger.info(f"� LR Scheduler: ReduceLROnPlateau (patience={LR_SCHEDULER_PATIENCE}, factor={LR_SCHEDULER_FACTOR})")
-        logger.info(f"�🔒 L2 Regularization: {weight_decay}")
+        logger.info(f"📈 Base Learning Rate: {learning_rate}")
+        logger.info(f"🔒 L2 Regularization: {weight_decay}")
         logger.info(f"⏰ Early Stopping Patience: {early_stopping_patience}")
         logger.info(f"🧬 Tissue Patches: {use_tissue_patches}")
         if self.scaler:
             logger.info(f"🚀 Mixed Precision: Enabled (A100 Optimized)")
+        logger.info(f"📅 Scheduler: Will be created during training initialization")
         
         # Log GPU info if available
         if torch.cuda.is_available():
@@ -191,17 +178,21 @@ class Stage2Trainer:
             logger.info(f"💻 CPU Mode: Enabled")
         logger.info(f"{'='*80}")
         
-        # Initialize Weights & Biases
-        if self.use_wandb:
-            self._init_wandb()
+        # Initialize Weights & Biases (deferred until training starts)
+        # Note: W&B initialization happens in train() method when epochs and data_loader are available
+        self._wandb_initialized = False
     
-    def _init_wandb(self):
+    def _init_wandb(self, epochs: int, steps_per_epoch: int):
         """Initialize Weights & Biases experiment tracking for Stage 2."""
         mode_suffix = "enhanced" if self.use_tissue_patches else "baseline"
         experiment_name = f"stage2_transformer_{mode_suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
         # Choose tags based on mode
         tags = WANDB_TAGS_STAGE2_ENHANCED if self.use_tissue_patches else WANDB_TAGS_STAGE2_BASELINE
+        
+        # Calculate warmup steps for logging
+        total_steps = epochs * steps_per_epoch
+        warmup_steps = int(STAGE2_WARMUP_PCT * total_steps)
         
         wandb.init(
             project=WANDB_PROJECT,
@@ -217,7 +208,13 @@ class Stage2Trainer:
                 # Training hyperparameters
                 "learning_rate": self.learning_rate,
                 "device": str(self.device),
-                "optimizer": "Adam",
+                "optimizer": "AdamW",
+                "optimizer_betas": ADAMW_BETAS_STAGE2,
+                "scheduler": "LinearWarmupCosineDecay",
+                "warmup_steps": warmup_steps,
+                "warmup_pct": STAGE2_WARMUP_PCT,
+                "max_steps": total_steps,
+                "weight_decay": WEIGHT_DECAY_TRANSFORMER,
                 "loss_function": "RMSE",
                 
                 # Model specifications (Transformer: NIR measurements → transformer → decoder)
@@ -285,6 +282,156 @@ class Stage2Trainer:
         logger.info(f"📊 Checkpoint epoch: {checkpoint.get('epoch', 'N/A')}, "
                    f"val_loss: {checkpoint.get('val_loss', 'N/A'):.6f}")
     
+    def _create_parameter_groups(self):
+        """
+        Create parameter groups for transformer training with differential weight decay.
+        
+        This method implements the standard transformer training approach where
+        different parameter types receive different weight decay values:
+        - Layer norms and biases: No weight decay (prevents regularization of scale/shift)
+        - All other parameters: Standard weight decay for regularization
+        
+        Based on BERT, GPT, and ViT training procedures.
+        
+        Returns:
+            list: Parameter groups for AdamW optimizer
+        """
+        decay_params = []
+        no_decay_params = []
+        
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                # No weight decay for layer norms, biases, and position embeddings
+                if ('bias' in name or 
+                    'LayerNorm' in name or 
+                    'norm' in name or 
+                    'pos_embed' in name):
+                    no_decay_params.append(param)
+                else:
+                    decay_params.append(param)
+        
+        logger.info(f"📊 Parameter Groups:")
+        logger.info(f"   ├─ With weight decay: {len(decay_params)} groups")
+        logger.info(f"   └─ No weight decay: {len(no_decay_params)} groups")
+        
+        return [
+            {'params': decay_params, 'weight_decay': WEIGHT_DECAY_TRANSFORMER},
+            {'params': no_decay_params, 'weight_decay': 0.0}
+        ]
+    
+    def _create_optimizer_and_scheduler(self, epochs: int, steps_per_epoch: int):
+        """
+        Create AdamW optimizer and Linear Warmup + Cosine Decay scheduler for Stage 2.
+        
+        This method implements research-validated optimization for transformer fine-tuning
+        based on "Attention Is All You Need", BERT, and ViT papers.
+        
+        AdamW Configuration:
+        - Separate parameter groups for differential weight decay
+        - Transformer-optimized betas
+        - Conservative learning rate for fine-tuning
+        
+        Linear Warmup + Cosine Decay Configuration:
+        - 10% warmup (transformer standard)
+        - Smooth cosine decay to 3% of peak LR
+        - No aggressive exploration (preserves frozen CNN features)
+        
+        Args:
+            epochs (int): Total training epochs
+            steps_per_epoch (int): Batches per epoch
+            
+        Returns:
+            tuple: (optimizer, scheduler) configured for Stage 2
+        """
+        # Create parameter groups for differential weight decay
+        param_groups = self._create_parameter_groups()
+        
+        # Create AdamW optimizer with transformer-optimized parameters
+        # Based on "Fixing Weight Decay Regularization in Adam" (Loshchilov & Hutter, 2019)
+        # and transformer training best practices
+        self.optimizer = torch.optim.AdamW(
+            param_groups,
+            lr=STAGE2_BASE_LR,                   # Conservative for fine-tuning
+            betas=ADAMW_BETAS_STAGE2,           # Transformer-standard betas (0.9, 0.98)
+            eps=ADAMW_EPS_STAGE2                # Numerical stability
+        )
+        
+        # Create Linear Warmup + Cosine Decay scheduler
+        # Based on "Attention Is All You Need" and BERT/ViT training procedures
+        total_steps = epochs * steps_per_epoch
+        warmup_steps = int(STAGE2_WARMUP_PCT * total_steps)
+        
+        def get_cosine_schedule_with_warmup(step):
+            """Learning rate schedule function for transformer fine-tuning."""
+            if step < warmup_steps:
+                # Linear warmup: 0 → peak_lr
+                return step / max(1, warmup_steps)
+            
+            # Cosine decay: peak_lr → eta_min
+            progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+            eta_min = STAGE2_ETA_MIN_PCT  # Final LR = 3% of peak
+            return eta_min + 0.5 * (1 - eta_min) * (1 + math.cos(math.pi * progress))
+        
+        self.scheduler = torch.optim.lr_scheduler.LambdaLR(
+            self.optimizer, 
+            get_cosine_schedule_with_warmup
+        )
+        
+        logger.info(f"🚀 STAGE 2 ADAMW OPTIMIZER:")
+        logger.info(f"   ├─ Base LR: {STAGE2_BASE_LR:.0e}")
+        logger.info(f"   ├─ Weight Decay (Transformer): {WEIGHT_DECAY_TRANSFORMER}")
+        logger.info(f"   └─ Betas: {ADAMW_BETAS_STAGE2}")
+        
+        logger.info(f"🚀 STAGE 2 LINEAR WARMUP + COSINE DECAY:")
+        logger.info(f"   ├─ Total Steps: {total_steps:,}")
+        logger.info(f"   ├─ Warmup Steps: {warmup_steps:,} ({STAGE2_WARMUP_PCT*100:.0f}%)")
+        logger.info(f"   ├─ Final LR: {STAGE2_ETA_MIN_PCT*100:.0f}% of peak")
+        logger.info(f"   └─ Schedule: Linear Warmup → Cosine Decay")
+        
+        return self.optimizer, self.scheduler
+    
+    def _log_learning_rate_to_wandb(self, epoch: int, batch_idx: int, total_batches: int):
+        """
+        Log current learning rate to W&B for Linear Warmup + Cosine Decay visualization.
+        
+        Unlike OneCycleLR, this scheduler is designed for per-batch updates with
+        smooth, monotonic progression suitable for transformer fine-tuning.
+        
+        Args:
+            epoch (int): Current epoch number
+            batch_idx (int): Current batch index within epoch
+            total_batches (int): Total batches per epoch
+        """
+        if not self.use_wandb:
+            return
+            
+        try:
+            import wandb
+            if not wandb.run:
+                return
+                
+            current_lr = self.optimizer.param_groups[0]['lr']
+            
+            # Calculate global step for scheduler tracking
+            global_step = epoch * total_batches + batch_idx
+            
+            # Log per-batch (important for smooth curve visualization)
+            wandb.log({
+                "stage2/learning_rate_per_batch": current_lr,
+                "stage2/global_step": global_step,
+                "stage2/epoch_progress": epoch + (batch_idx / total_batches)
+            }, step=global_step)
+            
+            # Also log per-epoch summary
+            if batch_idx == total_batches - 1:  # Last batch of epoch
+                wandb.log({
+                    "stage2/learning_rate_epoch_end": current_lr,
+                    "stage2/epoch_complete": epoch
+                }, step=global_step)
+                
+        except Exception as e:
+            logger.debug(f"W&B LR logging failed: {e}")
+    
     def freeze_cnn_decoder(self):
         """
         Freeze CNN decoder parameters to preserve Stage 1 learned features.
@@ -322,7 +469,7 @@ class Stage2Trainer:
         
         logger.info(f"✅ Parameter freezing completed successfully")
     
-    def train_epoch(self, data_loader):
+    def train_epoch(self, data_loader, epoch=0):
         """
         Execute one complete training epoch for transformer components with enhanced metrics.
         
@@ -333,6 +480,7 @@ class Stage2Trainer:
         Args:
             data_loader: DataLoader containing training batches with
                         'measurements', 'volumes', and optionally 'tissue_patches'
+            epoch (int): Current epoch number for W&B logging
         
         Returns:
             tuple: (Average training loss, metrics dictionary) across all batches
@@ -410,6 +558,12 @@ class Stage2Trainer:
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
                 logger.debug("✅ Stage 2 mixed precision optimizer step completed")
+                
+                # Linear Warmup + Cosine Decay updates per-batch (essential for smooth scheduling)
+                self.scheduler.step()
+                
+                # Log learning rate to W&B
+                self._log_learning_rate_to_wandb(epoch, batch_idx, len(data_loader))
             except RuntimeError as e:
                 logger.error(f"🚨 Gradient error: {e}")
                 raise e
@@ -651,10 +805,22 @@ class Stage2Trainer:
             >>> trainer = Stage2Trainer(checkpoint_path, use_tissue_patches=True)
             >>> trainer.train(data_loaders, epochs=150)
         """
+        # Initialize AdamW optimizer and Linear Warmup + Cosine Decay scheduler
+        if self.optimizer is None:
+            steps_per_epoch = len(data_loaders['train'])
+            self._create_optimizer_and_scheduler(epochs, steps_per_epoch)
+        
+        # Initialize W&B logging with proper parameters
+        if self.use_wandb and not self._wandb_initialized:
+            steps_per_epoch = len(data_loaders['train'])
+            self._init_wandb(epochs, steps_per_epoch)
+            self._wandb_initialized = True
+        
         mode = ENHANCED_MODE if self.use_tissue_patches else BASELINE_MODE
         logger.info(f"🏋️ Starting Transformer training ({mode}) for {epochs} epochs")
         logger.debug(f"📊 Stage 2 configuration: device={self.device}, lr={self.learning_rate}, tissue_patches={self.use_tissue_patches}")
         logger.debug(f"📈 Stage 2 data loaders: train_batches={len(data_loaders['train'])}, val_batches={len(data_loaders['val'])}")
+        logger.info(f"📅 AdamW + Linear Warmup + Cosine Decay | Steps per epoch: {len(data_loaders['train'])}")
         
         best_val_loss = float('inf')
         
@@ -663,7 +829,7 @@ class Stage2Trainer:
             
             # Train: Update transformer parameters (CNN decoder frozen)
             logger.debug(f"🏋️  Beginning transformer training phase for epoch {epoch+1}")
-            train_loss, train_metrics = self.train_epoch(data_loaders['train'])
+            train_loss, train_metrics = self.train_epoch(data_loaders['train'], epoch)
             logger.info(f"🏋️  TRAIN COMPLETE | Avg RMSE: {train_loss:.4f}")
             
             # Validate: Evaluate hybrid model on unseen data (no parameter updates)
@@ -744,12 +910,8 @@ class Stage2Trainer:
                 if torch.cuda.is_available():
                     log_gpu_stats()
             
-            # Learning rate scheduling (update after validation)
-            old_lr = self.optimizer.param_groups[0]['lr']
-            self.scheduler.step(val_loss)
-            new_lr = self.optimizer.param_groups[0]['lr']
-            if new_lr < old_lr:
-                logger.info(f"📉 Learning Rate Reduced: {old_lr:.2e} → {new_lr:.2e}")
+            # Learning rate scheduling (Linear Warmup + Cosine Decay updates per-batch)
+            # No epoch-level action needed - scheduler updates per-batch automatically
             
             # Save best model
             if val_loss < best_val_loss:
