@@ -31,7 +31,7 @@ Date: July 2025
 # =============================================================================
 
 # Standard library imports
-from pathlib import Path
+import os
 from typing import Dict
 from datetime import datetime
 
@@ -166,7 +166,7 @@ class Stage1Trainer:
     
     def _init_wandb(self):
         """Initialize Weights & Biases experiment tracking."""
-        experiment_name = f"stage1_cnn_autoencoder_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        experiment_name = f"CNN_Spatial_Features_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
         wandb.init(
             project=WANDB_PROJECT,
@@ -175,8 +175,8 @@ class Stage1Trainer:
             config={
                 # Model architecture
                 "stage": "CNN_Autoencoder_Pretraining",
-                "model_type": "3D_CNN_Autoencoder",
-                "training_stage": TRAINING_STAGE1,
+                "model_type": "3D_CNN_Autoencoder", 
+                "training_stage": "Stage_1_Spatial_Feature_Learning",
                 
                 # Training hyperparameters
                 "learning_rate": self.learning_rate,
@@ -296,21 +296,13 @@ class Stage1Trainer:
             # Calculate global step for OneCycleLR tracking
             global_step = epoch * total_batches + batch_idx
             
-            # Log per-batch (essential for OneCycleLR visualization)
+            # Log only essential learning rate and momentum tracking (cleaned up)
+            # OneCycleLR creates this characteristic learning rate curve and momentum cycling
             wandb.log({
-                "stage1/learning_rate_per_batch": current_lr,
-                "stage1/momentum_per_batch": current_momentum,
-                "stage1/global_step": global_step,
-                "stage1/epoch_progress": epoch + (batch_idx / total_batches)
+                "Analysis/Learning_Rate": current_lr,
+                "Analysis/Momentum": current_momentum,
+                "Analysis/Training_Progress": epoch + (batch_idx / total_batches)
             }, step=global_step)
-            
-            # Also log per-epoch summary
-            if batch_idx == total_batches - 1:  # Last batch of epoch
-                wandb.log({
-                    "stage1/learning_rate_epoch_end": current_lr,
-                    "stage1/momentum_epoch_end": current_momentum,
-                    "stage1/epoch_complete": epoch
-                }, step=global_step)
                 
         except Exception as e:
             logger.debug(f"W&B LR logging failed: {e}")

@@ -275,10 +275,13 @@ class HybridCNNTransformer(nn.Module):
                     # Extract single measurement: [batch, 8]
                     single_measurement = dot_measurements[:, i, :]  # [batch, 8]
                     
+                    # Extract tissue patches for this specific measurement: [batch, 2, 8192]
+                    measurement_tissue_patches = tissue_patches[:, i, :, :] if tissue_patches is not None else None
+                    
                     # Process individual measurement
                     nir_results = self.nir_processor(
                         nir_measurements=single_measurement,     # [batch, 8]
-                        tissue_patches=tissue_patches,           # [batch, 2, 16^3*2] or None
+                        tissue_patches=measurement_tissue_patches,  # [batch, 2, 8192] or None
                         use_tissue_patches=self.use_tissue_patches
                     )
                     

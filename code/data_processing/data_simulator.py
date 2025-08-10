@@ -27,6 +27,20 @@ Advanced phantom data generation for NIR tomography training datasets:
 • Controlled randomization for reproducible datasets
 • 1mm voxel size for optimal phantom dimensions (64×64×64mm physical)
 
+🎨 VISUALIZATION FEATURES (NEW):
+• Multi-probe visualization: Shows 5 source-detector pairs by default
+• Interactive 3D popup: Toggle ENABLE_3D_INTERACTIVE_VISUAL = True for debugging
+• PNG export: Always saves high-quality 2D images for reports
+• Original coordinates: Shows voxel positions before touch_optodes mesh projection
+• Usage: Set flags at top of file - ENABLE_3D_INTERACTIVE_VISUAL and DEFAULT_N_VISUAL_PROBE_PAIRS
+
+⚠️ CRITICAL SURFACE EXTRACTION FIX (v2.4):
+• Fixed surface extraction: now finds AIR voxels adjacent to tissue (accessible surface)
+• Fixed coordinate saving: now saves mesh-projected coordinates used in physics simulation
+• Problem: Previously found tissue voxels on boundary + saved voxel centers instead of mesh coordinates
+• Solution: Binary dilation finds accessible air surface + save phantom_mesh.source/meas.coord
+• Impact: Surface extraction now represents physically accessible probe placement locations
+
 ⚠️ CRITICAL BUG FIX (v2.3):
 • Fixed NIRFASTer indexing bug: source-detector links now use 1-based indexing
 • This was causing 21% of phantoms to have violated physics (wrong SDS relationships)
@@ -34,7 +48,7 @@ Advanced phantom data generation for NIR tomography training datasets:
 • Solution: measurement_links now store [idx+1, idx+1, 1] for proper NIRFASTer compatibility
 
 Author: Max Hart - NIR Tomography Research
-Version: 2.3 - CRITICAL INDEXING BUG FIX (1-based vs 0-based indexing)
+Version: 2.4 - CRITICAL SURFACE & COORDINATE FIXES (accessible air surface + mesh coordinates)
 """
 
 # =============================================================================
@@ -77,7 +91,7 @@ from code.utils.logging_config import get_data_logger, NIRDOTLogger
 
 # Constants for phantom generation
 MASTER_RANDOM_SEED = 42                      # Master seed for reproducible datasets (change for different datasets)
-DEFAULT_N_PHANTOMS = 5000                    # Number of phantoms to generate for dataset (10 hours @ 12 sec/phantom)
+DEFAULT_N_PHANTOMS = 100                    # Number of phantoms to generate for dataset (10 hours @ 12 sec/phantom)
 DEFAULT_PHANTOM_SHAPE = (64, 64, 64)        # Default cubic phantom dimensions in voxels (power of 2)
 DEFAULT_TISSUE_RADIUS_RANGE = (25, 31)      # Healthy tissue ellipsoid semi-axis range (25-31mm with 1mm voxels)
 DEFAULT_TUMOR_RADIUS_RANGE = (5, 15)        # Tumor ellipsoid semi-axis range (5-15mm with 1mm voxels)
@@ -92,6 +106,10 @@ DEFAULT_MIN_PATCH_VOXELS = 400               # Minimum surface voxels for valid 
 DEFAULT_FD_FREQUENCY = 140e6                 # Frequency-domain modulation frequency [Hz]
 DEFAULT_MESH_CELL_SIZE = 1.65                # CGAL mesh characteristic cell size [mm] 
 VOXEL_SIZE_MM = 1.0                          # Voxel size in millimeters for spatial calibration
+
+# Visualization parameters
+ENABLE_3D_INTERACTIVE_VISUAL = False         # Flag to enable 3D interactive popup visualization (set to True for debugging)
+DEFAULT_N_VISUAL_PROBE_PAIRS = 5             # Number of source-detector pairs to show in visualization
 
 # Tissue label constants for clarity and consistency
 AIR_LABEL = 0                                # Background air regions
@@ -658,61 +676,77 @@ def assign_optical_properties(phantom_mesh, phantom_volume, phantom_rng=None):
 
 def extract_surface_voxels(phantom_volume, tissue_threshold=HEALTHY_TISSUE_LABEL):
     """
-    Extract 3D coordinates of tissue surface voxels for probe placement.
+    Extract 3D coordinates of accessible surface voxels for probe placement.
     
-    Identifies boundary interface between tissue and air using binary morphological 
-    operations. Critical for realistic probe placement since NIR sources and 
-    detectors must be positioned on accessible tissue surfaces.
+    CRITICAL FIX: Identifies AIR voxels adjacent to tissue, not tissue voxels adjacent to air.
+    This represents the actual accessible surface where NIR probes can be physically placed.
     
     Technical Implementation:
-    • Applies binary erosion to identify tissue interior voxels  
-    • Computes surface as set difference: tissue_bulk ∖ tissue_interior
-    • Uses 3×3×3 structuring element for 26-connected neighborhood
-    • Returns explicit (x,y,z) coordinates for efficient spatial indexing
+    • Creates binary tissue mask for all tissue regions (healthy + tumors)
+    • Applies binary dilation to tissue to find air voxels adjacent to tissue
+    • Returns air voxel coordinates that form the accessible tissue-air boundary
+    • These coordinates represent physically accessible probe placement locations
     
     Args:
         phantom_volume (numpy.ndarray): 3D labeled phantom volume with tissue regions
         tissue_threshold (int): Minimum label value considered as tissue (excludes air=0)
         
     Returns:
-        numpy.ndarray: Surface voxel coordinates, shape (N_surface, 3)
-                      Each row contains (x, y, z) indices of surface voxels
+        numpy.ndarray: Surface voxel coordinates in air adjacent to tissue, shape (N_surface, 3)
+                      Each row contains (x, y, z) indices of accessible surface voxels
     """
+    from scipy.ndimage import binary_dilation
+    
     # Create binary mask identifying all tissue regions (healthy + tumours)
-    # This combines all non-air labels into a single binary volume
     tissue_binary_mask = (phantom_volume >= tissue_threshold)
     
-    logger.info(f"Starting surface extraction (threshold={tissue_threshold})")
+    logger.info(f"Starting CORRECTED surface extraction (threshold={tissue_threshold})")
     logger.debug(f"Input volume shape: {phantom_volume.shape}")
     
     initial_tissue_count = np.sum(tissue_binary_mask)
+    initial_air_count = np.sum(phantom_volume == 0)
     logger.debug(f"Initial tissue voxels: {initial_tissue_count:,}")
+    logger.debug(f"Initial air voxels: {initial_air_count:,}")
     
-    # Apply binary erosion with single iteration to identify tissue interior
+    # Apply binary dilation to tissue mask to identify air voxels adjacent to tissue
     # Uses default 3×3×3 structuring element for 26-connected neighborhood
-    # Interior voxels are those completely surrounded by other tissue voxels
-    logger.debug("Applying morphological erosion to identify tissue interior...")
-    eroded_tissue_mask = binary_erosion(tissue_binary_mask, iterations=1)
+    # Dilated tissue mask includes original tissue + adjacent air voxels
+    logger.debug("Applying morphological dilation to identify air voxels adjacent to tissue...")
+    dilated_tissue_mask = binary_dilation(tissue_binary_mask, iterations=1)
     
-    # Compute morphological boundary as set difference: tissue ∖ interior
-    # Surface voxels are tissue voxels that have at least one air neighbor
-    surface_voxel_mask = tissue_binary_mask & (~eroded_tissue_mask)
+    # Find air voxels that became part of dilated tissue (these are adjacent to tissue)
+    # Surface voxels are air voxels (label=0) that are adjacent to tissue
+    air_mask = (phantom_volume == 0)  # All air voxels
+    accessible_surface_mask = air_mask & dilated_tissue_mask  # Air voxels adjacent to tissue
     
-    # Extract explicit (x,y,z) coordinates of surface voxels
-    # numpy.argwhere returns N×3 array of indices where condition is True
-    surface_voxel_coordinates = np.argwhere(surface_voxel_mask)
+    # Extract explicit (x,y,z) coordinates of accessible surface voxels
+    surface_voxel_coordinates = np.argwhere(accessible_surface_mask)
     
     surface_count = surface_voxel_coordinates.shape[0]
-    logger.info(f"✓ Surface extraction completed - {surface_count:,} surface voxels identified")
+    logger.info(f"✓ CORRECTED surface extraction completed - {surface_count:,} accessible surface voxels identified")
+    logger.debug(f"These are AIR voxels adjacent to tissue (physically accessible for probe placement)")
     
     # Validate surface extraction results
     if surface_count == 0:
-        logger.error("No surface voxels found - check tissue geometry and threshold")
+        logger.error("No accessible surface voxels found - check tissue geometry and threshold")
     elif surface_count < 100:
         logger.warning(f"Very few surface voxels ({surface_count}) - may limit probe placement options")
     else:
-        surface_ratio = surface_count / initial_tissue_count
-        logger.debug(f"Surface-to-volume ratio: {surface_ratio:.1%}")
+        surface_ratio = surface_count / initial_air_count
+        logger.debug(f"Accessible surface ratio: {surface_ratio:.1%} of air voxels are adjacent to tissue")
+    
+    # Verify that all returned coordinates are actually air voxels
+    verification_labels = phantom_volume[surface_voxel_coordinates[:, 0], 
+                                       surface_voxel_coordinates[:, 1], 
+                                       surface_voxel_coordinates[:, 2]]
+    air_count = np.sum(verification_labels == 0)
+    tissue_count = np.sum(verification_labels >= 1)
+    
+    logger.debug(f"Surface verification: {air_count}/{surface_count} are air voxels ({air_count/surface_count*100:.1f}%)")
+    if tissue_count > 0:
+        logger.error(f"SURFACE EXTRACTION BUG: {tissue_count} surface voxels are tissue, not air!")
+    else:
+        logger.debug("✅ All surface voxels are correctly identified as air (accessible)")
     
     return surface_voxel_coordinates
 
@@ -1341,31 +1375,84 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
         # With shared sources: measurement_links[:,0] points to unique source indices (50 unique)
         # measurement_links[:,1] points to measurement-specific detector indices (1000 total)
         
+        # **COORDINATE SYSTEM CLARIFICATION:**
+        # 1. Surface extraction finds air voxels adjacent to tissue (accessible placement locations)
+        # 2. Voxel-to-physical conversion gives air voxel centers in mm coordinates  
+        # 3. touch_optodes() projects these to nearest mesh surface nodes (on tissue boundary)
+        # 4. Mesh surface coordinates may fall inside tissue voxels due to coordinate system differences
+        # 5. This is CORRECT behavior - mesh and voxel represent different discretizations
+        
         # Extract source and detector indices from measurement links (convert from 1-based to 0-based for Python arrays)
         source_indices = (measurement_links[:, 0] - 1).astype(int)  # Convert from 1-based to 0-based (points to unique sources)
         detector_indices = (measurement_links[:, 1] - 1).astype(int)  # Convert from 1-based to 0-based (points to all detectors)
         
-        # Reorder positions to match measurement order returned by femdata()
-        # **CRITICAL:** Use unique_sources_mm for source positions, not the repeated probe_sources_mm
-        ordered_sources_mm = unique_sources_mm[source_indices]  # Sources in measurement order (from unique source list)
-        ordered_detectors_mm = probe_detectors_mm[detector_indices]  # Detectors in measurement order
+        # **CRITICAL:** Use mesh-projected coordinates after touch_optodes() for accurate physics simulation
+        # These represent the actual positions where boundary conditions are applied in the FEM solver
+        # touch_optodes() finds nearest mesh surface nodes to ensure proper coupling
+        logger.debug("Using mesh-projected coordinates after touch_optodes() for accurate physics simulation")
+        mesh_projected_sources = phantom_mesh.source.coord  # Mesh surface coordinates (N_unique_sources, 3)
+        mesh_projected_detectors = phantom_mesh.meas.coord  # Mesh surface coordinates (N_detectors, 3)
+        
+        # Reorder mesh-projected positions to match measurement order returned by femdata()
+        ordered_sources_mm = mesh_projected_sources[source_indices]  # Mesh-projected sources in measurement order
+        ordered_detectors_mm = mesh_projected_detectors[detector_indices]  # Mesh-projected detectors in measurement order
+        
+        # **NEW: SAVE ORIGINAL COORDINATES (BEFORE TOUCH_OPTODES) FOR VALIDATION**
+        # These are the original air voxel centers before mesh projection - should be 100% on surface
+        ordered_sources_original_mm = unique_sources_mm[source_indices]  # Original air voxel centers in measurement order
+        ordered_detectors_original_mm = probe_detectors_mm[detector_indices]  # Original air voxel centers in measurement order
+        
+        # Log coordinate system differences for transparency
+        if len(unique_sources_mm) > 0:
+            original_source_sample = unique_sources_mm[0]
+            projected_source_sample = mesh_projected_sources[0]
+            projection_distance = np.linalg.norm(projected_source_sample - original_source_sample)
+            logger.debug(f"Coordinate system example: air voxel center {original_source_sample} -> mesh surface {projected_source_sample}")
+            logger.debug(f"Typical projection distance: {projection_distance:.3f} mm (mesh surface refinement)")
+        
+        logger.debug(f"Final coordinates: {len(ordered_sources_mm)} sources, {len(ordered_detectors_mm)} detectors for physics simulation")
         
         source_dataset = h5_file.create_dataset("source_positions", data=ordered_sources_mm)
         source_dataset.attrs["units"] = "mm"
-        source_dataset.attrs["description"] = "NIR source positions in phantom coordinate system (OPTIMIZED: unique sources reused across measurements)"
-        source_dataset.attrs["coordinate_system"] = f"Physical coordinates in millimeters (voxel_size={VOXEL_SIZE_MM}mm)"
-        source_dataset.attrs["placement_method"] = "Poisson disk sampling for strategic source distribution"
+        source_dataset.attrs["description"] = "NIR source positions on mesh surface after touch_optodes() projection"
+        source_dataset.attrs["coordinate_system"] = "Continuous mesh surface coordinates (may differ from voxel grid)"
+        source_dataset.attrs["placement_method"] = "Air voxel centers -> mesh surface projection via touch_optodes()"
+        source_dataset.attrs["physics_accuracy"] = "Exact coordinates used in FEM simulation for boundary conditions"
+        source_dataset.attrs["coordinate_note"] = "Mesh surface may pass through tissue voxels - this is correct physics"
         source_dataset.attrs["optimization_strategy"] = f"{n_unique_sources} unique sources shared across {n_measurements} measurements"
         source_dataset.attrs["ordering"] = "Positions ordered to match femdata() measurement sequence"
         
         detector_dataset = h5_file.create_dataset("detector_positions", data=ordered_detectors_mm)
         detector_dataset.attrs["units"] = "mm"
-        detector_dataset.attrs["description"] = "Detector positions for OPTIMIZED measurements (pure random sampling per source)"
-        detector_dataset.attrs["coordinate_system"] = f"Physical coordinates in millimeters (voxel_size={VOXEL_SIZE_MM}mm)"
+        detector_dataset.attrs["description"] = "Detector positions on mesh surface after touch_optodes() projection"
+        detector_dataset.attrs["coordinate_system"] = "Continuous mesh surface coordinates (may differ from voxel grid)"
+        detector_dataset.attrs["placement_method"] = "Air voxel centers -> mesh surface projection via touch_optodes()"
+        detector_dataset.attrs["physics_accuracy"] = "Exact coordinates used in FEM simulation for boundary conditions"
+        detector_dataset.attrs["coordinate_note"] = "Mesh surface may pass through tissue voxels - this is correct physics"
         detector_dataset.attrs["sds_range"] = f"[{DEFAULT_MIN_PROBE_DISTANCE}, {DEFAULT_MAX_PROBE_DISTANCE}]mm"
         detector_dataset.attrs["selection_strategy"] = "Pure random sampling: uniform random selection within 10-40mm SDS range"
         detector_dataset.attrs["grouping"] = "Shape: (N_measurements, 3) for [measurement_idx][x,y,z] ordered by links"
         detector_dataset.attrs["ordering"] = "Positions ordered to match femdata() measurement sequence"
+        
+        # **NEW: SAVE ORIGINAL COORDINATES (BEFORE TOUCH_OPTODES) FOR VALIDATION**
+        # These represent the pure surface extraction results - should be 100% on air-tissue boundary
+        source_original_dataset = h5_file.create_dataset("source_positions_original", data=ordered_sources_original_mm)
+        source_original_dataset.attrs["units"] = "mm"
+        source_original_dataset.attrs["description"] = "Original NIR source positions before touch_optodes() projection"
+        source_original_dataset.attrs["coordinate_system"] = "Air voxel centers from surface extraction"
+        source_original_dataset.attrs["placement_method"] = "Direct conversion from air voxels adjacent to tissue"
+        source_original_dataset.attrs["validation_purpose"] = "Should show 100% air voxel placement (before mesh projection)"
+        source_original_dataset.attrs["coordinate_note"] = "These are the ideal surface positions before physics projection"
+        source_original_dataset.attrs["comparison"] = "Compare with source_positions to see mesh projection effects"
+        
+        detector_original_dataset = h5_file.create_dataset("detector_positions_original", data=ordered_detectors_original_mm)
+        detector_original_dataset.attrs["units"] = "mm"
+        detector_original_dataset.attrs["description"] = "Original detector positions before touch_optodes() projection"
+        detector_original_dataset.attrs["coordinate_system"] = "Air voxel centers from surface extraction"
+        detector_original_dataset.attrs["placement_method"] = "Direct conversion from air voxels adjacent to tissue"
+        detector_original_dataset.attrs["validation_purpose"] = "Should show 100% air voxel placement (before mesh projection)"
+        detector_original_dataset.attrs["coordinate_note"] = "These are the ideal surface positions before physics projection"
+        detector_original_dataset.attrs["comparison"] = "Compare with detector_positions to see mesh projection effects"
         
         # SUBSTEP 5.3: Save measurement connectivity matrix for OPTIMIZED source-detector pairing validation
         links_dataset = h5_file.create_dataset("measurement_links", data=measurement_links)
@@ -1421,9 +1508,17 @@ def run_fd_simulation_and_save(phantom_mesh, ground_truth_maps, probe_sources, p
 # VISUALIZATION: 3D PROBE-MESH RENDERING FOR GEOMETRIC VALIDATION
 # --------------------------------------------------------------
 
-def visualize_probe_on_mesh(phantom_volume, phantom_mesh, source_position, detector_positions, probe_index, save_directory, patch_info=None, show_interactive=False):
+def visualize_probe_on_mesh(phantom_volume, phantom_mesh, probe_sources, probe_detectors, measurement_links, 
+                           probe_index, save_directory, patch_info=None, show_interactive=False, 
+                           n_visual_pairs=DEFAULT_N_VISUAL_PROBE_PAIRS):
     """
     Creates a clean, professional 3D visualization suitable for academic reports.
+    
+    NEW FEATURES:
+    • Shows multiple source-detector pairs (default: 5) for better understanding
+    • Interactive 3D popup option controlled by show_interactive flag
+    • Displays original voxel coordinates (before touch_optodes mesh projection)
+    • Both 2D PNG save and optional 3D interactive viewing
     
     Key Features:
     • Clean axis labels (X, Y, Z in mm) with proper spatial orientation
@@ -1434,7 +1529,8 @@ def visualize_probe_on_mesh(phantom_volume, phantom_mesh, source_position, detec
     """
     from scipy.ndimage import binary_erosion
     
-    logger.debug(f"Creating professional visualization for probe {probe_index+1}")
+    logger.debug(f"Creating professional visualization for phantom {probe_index+1}")
+    logger.debug(f"Showing {n_visual_pairs} source-detector pairs (interactive: {show_interactive})")
 
     # Initialize figure with clean, modern styling
     plt.style.use('default')
@@ -1519,30 +1615,63 @@ def visualize_probe_on_mesh(phantom_volume, phantom_mesh, source_position, detec
                       label=f'Probe Region ({patch_info["radius"]}mm)',
                       edgecolors='darkred', linewidths=0.3)  # Dark red outline for contrast
 
-    # PROBE ELEMENTS - Bold and clear
-    source_mm = convert_voxel_to_physical_coordinates([source_position])[0]
-    detector_mm = convert_voxel_to_physical_coordinates(detector_positions)
+    # MULTIPLE PROBE ELEMENTS - Show N source-detector pairs for better understanding
+    logger.debug(f"Available probe data: {len(probe_sources)} sources, {len(probe_detectors)} detectors, {len(measurement_links)} links")
     
-    # Source marker - prominent
-    ax.scatter(source_mm[0], source_mm[1], source_mm[2], 
-               c=colors['source'], s=120, 
-               label='NIR Source', marker='o', 
-               edgecolors='white', linewidths=2, alpha=1.0, zorder=10)
-    
-    # Detector marker - clear contrast
-    if len(detector_mm) > 0:
-        det = detector_mm[0]
-        ax.scatter(det[0], det[1], det[2], 
-                   c=colors['detector'], s=100, 
-                   label='NIR Detector', marker='s', 
-                   edgecolors='white', linewidths=2, alpha=1.0, zorder=10)
+    # Randomly sample N pairs from available measurements
+    if len(measurement_links) > 0:
+        n_available = len(measurement_links)
+        n_to_show = min(n_visual_pairs, n_available)
         
-        # Source-detector connection
-        ax.plot([source_mm[0], det[0]], [source_mm[1], det[1]], [source_mm[2], det[2]], 
-                color=colors['connection'], linewidth=2, alpha=0.7, zorder=5)
+        # Use fixed seed for reproducible visualization selection
+        vis_rng = np.random.default_rng(probe_index + 12345)  # Deterministic based on phantom index
+        selected_indices = vis_rng.choice(n_available, size=n_to_show, replace=False)
+        
+        logger.debug(f"Randomly selected {n_to_show} measurement pairs from {n_available} available")
+        
+        # Show selected source-detector pairs with consistent colors
+        for i, idx in enumerate(selected_indices):
+            # Get source and detector for this measurement
+            source_pos = probe_sources[idx]
+            detector_pos = probe_detectors[idx]
+            
+            # Convert to physical coordinates
+            source_mm = convert_voxel_to_physical_coordinates([source_pos])[0]
+            detector_mm = convert_voxel_to_physical_coordinates([detector_pos])[0]
+            
+            # Plot source - ALL sources are RED
+            ax.scatter(source_mm[0], source_mm[1], source_mm[2], 
+                      c='red', s=140, 
+                      label='NIR Sources' if i == 0 else "", marker='o', 
+                      edgecolors='white', linewidths=2, alpha=1.0, zorder=10)
+            
+            # Plot detector - ALL detectors are BLUE circles
+            ax.scatter(detector_mm[0], detector_mm[1], detector_mm[2],
+                      c='blue', s=120,
+                      label='NIR Detectors' if i == 0 else "", marker='o',
+                      edgecolors='white', linewidths=1.5, alpha=0.9, zorder=9)
+            
+            # Connection line between source and detector - subtle gray
+            ax.plot([source_mm[0], detector_mm[0]], 
+                   [source_mm[1], detector_mm[1]], 
+                   [source_mm[2], detector_mm[2]],
+                   color='gray', linewidth=1.5, alpha=0.5, linestyle='-',
+                   label='Source-Detector Links' if i == 0 else "")
+            
+            # Calculate and log SDS for this pair
+            sds_distance = np.linalg.norm(source_mm - detector_mm)
+            logger.debug(f"  Pair {i+1}: SDS = {sds_distance:.1f}mm")
+            
+            # Calculate and log SDS for this pair
+            sds_distance = np.linalg.norm(source_mm - detector_mm)
+            logger.debug(f"  Pair {i+1}: SDS = {sds_distance:.1f}mm")
+    
+    else:
+        logger.warning("No measurement links available for visualization")
 
     # PROFESSIONAL LABELING - Clean and minimal
-    ax.set_title(f'NIR Phantom {probe_index+1:02d}: Tissue Distribution & Probe Layout', 
+    ax.set_title(f'NIR Phantom {probe_index+1:02d}: {n_visual_pairs} Source-Detector Pairs\n'
+                f'Probe Layout Visualization', 
                  fontsize=14, fontweight='bold', color='#2C3E50', pad=20)
     
     # Simple, clear axis labels
@@ -1566,18 +1695,21 @@ def visualize_probe_on_mesh(phantom_volume, phantom_mesh, source_position, detec
     # Optimal viewing angle for medical imaging
     ax.view_init(elev=25, azim=45)
     
-    # High-quality output for reports
-    output_path = os.path.join(save_directory, f"probe_{probe_index+1:03d}.png")
-    plt.savefig(output_path, dpi=300, facecolor='white', bbox_inches='tight',
-                edgecolor='none', format='png')
+    # Save high-quality 2D PNG (always done)
+    output_filename = f"phantom_{probe_index+1:03d}_probe_layout.png"
+    output_path = os.path.join(save_directory, output_filename)
+    plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+    logger.info(f"✓ 2D visualization saved: {output_path}")
     
-    logger.debug(f"Professional visualization saved: {output_path}")
-
+    # Optional 3D interactive popup
     if show_interactive:
-        plt.show()
+        logger.info("🔍 Opening 3D interactive visualization - close window to continue...")
+        plt.show()  # This will block until user closes the window
+        logger.debug("3D interactive window closed, continuing execution...")
     else:
-        plt.close()
-
+        plt.close(fig)  # Clean up to save memory
+        logger.debug("3D interactive display disabled - figure closed to save memory")
+    
     return output_path
 
 
@@ -1802,15 +1934,17 @@ def main():
                     
                     # Generate detailed visualization for the first probe of this phantom
                     if len(probe_sources) > 0:  # Ensure probes were successfully placed
-                        first_source = probe_sources[0]  # Select first source for visualization
-                        first_detectors = probe_detectors[0:1]  # First detector associated with first measurement
                         
-                        # Generate 3D visualization with surface boundaries and probe positioning
-                        # Note: show_interactive=False to avoid popup windows
-                        visualize_probe_on_mesh(phantom_volume, phantom_mesh, first_source, first_detectors, 0, str(phantom_dir), 
-                                               patch_info=patch_info, show_interactive=False)
+                        # Generate 3D visualization with multiple source-detector pairs
+                        # Uses new multiple probe pair visualization for better understanding
+                        visualize_probe_on_mesh(phantom_volume, phantom_mesh, probe_sources, probe_detectors, measurement_links, 
+                                               0, str(phantom_dir), patch_info=patch_info, 
+                                               show_interactive=ENABLE_3D_INTERACTIVE_VISUAL,
+                                               n_visual_pairs=DEFAULT_N_VISUAL_PROBE_PAIRS)
                         
-                        logger.debug(f"Generated static PNG visualization for phantom {phantom_idx+1} (milestone phantom)")
+                        logger.debug(f"Generated visualization for phantom {phantom_idx+1} - "
+                                   f"showing {DEFAULT_N_VISUAL_PROBE_PAIRS} probe pairs "
+                                   f"(interactive: {ENABLE_3D_INTERACTIVE_VISUAL})")
                 else:
                     logger.info("▶️  STEP 5/6: Skipping visualization generation (not a milestone phantom)")
                     logger.debug(f"Next visualization will be generated at phantom {((phantom_idx // 100) + 1) * 100}")

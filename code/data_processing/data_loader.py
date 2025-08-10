@@ -93,7 +93,7 @@ def extract_tissue_patches_from_measurements(ground_truth: np.ndarray,
     Returns:
         np.ndarray: Tissue patches of shape (n_selected_measurements, 2, patch_size^3 * 2)
                    Each measurement gets 2 patches (source + detector) × 2 tissue properties
-                   Flattened format: [μ_a_patch, μ_s_patch] for each location
+                   Non-interleaved format: [μ_a_patch_flat + μ_s_patch_flat] for each location
     """
     n_selected = len(measurement_indices)
     channels, vol_d, vol_h, vol_w = ground_truth.shape  # (2, 64, 64, 64)
@@ -102,34 +102,58 @@ def extract_tissue_patches_from_measurements(ground_truth: np.ndarray,
     patch_volume = patch_size ** 3
     tissue_patches = np.zeros((n_selected, 2, patch_volume * 2), dtype=np.float32)
     
-    # Volume dimensions in mm (assuming 1mm voxel size, centered at origin)
-    vol_extent_mm = 64  # 64mm volume
-    voxel_size_mm = 1.0
-    vol_center_mm = vol_extent_mm / 2
+    # Volume dimensions and coordinate system
+    # CRITICAL: Determine coordinate system from actual data
+    vol_extent_voxels = 64  # 64 voxels
     
-    # Debug: Check position ranges
+    # Debug: Check position ranges to understand coordinate system
     src_min, src_max = source_positions[measurement_indices].min(axis=0), source_positions[measurement_indices].max(axis=0)
     det_min, det_max = detector_positions[measurement_indices].min(axis=0), detector_positions[measurement_indices].max(axis=0)
-    logger.debug(f"Source position range: {src_min} to {src_max}")
-    logger.debug(f"Detector position range: {det_min} to {det_max}")
+    logger.debug(f"🔍 Source position range: {src_min} to {src_max}")
+    logger.debug(f"🔍 Detector position range: {det_min} to {det_max}")
+    
+    # Determine coordinate system conversion
+    # If positions are in [-32, +32] range (centered), need different conversion than [0, 64] range
+    pos_center = (src_min + src_max) / 2
+    pos_extent = src_max - src_min
+    logger.debug(f"🔍 Position center: {pos_center}, extent: {pos_extent}")
+    
+    # Choose coordinate conversion based on data range
+    if np.all(src_min >= -35) and np.all(src_max <= 35):
+        # Centered coordinate system [-32, +32] → [0, 64]
+        logger.debug("📍 Using centered coordinate system conversion")
+        def pos_to_voxel(pos_mm):
+            return np.round(pos_mm + vol_extent_voxels / 2).astype(int)
+    else:
+        # Already in voxel coordinates [0, 64] 
+        logger.debug("📍 Using direct coordinate system conversion")
+        def pos_to_voxel(pos_mm):
+            return np.round(pos_mm).astype(int)
+    
+    # Track patch quality statistics
+    total_patches = 0
+    zero_patches = 0
+    partial_zero_patches = 0
     
     for i, meas_idx in enumerate(measurement_indices):
         # Get source and detector positions for this measurement (in mm)
         src_pos_mm = source_positions[meas_idx]  # [x, y, z] in mm
         det_pos_mm = detector_positions[meas_idx]  # [x, y, z] in mm
         
-        # Convert positions from mm to voxel indices (assuming volume centered at origin)
-        # Clamp to ensure positions are within volume bounds
-        src_voxel = np.round(src_pos_mm + vol_center_mm).astype(int)  # Center at (32, 32, 32)
-        det_voxel = np.round(det_pos_mm + vol_center_mm).astype(int)
+        # Convert positions to voxel indices using detected coordinate system
+        src_voxel = pos_to_voxel(src_pos_mm)
+        det_voxel = pos_to_voxel(det_pos_mm)
         
-        # Clamp positions to volume bounds
-        src_voxel = np.clip(src_voxel, 0, vol_extent_mm - 1)
-        det_voxel = np.clip(det_voxel, 0, vol_extent_mm - 1)
+        # Clamp positions to volume bounds [0, 63]
+        src_voxel = np.clip(src_voxel, 0, vol_extent_voxels - 1)
+        det_voxel = np.clip(det_voxel, 0, vol_extent_voxels - 1)
+        
+        logger.debug(f"Measurement {i}: src_mm={src_pos_mm} → voxel={src_voxel}, det_mm={det_pos_mm} → voxel={det_voxel}")
         
         positions = [src_voxel, det_voxel]
+        position_names = ["source", "detector"]
         
-        for patch_idx, pos_voxel in enumerate(positions):
+        for patch_idx, (pos_voxel, pos_name) in enumerate(zip(positions, position_names)):
             x, y, z = pos_voxel
             
             # Calculate patch boundaries (centered on position)
@@ -141,13 +165,19 @@ def extract_tissue_patches_from_measurements(ground_truth: np.ndarray,
             z_start = max(0, z - half_patch)
             z_end = min(vol_d, z + half_patch)
             
+            logger.debug(f"  {pos_name} patch bounds: x[{x_start}:{x_end}], y[{y_start}:{y_end}], z[{z_start}:{z_end}]")
+            
             # Extract patch for both tissue property channels
+            # IMPORTANT: ground_truth shape is (2, 64, 64, 64) = (channels, z, y, x)
             patch_absorption = ground_truth[0, z_start:z_end, y_start:y_end, x_start:x_end]  # μ_a
             patch_scattering = ground_truth[1, z_start:z_end, y_start:y_end, x_start:x_end]  # μ_s
+            
+            logger.debug(f"  Extracted patch shape: {patch_absorption.shape}")
             
             # Handle edge cases by padding if necessary
             actual_patch_shape = patch_absorption.shape
             if actual_patch_shape != (patch_size, patch_size, patch_size):
+                logger.debug(f"  Padding patch from {actual_patch_shape} to ({patch_size}, {patch_size}, {patch_size})")
                 # Pad to full patch size
                 padded_absorption = np.zeros((patch_size, patch_size, patch_size), dtype=np.float32)
                 padded_scattering = np.zeros((patch_size, patch_size, patch_size), dtype=np.float32)
@@ -157,39 +187,66 @@ def extract_tissue_patches_from_measurements(ground_truth: np.ndarray,
                 pad_y = (patch_size - actual_patch_shape[1]) // 2
                 pad_x = (patch_size - actual_patch_shape[2]) // 2
                 
-                padded_absorption[pad_z:pad_z+actual_patch_shape[0], 
-                                pad_y:pad_y+actual_patch_shape[1],
-                                pad_x:pad_x+actual_patch_shape[2]] = patch_absorption
-                                
-                padded_scattering[pad_z:pad_z+actual_patch_shape[0],
-                                pad_y:pad_y+actual_patch_shape[1], 
-                                pad_x:pad_x+actual_patch_shape[2]] = patch_scattering
+                end_z = pad_z + actual_patch_shape[0]
+                end_y = pad_y + actual_patch_shape[1] 
+                end_x = pad_x + actual_patch_shape[2]
                 
+                padded_absorption[pad_z:end_z, pad_y:end_y, pad_x:end_x] = patch_absorption
+                padded_scattering[pad_z:end_z, pad_y:end_y, pad_x:end_x] = patch_scattering
+                                
                 patch_absorption = padded_absorption
                 patch_scattering = padded_scattering
             
-            # Flatten and concatenate both channels: [μ_a_flat, μ_s_flat]
-            # IMPORTANT: NIR processor expects interleaved format for proper reshaping
-            # Convert concatenated format to interleaved format for compatibility
+            # Flatten both channels separately
             absorption_flat = patch_absorption.flatten()  # 16^3 values
             scattering_flat = patch_scattering.flatten()   # 16^3 values
             
-            # Debug: Check if patches have meaningful content
-            if i == 0 and patch_idx == 0:  # Log for first patch only
-                absorption_nonzero = np.count_nonzero(absorption_flat)
-                scattering_nonzero = np.count_nonzero(scattering_flat)
-                total_voxels = len(absorption_flat)
-                logger.debug(f"First patch content: absorption {absorption_nonzero}/{total_voxels} nonzero, "
-                           f"scattering {scattering_nonzero}/{total_voxels} nonzero")
-                logger.debug(f"Patch stats: abs range [{absorption_flat.min():.4f}, {absorption_flat.max():.4f}], "
-                           f"scat range [{scattering_flat.min():.4f}, {scattering_flat.max():.4f}]")
+            # Create concatenated format: [μ_a_flat + μ_s_flat] (NOT interleaved)
+            # This matches what NIR processor expects for view() operations
+            concatenated_patch = np.concatenate([absorption_flat, scattering_flat], axis=0)
             
-            # Create interleaved format: [μ_a[0], μ_s[0], μ_a[1], μ_s[1], ...]
-            interleaved_patch = np.zeros(patch_volume * 2, dtype=np.float32)
-            interleaved_patch[0::2] = absorption_flat   # Even indices: absorption
-            interleaved_patch[1::2] = scattering_flat   # Odd indices: scattering
+            # Quality monitoring and validation warnings
+            total_patches += 1
+            absorption_nonzero = np.count_nonzero(absorption_flat)
+            scattering_nonzero = np.count_nonzero(scattering_flat)
+            total_voxels = len(absorption_flat)
             
-            tissue_patches[i, patch_idx] = interleaved_patch
+            # Calculate zero percentage for concatenated patch (both channels)
+            patch_zeros = np.sum(concatenated_patch == 0)
+            patch_zero_percentage = (patch_zeros / len(concatenated_patch)) * 100
+            
+            # VALIDATION WARNINGS: Alert if patch has unusual zero content (extreme cases only)
+            # For surface-centered patches, expect ~40-70% zeros (30-60% tissue)
+            if patch_zero_percentage > 85.0:
+                logger.warning(f"⚠️ HIGH ZEROS: {pos_name} patch at meas {i} has {patch_zero_percentage:.1f}% zeros (>85%)")
+            elif patch_zero_percentage < 20.0:
+                logger.warning(f"⚠️ LOW ZEROS: {pos_name} patch at meas {i} has {patch_zero_percentage:.1f}% zeros (<20%)")
+            
+            # Legacy quality tracking
+            if absorption_nonzero == 0 and scattering_nonzero == 0:
+                zero_patches += 1
+                if i < 3:  # Log first few zero patches
+                    logger.warning(f"  ⚠️ Completely zero patch: {pos_name} at voxel {pos_voxel}")
+            elif absorption_nonzero < total_voxels * 0.1 or scattering_nonzero < total_voxels * 0.1:
+                partial_zero_patches += 1
+                if i < 3:  # Log first few partial patches
+                    logger.debug(f"  📊 Low content patch: {pos_name} abs={absorption_nonzero}/{total_voxels}, scat={scattering_nonzero}/{total_voxels}")
+            else:
+                if i < 3:  # Log first few good patches
+                    logger.debug(f"  ✅ Good patch: {pos_name} abs={absorption_nonzero}/{total_voxels}, scat={scattering_nonzero}/{total_voxels}")
+                    logger.debug(f"     Value ranges: abs[{absorption_flat.min():.4f}, {absorption_flat.max():.4f}], scat[{scattering_flat.min():.4f}, {scattering_flat.max():.4f}]")
+            
+            tissue_patches[i, patch_idx] = concatenated_patch
+    
+    # Final quality report
+    zero_ratio = zero_patches / total_patches if total_patches > 0 else 0
+    partial_ratio = partial_zero_patches / total_patches if total_patches > 0 else 0
+    
+    logger.debug(f"🎯 Tissue Patch Extraction Summary:")
+    logger.debug(f"   Total patches: {total_patches}")
+    logger.debug(f"   Zero patches: {zero_patches} ({zero_ratio:.1%})")
+    logger.debug(f"   Partial patches: {partial_zero_patches} ({partial_ratio:.1%})")
+    logger.debug(f"   Good patches: {total_patches - zero_patches - partial_zero_patches} ({(1 - zero_ratio - partial_ratio):.1%})")
     
     return tissue_patches
 
@@ -207,11 +264,13 @@ class NIRPhantomDataset(Dataset):
     """
     
     def __init__(self, data_dir: str = "../data", split: str = "train", 
-                 random_seed: int = DEFAULT_RANDOM_SEED):
+                 random_seed: int = DEFAULT_RANDOM_SEED, 
+                 extract_tissue_patches: bool = True):
         """Initialize dataset with phantom files."""
         self.data_dir = Path(data_dir)
         self.split = split
         self.random_seed = random_seed
+        self.extract_tissue_patches = extract_tissue_patches
         
         # Set up random state for reproducible splits
         self.rng = np.random.RandomState(random_seed)
@@ -330,36 +389,41 @@ class NIRPhantomDataset(Dataset):
                 
                 # 🧬 TISSUE PATCH EXTRACTION: Extract 16x16x16 patches around source/detector locations
                 # This provides local anatomical context for each measurement
-                if n_measurements > DEFAULT_N_TRAINING_MEASUREMENTS:
-                    # Use the same subsample indices for tissue patches
-                    tissue_patches = extract_tissue_patches_from_measurements(
-                        ground_truth=ground_truth,           # (2, 64, 64, 64)
-                        source_positions=source_pos,         # (1000, 3) 
-                        detector_positions=detector_pos,     # (1000, 3)
-                        measurement_indices=subsample_indices, # (256,) selected indices
-                        patch_size=16
-                    )
+                if self.extract_tissue_patches:
+                    if n_measurements > DEFAULT_N_TRAINING_MEASUREMENTS:
+                        # Use the same subsample indices for tissue patches
+                        tissue_patches = extract_tissue_patches_from_measurements(
+                            ground_truth=ground_truth,           # (2, 64, 64, 64)
+                            source_positions=source_pos,         # (1000, 3) 
+                            detector_positions=detector_pos,     # (1000, 3)
+                            measurement_indices=subsample_indices, # (256,) selected indices
+                            patch_size=16
+                        )
+                    else:
+                        # Use all measurements if we have fewer than training target
+                        tissue_patches = extract_tissue_patches_from_measurements(
+                            ground_truth=ground_truth,
+                            source_positions=source_pos,
+                            detector_positions=detector_pos,
+                            measurement_indices=np.arange(n_measurements),
+                            patch_size=16
+                        )
+                    
+                    logger.debug(f"Extracted tissue patches shape: {tissue_patches.shape}")  # Should be (256, 2, 8192)
+                    
+                    # 📊 TISSUE PATCH QUALITY MONITORING: Basic sanity check
+                    tissue_tensor = torch.tensor(tissue_patches, dtype=torch.float32)
+                    zero_ratio = (tissue_tensor == 0).float().mean()
+                    if zero_ratio > 0.98:  # Only warn for extremely high zero content (>98%)
+                        logger.debug(f"⚠️ Very high zero content in tissue patches: {zero_ratio:.1%} for phantom {phantom_id}")
+                    elif zero_ratio < 0.3:
+                        logger.debug(f"📍 Unusually low zero content: {zero_ratio:.1%} for phantom {phantom_id}")
+                    else:
+                        logger.debug(f"✅ Normal tissue patch quality: {zero_ratio:.1%} zeros for phantom {phantom_id}")
                 else:
-                    # Use all measurements if we have fewer than training target
-                    tissue_patches = extract_tissue_patches_from_measurements(
-                        ground_truth=ground_truth,
-                        source_positions=source_pos,
-                        detector_positions=detector_pos,
-                        measurement_indices=np.arange(n_measurements),
-                        patch_size=16
-                    )
-                
-                logger.debug(f"Extracted tissue patches shape: {tissue_patches.shape}")  # Should be (256, 2, 8192)
-                
-                # 📊 TISSUE PATCH QUALITY MONITORING: Basic sanity check
-                tissue_tensor = torch.tensor(tissue_patches, dtype=torch.float32)
-                zero_ratio = (tissue_tensor == 0).float().mean()
-                if zero_ratio > 0.98:  # Only warn for extremely high zero content (>98%)
-                    logger.debug(f"⚠️ Very high zero content in tissue patches: {zero_ratio:.1%} for phantom {phantom_id}")
-                elif zero_ratio < 0.3:
-                    logger.debug(f"📍 Unusually low zero content: {zero_ratio:.1%} for phantom {phantom_id}")
-                else:
-                    logger.debug(f"✅ Normal tissue patch quality: {zero_ratio:.1%} zeros for phantom {phantom_id}")
+                    # Create empty tissue patches if not extracting
+                    tissue_patches = np.zeros((DEFAULT_N_TRAINING_MEASUREMENTS, 2, 16**3 * 2), dtype=np.float32)
+                    logger.debug(f"Skipping tissue patch extraction for Stage 1 training")
                 
         except Exception as e:
             logger.error(f"Error loading complete phantom {phantom_idx} from {phantom_file}: {e}")
@@ -433,7 +497,8 @@ def get_optimal_dataloader_config() -> Dict:
 def create_phantom_dataloaders(data_dir: str = "../data",
                               batch_size: int = DEFAULT_PHANTOM_BATCH_SIZE,
                               num_workers: int = None,  # Auto-detect optimal workers
-                              random_seed: int = DEFAULT_RANDOM_SEED) -> Dict[str, DataLoader]:
+                              random_seed: int = DEFAULT_RANDOM_SEED,
+                              extract_tissue_patches: bool = True) -> Dict[str, DataLoader]:
     """
     Create DataLoaders for complete phantom batching (batches of complete phantoms).
     
@@ -446,6 +511,7 @@ def create_phantom_dataloaders(data_dir: str = "../data",
         batch_size (int): Number of phantoms per batch
         num_workers (int): Number of worker processes (auto-detected if None)
         random_seed (int): Random seed for splits
+        extract_tissue_patches (bool): Whether to extract tissue patches (Stage 2 only)
         
     Returns:
         Dict[str, DataLoader]: Dictionary with 'train', 'val', 'test' DataLoaders
@@ -467,7 +533,7 @@ def create_phantom_dataloaders(data_dir: str = "../data",
     dataloaders = {}
     
     for split in ['train', 'val', 'test']:
-        dataset = NIRPhantomDataset(data_dir, split, random_seed)
+        dataset = NIRPhantomDataset(data_dir, split, random_seed, extract_tissue_patches)
         
         shuffle = (split == 'train') 
         

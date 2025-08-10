@@ -154,7 +154,7 @@ class Stage2Trainer:
         # Mixed precision training for A100 optimization (2x speedup + memory savings)
         self.scaler = GradScaler() if self.device.type == 'cuda' else None
         
-        mode = ENHANCED_MODE if use_tissue_patches else BASELINE_MODE
+        mode = "enhanced" if use_tissue_patches else "baseline"
         logger.info(f"")
         logger.info(f"{'='*80}")
         logger.info(f"🚀 TRANSFORMER TRAINING INITIALIZATION ({mode})")
@@ -184,8 +184,8 @@ class Stage2Trainer:
     
     def _init_wandb(self, epochs: int, steps_per_epoch: int):
         """Initialize Weights & Biases experiment tracking for Stage 2."""
-        mode_suffix = "enhanced" if self.use_tissue_patches else "baseline"
-        experiment_name = f"stage2_transformer_{mode_suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        mode_suffix = "Enhanced" if self.use_tissue_patches else "Baseline"
+        experiment_name = f"Transformer_{mode_suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
         # Choose tags based on mode
         tags = WANDB_TAGS_STAGE2_ENHANCED if self.use_tissue_patches else WANDB_TAGS_STAGE2_BASELINE
@@ -202,8 +202,8 @@ class Stage2Trainer:
                 # Model architecture
                 "stage": "Transformer_Enhancement",
                 "model_type": "Hybrid_CNN_Transformer", 
-                "training_stage": TRAINING_STAGE2,
-                "mode": ENHANCED_MODE if self.use_tissue_patches else BASELINE_MODE,
+                "training_stage": "Stage_2_Sequence_Modeling",
+                "mode": "enhanced" if self.use_tissue_patches else "baseline",
                 
                 # Training hyperparameters
                 "learning_rate": self.learning_rate,
@@ -415,19 +415,11 @@ class Stage2Trainer:
             # Calculate global step for scheduler tracking
             global_step = epoch * total_batches + batch_idx
             
-            # Log per-batch (important for smooth curve visualization)
+            # Log essential learning rate tracking (Linear Warmup + Cosine Decay pattern)
             wandb.log({
-                "stage2/learning_rate_per_batch": current_lr,
-                "stage2/global_step": global_step,
-                "stage2/epoch_progress": epoch + (batch_idx / total_batches)
+                "Analysis/Learning_Rate": current_lr,
+                "Analysis/Training_Progress": epoch + (batch_idx / total_batches)
             }, step=global_step)
-            
-            # Also log per-epoch summary
-            if batch_idx == total_batches - 1:  # Last batch of epoch
-                wandb.log({
-                    "stage2/learning_rate_epoch_end": current_lr,
-                    "stage2/epoch_complete": epoch
-                }, step=global_step)
                 
         except Exception as e:
             logger.debug(f"W&B LR logging failed: {e}")
@@ -816,7 +808,7 @@ class Stage2Trainer:
             self._init_wandb(epochs, steps_per_epoch)
             self._wandb_initialized = True
         
-        mode = ENHANCED_MODE if self.use_tissue_patches else BASELINE_MODE
+        mode = "enhanced" if self.use_tissue_patches else "baseline"
         logger.info(f"🏋️ Starting Transformer training ({mode}) for {epochs} epochs")
         logger.debug(f"📊 Stage 2 configuration: device={self.device}, lr={self.learning_rate}, tissue_patches={self.use_tissue_patches}")
         logger.debug(f"📈 Stage 2 data loaders: train_batches={len(data_loaders['train'])}, val_batches={len(data_loaders['val'])}")

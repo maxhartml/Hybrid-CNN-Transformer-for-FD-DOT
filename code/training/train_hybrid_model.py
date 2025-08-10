@@ -156,7 +156,8 @@ def main():
         # Stage 1: Use phantom DataLoader for ground truth batching (CNN autoencoder training)
         data_loaders = create_phantom_dataloaders(
             data_dir=DATA_DIRECTORY,
-            batch_size=batch_size
+            batch_size=batch_size,
+            extract_tissue_patches=False  # Skip tissue patches for Stage 1
         )
         logger.info(f"✅ Stage 1 data loaders created successfully")
         logger.debug(f"📊 Train batches: {len(data_loaders['train'])}, Val batches: {len(data_loaders['val'])}")
@@ -165,7 +166,8 @@ def main():
         # Stage 2: Use phantom DataLoader for NIR measurement + ground truth batching
         data_loaders = create_phantom_dataloaders(
             data_dir=DATA_DIRECTORY,
-            batch_size=batch_size
+            batch_size=batch_size,
+            extract_tissue_patches=use_tissue_patches  # Extract tissue patches based on config
         )
         logger.info(f"✅ Stage 2 data loaders created successfully")
         logger.debug(f"📊 Train batches: {len(data_loaders['train'])}, Val batches: {len(data_loaders['val'])}")

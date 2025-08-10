@@ -23,6 +23,7 @@ Date: August 2025
 # =============================================================================
 
 # Standard library imports
+import logging
 from typing import Optional, Dict, Tuple
 
 # Third-party imports
@@ -146,27 +147,47 @@ class PerMeasurementTissueEncoder(nn.Module):
         
         Args:
             tissue_patches (torch.Tensor): Shape [batch, 2, 16^3*2]
-                batch_size measurements × 2 patches (source + detector) × flattened patch data
-                where flattened patch data contains interleaved channels (μₐ, μₛ) for 16³ voxels
+                batch_size measurements × 2 patches (source + detector) × concatenated patch data
+                where concatenated patch data is [μ_a_flat + μ_s_flat] for 16³ voxels
         
         Returns:
             torch.Tensor: Shape [batch, 8] (4D per source + 4D per detector)
         """
         logger.debug(f"🏃 PerMeasurementTissueEncoder forward: input shape {tissue_patches.shape}")
         
-        batch_size, n_patches, flattened_size = tissue_patches.shape
+        # Handle both batched and single phantom cases
+        original_shape = tissue_patches.shape
+        if len(original_shape) == 4:
+            # Batched: [batch_size, n_measurements, n_patches_per_measurement, concatenated_size]
+            batch_size, n_measurements, n_patches, concatenated_size = original_shape
+            # Reshape to [batch_size * n_measurements, n_patches, concatenated_size] for processing
+            tissue_patches = tissue_patches.view(-1, n_patches, concatenated_size)
+            process_batch_size = batch_size * n_measurements
+            is_batched = True
+        else:
+            # Single phantom: [n_measurements, n_patches, concatenated_size]
+            process_batch_size, n_patches, concatenated_size = original_shape
+            batch_size, n_measurements = None, None
+            is_batched = False
         
-        # Reshape flattened patches back to 3D: [batch, 2, 16^3*2] → [batch, 2, 2, 16, 16, 16]
-        # The flattened data is interleaved: [ch0_vox0, ch1_vox0, ch0_vox1, ch1_vox1, ...]
-        patch_volume = self.patch_size ** 3
+        # FIXED: Handle concatenated format [μ_a_flat + μ_s_flat] not interleaved
+        patch_volume = self.patch_size ** 3  # 16^3 = 4096
         n_channels = 2  # absorption + scattering
         
-        # Reshape to separate channels and spatial dimensions
-        reshaped_patches = tissue_patches.view(batch_size, n_patches, patch_volume, n_channels)
-        # Reorder to [batch, 2, 2, 16*16*16] → [batch, 2, 2, 16, 16, 16]
-        reshaped_patches = reshaped_patches.permute(0, 1, 3, 2)  # Move channels before spatial
-        reshaped_patches = reshaped_patches.view(batch_size, n_patches, n_channels, 
-                                                self.patch_size, self.patch_size, self.patch_size)
+        # Split concatenated data: [μ_a_flat + μ_s_flat] → separate channels
+        # Expected: concatenated_size = patch_volume * 2 = 8192
+        assert concatenated_size == patch_volume * 2, f"Expected {patch_volume * 2} elements, got {concatenated_size}"
+        
+        # Split into absorption and scattering channels
+        absorption_flat = tissue_patches[:, :, :patch_volume]  # [batch, 2, 4096]
+        scattering_flat = tissue_patches[:, :, patch_volume:]  # [batch, 2, 4096]
+        
+        # Reshape each channel to 3D: [process_batch, 2, 4096] → [process_batch, 2, 16, 16, 16]
+        absorption_3d = absorption_flat.view(process_batch_size, n_patches, self.patch_size, self.patch_size, self.patch_size)
+        scattering_3d = scattering_flat.view(process_batch_size, n_patches, self.patch_size, self.patch_size, self.patch_size)
+        
+        # Stack channels: [process_batch, 2, 2, 16, 16, 16]
+        reshaped_patches = torch.stack([absorption_3d, scattering_3d], dim=2)
         
         logger.debug(f"📦 Reshaped patches: {reshaped_patches.shape}")
         
@@ -174,13 +195,34 @@ class PerMeasurementTissueEncoder(nn.Module):
         patches = reshaped_patches.view(-1, n_channels, self.patch_size, self.patch_size, self.patch_size)
         logger.debug(f"📦 Patches for CNN: {patches.shape}")
         
+        # Log patch content and validate
+        if logger.isEnabledFor(logging.DEBUG):
+            zero_ratio = (patches == 0).float().mean()
+            nonzero_count = (patches != 0).sum()
+            zero_percentage = zero_ratio.item() * 100
+            
+            # VALIDATION WARNINGS: Alert if batch has unusual zero content
+            if zero_percentage > 75.0:
+                logger.warning(f"⚠️ HIGH ZEROS: Tissue patch batch has {zero_percentage:.1f}% zeros (>75%)")
+            elif zero_percentage < 25.0:
+                logger.warning(f"⚠️ LOW ZEROS: Tissue patch batch has {zero_percentage:.1f}% zeros (<25%)")
+            
+            logger.debug(f"📊 Patch content: {zero_percentage:.1f}% zeros, {nonzero_count} non-zero values")
+            if nonzero_count > 0:
+                nonzero_patches = patches[patches != 0]
+                logger.debug(f"📊 Non-zero range: [{nonzero_patches.min():.4f}, {nonzero_patches.max():.4f}]")
+        
         # Encode all patches: [batch×2, output_dim]
         encoded_patches = self.patch_encoder(patches)
         logger.debug(f"📦 Encoded patches: {encoded_patches.shape}")
         
-        # Reshape back: [batch, 2, output_dim] → [batch, 2*output_dim]
-        encoded_patches = encoded_patches.view(batch_size, n_patches, self.output_dim)
-        tissue_contexts = encoded_patches.view(batch_size, n_patches * self.output_dim)
+        # Reshape back: [process_batch, 2, output_dim] → [process_batch, 2*output_dim]
+        encoded_patches = encoded_patches.view(process_batch_size, n_patches, self.output_dim)
+        tissue_contexts = encoded_patches.view(process_batch_size, n_patches * self.output_dim)
+        
+        # If input was batched, reshape back to [batch_size, n_measurements, features]
+        if is_batched:
+            tissue_contexts = tissue_contexts.view(batch_size, n_measurements, n_patches * self.output_dim)
         
         logger.debug(f"📦 PerMeasurementTissueEncoder output: {tissue_contexts.shape}")
         return tissue_contexts
