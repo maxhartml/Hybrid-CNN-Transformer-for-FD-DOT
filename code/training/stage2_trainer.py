@@ -48,6 +48,15 @@ from code.utils.metrics import NIRDOTMetrics, create_metrics_for_stage, calculat
 from code.training.training_config import *  # Import all training config
 
 # =============================================================================
+# PERFORMANCE OPTIMIZATIONS
+# =============================================================================
+
+# Enable TensorFloat32 for better A100 performance (suppresses the warning)
+if torch.cuda.is_available():
+    torch.set_float32_matmul_precision('high')
+    logger.debug("✅ Enabled TensorFloat32 for optimized A100 matrix multiplication")
+
+# =============================================================================
 # STAGE-SPECIFIC CONFIGURATION
 # =============================================================================
 
@@ -180,7 +189,7 @@ class Stage2Trainer:
         logger.info(f"{'='*80}")
         logger.info(f"🖥️  Device: {self.device}")
         logger.info(f"📈 Base Learning Rate: {learning_rate}")
-        logger.info(f"🔒 L2 Regularization: {weight_decay}")
+        logger.info(f"🔒 L2 Regularization: {WEIGHT_DECAY_TRANSFORMER}")
         logger.info(f"⏰ Early Stopping Patience: {early_stopping_patience}")
         logger.info(f"🧬 Tissue Patches: {use_tissue_patches}")
         if self.scaler:

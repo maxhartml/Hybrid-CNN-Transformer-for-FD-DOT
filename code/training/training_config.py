@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Training Control - Set which stage to run
-CURRENT_TRAINING_STAGE = "stage1"       # Set to "stage1" or "stage2" to control which stage runs
+CURRENT_TRAINING_STAGE = "stage2"       # Set to "stage1" or "stage2" to control which stage runs
 STAGE1_CHECKPOINT_PATH = "checkpoints/stage1_best.pth"  # Path to Stage 1 checkpoint for Stage 2
 
 # W&B Control
@@ -106,8 +106,8 @@ GRADIENT_MONITOR_THRESHOLD = 5.0        # Earlier warning threshold for gradient
 STAGE1_MAX_LR = 3e-3                    # Peak learning rate (found via LR range test) - REVERTED to better value
 STAGE1_BASE_LR = 1.2e-4                 # Base learning rate (max_lr / div_factor = 3e-3/25) 
 STAGE1_DIV_FACTOR = 25                  # Conservative div_factor for stability
-STAGE1_FINAL_DIV_FACTOR = 100           # FIXED: Much more reasonable final decay (was 1e4 - too aggressive!)
-STAGE1_PCT_START = 0.2                  # 20% warmup - REVERTED to better value you mentioned
+STAGE1_FINAL_DIV_FACTOR = 35            # OPTIMIZED: For 100 epochs + more data - balanced final LR ~3.4e-06
+STAGE1_PCT_START = 0.15                 # 15% warmup for longer training (more conservative)
 STAGE1_CYCLE_MOMENTUM = True            # Enable momentum cycling for CNN training
 
 # Stage 1 AdamW Optimizer Parameters
@@ -120,9 +120,9 @@ ADAMW_EPS_STAGE1 = 1e-8                # Numerical stability epsilon
 # Based on "Attention Is All You Need", BERT, and ViT papers
 
 # Stage 2 Learning Rate Schedule (Linear Warmup + Cosine Decay)
-STAGE2_BASE_LR = 2e-4                   # Base learning rate (conservative for fine-tuning)
-STAGE2_WARMUP_PCT = 0.1                 # 10% warmup (transformer standard)
-STAGE2_ETA_MIN_PCT = 0.03               # Final LR = 3% of peak (smooth convergence)
+STAGE2_BASE_LR = 1e-3                   # Increased to 1e-3 for meaningful transformer learning (BERT-scale)
+STAGE2_WARMUP_PCT = 0.1                 # 10% warmup (BERT standard - maintains academic rigor)
+STAGE2_ETA_MIN_PCT = 0.03               # Final LR = 3% of peak (standard for transformer fine-tuning)
 
 # Stage 2 AdamW Optimizer Parameters  
 ADAMW_BETAS_STAGE2 = (0.9, 0.98)       # Transformer-standard betas (BERT/ViT)
