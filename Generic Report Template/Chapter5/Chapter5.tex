@@ -1,0 +1,43 @@
+% !TEX root =  ../Dissertation.tex
+
+\chapter{Two-Stage Training Methodology}
+
+\section{Training Strategy Overview}
+% High-level overview of the two-stage training approach
+
+\section{Stage 1: CNN Autoencoder Pre-Training}
+% Detailed description of the first training stage
+
+\subsection{Identity Mapping Objective}
+% Explanation of the identity mapping training objective
+
+\subsection{AdamW with OneCycleLR Optimization}
+% Optimization strategy for Stage 1 training
+
+\subsection{Hyperparameter Selection}
+% Selection and tuning of hyperparameters for Stage 1
+
+\section{Stage 2: Transformer Enhancement Training}
+% Detailed description of the second training stage
+
+\subsection{Frozen Decoder Approach}
+% Strategy for freezing decoder weights during Stage 2
+
+\subsection{Linear Warmup with Cosine Decay}
+% Learning rate scheduling for Stage 2
+
+\subsection{Differential Weight Decay}
+% Use of different weight decay values for different components
+
+\section{Data Augmentation Strategy}
+% Data augmentation techniques used during training
+
+\section{Implementation Details}
+% Technical implementation details
+
+\subsection{Hardware Optimization}
+% Optimization for GPU training and memory efficiency
+
+\subsection{Experiment Tracking}
+% Use of Weights \& Biases for experiment tracking
+
