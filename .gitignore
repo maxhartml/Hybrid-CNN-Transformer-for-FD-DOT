@@ -133,8 +133,12 @@ htmlcov/
 dmypy.json
 
 # =============================================================================
-# Academic & Research Files (keep in Git)
+# Academic & Research Files
 # =============================================================================
+# Generated reports and LaTeX compilation outputs
+report/
+Generic Report Template/
+
 # Papers and references are tracked
 # !papers/
 # !research/

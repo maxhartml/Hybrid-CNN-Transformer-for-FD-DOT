@@ -1,15 +1,32 @@
 #!/usr/bin/env python3
 """
-Shared Visualization Utilities for NIR-DOT Training.
+🎯 UNIVERSAL PHYSICS-BASED VISUALIZATION UTILITIES 🎯
 
-This module provides shared visualization functions used across both Stage 1 and Stage 2
-training to avoid code duplication and ensure consistent visualization behavior.
+Revolutionary visualization approach for NIR-DOT training that preserves physical meaning:
+
+BREAKTHROUGH FEATURES:
+✅ Universal Physics Normalization: Colors have absolute meaning across ALL phantoms
+✅ Cross-Phantom Comparability: Same optical properties → Same colors
+✅ Scientific Accuracy: No misleading visualizations, physics preserved
+✅ Model Debugging: Easily spot reconstruction errors
+✅ Training Insights: See if model learns physics correctly
+
+NORMALIZATION RANGES:
+• Absorption: 0 (air) → 0.0245 mm⁻¹ (strongest tumor: 0.007 × 3.5)
+• Scattering: 0 (air) → 2.95 mm⁻¹ (strongest tumor: 1.18 × 2.5)
+
+BENEFITS OVER OLD APPROACH:
+❌ Old: Per-image normalization → Physics meaning lost
+✅ New: Universal normalization → Physics preserved
+❌ Old: Can't compare phantoms → Misleading
+✅ New: Direct phantom comparison → Scientifically accurate
 
 Functions:
-    log_reconstruction_images_to_wandb: Shared function for logging 3D reconstruction slices
+    log_reconstruction_images_to_wandb: Universal physics-aware reconstruction visualization
+    universal_physics_normalization: Core normalization preserving physics relationships
 
 Author: Max Hart
-Date: August 2025
+Date: August 2025 - Universal Physics Update
 """
 
 # =============================================================================
@@ -95,116 +112,65 @@ def log_reconstruction_images_to_wandb(predictions: torch.Tensor,
             pred_yz_scat = pred_phantom[scattering_channel, pred_phantom.shape[-3]//2, :, :]
             target_yz_scat = target_phantom[scattering_channel, pred_phantom.shape[-3]//2, :, :]
             
-            # Enhanced normalization with better contrast preservation
-            def normalize_with_tissue_tumor_contrast(data, is_prediction=False):
+            # UNIVERSAL PHYSICS-BASED NORMALIZATION - PRESERVES CROSS-PHANTOM COMPARABILITY
+            def universal_physics_normalization(data, channel_name):
                 """
-                Enhanced normalization specifically designed for NIR-DOT optical properties.
+                🎯 UNIVERSAL PHYSICS-BASED NORMALIZATION 🎯
                 
-                Key insight: We have 3 discrete classes (air=0, tissue, tumor) with known ranges.
-                For predictions, we want to enhance the tissue-tumor contrast while preserving
-                the physical meaning of optical property values.
+                Revolutionary approach that preserves physical meaning across ALL phantoms:
+                • Air (0.0) → Black (0) universally
+                • Physics values → Consistent colors across phantoms
+                • Same optical properties → Same visualization colors
+                • Cross-phantom comparison becomes meaningful
+                • Scientific accuracy preserved
+                
+                BENEFITS:
+                ✅ Physics-preserving: Colors have absolute meaning
+                ✅ Cross-phantom comparable: Compare different phantoms directly  
+                ✅ Scientifically accurate: No misleading visualizations
+                ✅ Model debugging: Spot reconstruction errors easily
+                ✅ Training insights: See if model learns physics correctly
                 
                 Args:
-                    data: 2D slice of optical properties
-                    is_prediction: If True, enhance contrast for continuous predictions
-                                 If False, preserve discrete ground truth structure
+                    data: 2D slice of optical properties (any phantom)
+                    channel_name: "absorption" or "scattering" to determine physical ranges
+                
+                Returns:
+                    Normalized intensities [0-255] preserving universal physics relationships
                 """
                 data_np = data.cpu().numpy() if hasattr(data, 'cpu') else data
                 
-                if is_prediction:
-                    # For predictions: Use sophisticated contrast enhancement
-                    # that emphasizes tissue-tumor boundaries
-                    
-                    # Separate air (≈0) from tissue regions
-                    air_mask = data_np <= 0.001
-                    tissue_mask = data_np > 0.001
-                    
-                    if not tissue_mask.any():
-                        # All air - just return zeros
-                        return np.zeros_like(data_np, dtype=np.uint8)
-                    
-                    # Focus on tissue region enhancement
-                    tissue_values = data_np[tissue_mask]
-                    
-                    if len(tissue_values) == 0:
-                        return np.zeros_like(data_np, dtype=np.uint8)
-                    
-                    # Use robust statistics for tissue region
-                    tissue_min = np.percentile(tissue_values, 5)   # Bottom 5% of tissue
-                    tissue_max = np.percentile(tissue_values, 95)  # Top 5% of tissue
-                    
-                    # Create enhanced contrast mapping
-                    normalized = np.zeros_like(data_np)
-                    
-                    # Air stays black (0)
-                    normalized[air_mask] = 0
-                    
-                    # Tissue region gets enhanced contrast mapping
-                    if tissue_max > tissue_min:
-                        # Non-linear mapping to emphasize tumor regions
-                        tissue_normalized = (data_np[tissue_mask] - tissue_min) / (tissue_max - tissue_min)
-                        tissue_normalized = np.clip(tissue_normalized, 0, 1)
-                        
-                        # Apply gamma correction to enhance tumor contrast
-                        # Lower gamma (0.7) brightens mid-tones (potential tumors)
-                        tissue_normalized = np.power(tissue_normalized, 0.7)
-                        
-                        # Map to 50-255 range (keep 0-49 for air)
-                        normalized[tissue_mask] = (tissue_normalized * 205 + 50).astype(np.uint8)
-                    else:
-                        # Uniform tissue - use medium gray
-                        normalized[tissue_mask] = 128
-                        
+                # UNIVERSAL PHYSICS RANGES: Air (0) to Maximum Possible Values
+                if "absorption" in channel_name.lower():
+                    # Full absorption range: 0 (air) to 0.0245 (strongest tumor: 0.007 × 3.5)
+                    max_value = 0.0245
                 else:
-                    # For ground truth: Map optical property strength to brightness
-                    # CRITICAL FIX: Sort by optical property values, not detection order!
-                    normalized = np.zeros_like(data_np, dtype=np.uint8)
-                    
-                    # Air = Black (0)
-                    air_mask = data_np == 0.0
-                    normalized[air_mask] = 0
-                    
-                    # Find tissue and tumor values - SORT BY OPTICAL PROPERTY VALUE
-                    unique_vals = np.unique(data_np[data_np > 0])
-                    unique_vals = np.sort(unique_vals)  # CRITICAL: Sort by strength, not detection order
-                    
-                    if len(unique_vals) >= 1:
-                        # Lowest value = Healthy tissue = Medium gray (128)
-                        tissue_val = unique_vals[0]  # Weakest absorption = healthy tissue
-                        tissue_mask = np.abs(data_np - tissue_val) < 1e-6
-                        normalized[tissue_mask] = 128
-                    
-                    # Map remaining values (tumors) based on optical property strength
-                    tumor_intensities = [255, 215, 175, 135, 95]  # Brightest to darkest
-                    for i, tumor_val in enumerate(unique_vals[1:]):  # Skip tissue (index 0)
-                        tumor_mask = np.abs(data_np - tumor_val) < 1e-6
-                        # Higher optical property value = Higher intensity (brighter)
-                        intensity_idx = min(i, len(tumor_intensities) - 1)
-                        
-                        # Map tumors by strength: Strongest tumor gets brightest intensity
-                        # Since unique_vals is sorted ascending, strongest tumor is at the end
-                        tumor_rank = len(unique_vals[1:]) - 1 - i  # Reverse index for strongest first
-                        actual_intensity = tumor_intensities[min(tumor_rank, len(tumor_intensities) - 1)]
-                        normalized[tumor_mask] = actual_intensity
+                    # Full scattering range: 0 (air) to 2.95 (strongest tumor: 1.18 × 2.5)  
+                    max_value = 2.95
+                
+                # Universal linear mapping: physics_value → grayscale_intensity
+                # Air (0) → Black (0), Max_possible → White (255)
+                normalized = np.clip((data_np / max_value) * 255, 0, 255).astype(np.uint8)
                 
                 return normalized
             
-            # Apply physics-aware normalization to all slices
-            # Ground truth slices (discrete values: air=0, tissue, tumor)
-            target_xy_abs_norm = normalize_with_tissue_tumor_contrast(target_xy_abs, is_prediction=False)
-            target_xy_scat_norm = normalize_with_tissue_tumor_contrast(target_xy_scat, is_prediction=False)
-            target_xz_abs_norm = normalize_with_tissue_tumor_contrast(target_xz_abs, is_prediction=False)
-            target_xz_scat_norm = normalize_with_tissue_tumor_contrast(target_xz_scat, is_prediction=False)
-            target_yz_abs_norm = normalize_with_tissue_tumor_contrast(target_yz_abs, is_prediction=False)
-            target_yz_scat_norm = normalize_with_tissue_tumor_contrast(target_yz_scat, is_prediction=False)
+            # Apply UNIVERSAL physics-based normalization to all slices
+            # Both targets and predictions now use the same universal normalization approach
+            # TARGETS: Ground truth with discrete values - same universal normalization
+            target_xy_abs_norm = universal_physics_normalization(target_xy_abs, "absorption")
+            target_xy_scat_norm = universal_physics_normalization(target_xy_scat, "scattering")
+            target_xz_abs_norm = universal_physics_normalization(target_xz_abs, "absorption")
+            target_xz_scat_norm = universal_physics_normalization(target_xz_scat, "scattering")
+            target_yz_abs_norm = universal_physics_normalization(target_yz_abs, "absorption")
+            target_yz_scat_norm = universal_physics_normalization(target_yz_scat, "scattering")
             
-            # Prediction slices (continuous values: enhanced contrast for tumor detection)
-            pred_xy_abs_norm = normalize_with_tissue_tumor_contrast(pred_xy_abs, is_prediction=True)
-            pred_xy_scat_norm = normalize_with_tissue_tumor_contrast(pred_xy_scat, is_prediction=True)
-            pred_xz_abs_norm = normalize_with_tissue_tumor_contrast(pred_xz_abs, is_prediction=True)
-            pred_xz_scat_norm = normalize_with_tissue_tumor_contrast(pred_xz_scat, is_prediction=True)
-            pred_yz_abs_norm = normalize_with_tissue_tumor_contrast(pred_yz_abs, is_prediction=True)
-            pred_yz_scat_norm = normalize_with_tissue_tumor_contrast(pred_yz_scat, is_prediction=True)
+            # PREDICTIONS: Continuous values - same universal normalization (consistency!)
+            pred_xy_abs_norm = universal_physics_normalization(pred_xy_abs, "absorption")
+            pred_xy_scat_norm = universal_physics_normalization(pred_xy_scat, "scattering")
+            pred_xz_abs_norm = universal_physics_normalization(pred_xz_abs, "absorption")
+            pred_xz_scat_norm = universal_physics_normalization(pred_xz_scat, "scattering")
+            pred_yz_abs_norm = universal_physics_normalization(pred_yz_abs, "absorption")
+            pred_yz_scat_norm = universal_physics_normalization(pred_yz_scat, "scattering")
             
             # Calculate value ranges for informative captions
             pred_xy_abs_range = f"[{pred_xy_abs.min():.5f}, {pred_xy_abs.max():.5f}]"
@@ -212,42 +178,41 @@ def log_reconstruction_images_to_wandb(predictions: torch.Tensor,
             pred_xy_scat_range = f"[{pred_xy_scat.min():.5f}, {pred_xy_scat.max():.5f}]"
             target_xy_scat_range = f"[{target_xy_scat.min():.5f}, {target_xy_scat.max():.5f}]"
             
-            # Log to W&B with phantom-specific naming and value range information
+            # Log to W&B with phantom-specific naming and universal physics normalization info
             phantom_logs = {
                 # Absorption channel (μₐ) - All 3 slices for this phantom
                 f"{prefix}/Absorption/{phantom_label}/predicted_xy_slice": wandb.Image(pred_xy_abs_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μₐ XY (z=32) | Range: {pred_xy_abs_range}"),
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μₐ XY (z=32) | Range: {pred_xy_abs_range} | 🎯 Universal Physics Norm [0→0.0245]"),
                 f"{prefix}/Absorption/{phantom_label}/target_xy_slice": wandb.Image(target_xy_abs_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μₐ XY (z=32) | Range: {target_xy_abs_range}"),
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μₐ XY (z=32) | Range: {target_xy_abs_range} | 🎯 Universal Physics Norm [0→0.0245]"),
                 f"{prefix}/Absorption/{phantom_label}/predicted_xz_slice": wandb.Image(pred_xz_abs_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μₐ XZ (y=32) | Range: [{pred_xz_abs.min():.5f}, {pred_xz_abs.max():.5f}]"),
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μₐ XZ (y=32) | Range: [{pred_xz_abs.min():.5f}, {pred_xz_abs.max():.5f}] | 🎯 Universal Physics Norm [0→0.0245]"),
                 f"{prefix}/Absorption/{phantom_label}/target_xz_slice": wandb.Image(target_xz_abs_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μₐ XZ (y=32) | Range: [{target_xz_abs.min():.5f}, {target_xz_abs.max():.5f}]"),
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μₐ XZ (y=32) | Range: [{target_xz_abs.min():.5f}, {target_xz_abs.max():.5f}] | 🎯 Universal Physics Norm [0→0.0245]"),
                 f"{prefix}/Absorption/{phantom_label}/predicted_yz_slice": wandb.Image(pred_yz_abs_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μₐ YZ (x=32) | Range: [{pred_yz_abs.min():.5f}, {pred_yz_abs.max():.5f}]"),
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μₐ YZ (x=32) | Range: [{pred_yz_abs.min():.5f}, {pred_yz_abs.max():.5f}] | 🎯 Universal Physics Norm [0→0.0245]"),
                 f"{prefix}/Absorption/{phantom_label}/target_yz_slice": wandb.Image(target_yz_abs_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μₐ YZ (x=32) | Range: [{target_yz_abs.min():.5f}, {target_yz_abs.max():.5f}]"),
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μₐ YZ (x=32) | Range: [{target_yz_abs.min():.5f}, {target_yz_abs.max():.5f}] | 🎯 Universal Physics Norm [0→0.0245]"),
                 
                 # Scattering channel (μ′s) - All 3 slices for this phantom
                 f"{prefix}/Scattering/{phantom_label}/predicted_xy_slice": wandb.Image(pred_xy_scat_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μ′s XY (z=32) | Range: {pred_xy_scat_range}"),
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μ′s XY (z=32) | Range: {pred_xy_scat_range} | 🎯 Universal Physics Norm [0→2.95]"),
                 f"{prefix}/Scattering/{phantom_label}/target_xy_slice": wandb.Image(target_xy_scat_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μ′s XY (z=32) | Range: {target_xy_scat_range}"),
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μ′s XY (z=32) | Range: {target_xy_scat_range} | 🎯 Universal Physics Norm [0→2.95]"),
                 f"{prefix}/Scattering/{phantom_label}/predicted_xz_slice": wandb.Image(pred_xz_scat_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μ′s XZ (y=32) | Range: [{pred_xz_scat.min():.5f}, {pred_xz_scat.max():.5f}]"),
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μ′s XZ (y=32) | Range: [{pred_xz_scat.min():.5f}, {pred_xz_scat.max():.5f}] | 🎯 Universal Physics Norm [0→2.95]"),
                 f"{prefix}/Scattering/{phantom_label}/target_xz_slice": wandb.Image(target_xz_scat_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μ′s XZ (y=32) | Range: [{target_xz_scat.min():.5f}, {target_xz_scat.max():.5f}]"),
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μ′s XZ (y=32) | Range: [{target_xz_scat.min():.5f}, {target_xz_scat.max():.5f}] | 🎯 Universal Physics Norm [0→2.95]"),
                 f"{prefix}/Scattering/{phantom_label}/predicted_yz_slice": wandb.Image(pred_yz_scat_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μ′s YZ (x=32) | Range: [{pred_yz_scat.min():.5f}, {pred_yz_scat.max():.5f}]"),
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μ′s YZ (x=32) | Range: [{pred_yz_scat.min():.5f}, {pred_yz_scat.max():.5f}] | 🎯 Universal Physics Norm [0→2.95]"),
                 f"{prefix}/Scattering/{phantom_label}/target_yz_slice": wandb.Image(target_yz_scat_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μ′s YZ (x=32) | Range: [{target_yz_scat.min():.5f}, {target_yz_scat.max():.5f}]"),
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μ′s YZ (x=32) | Range: [{target_yz_scat.min():.5f}, {target_yz_scat.max():.5f}] | 🎯 Universal Physics Norm [0→2.95]"),
             }
             
-            # Log this phantom's images with step=epoch for correct slider behavior
-            wandb.log(phantom_logs, step=epoch)
-        
-        # Log epoch information once with matching step
-        wandb.log({"epoch": epoch + 1}, step=epoch)
+            # Log this phantom's images without step parameter (consistent with main metrics)
+            # Include epoch info in the logged data for proper x-axis alignment
+            phantom_logs["epoch"] = epoch + 1
+            wandb.log(phantom_logs)
         
         logger.debug(f"✅ Successfully logged reconstruction images for {num_phantoms_to_show} phantoms at epoch {epoch}")
         

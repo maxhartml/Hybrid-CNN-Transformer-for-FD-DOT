@@ -55,7 +55,7 @@ CHANNEL_WEIGHTS = [1.0, 1.2]           # Weights for [absorption, scattering] ch
 # =============================================================================
 
 # Training Duration
-EPOCHS_STAGE1 = 100                     # Extended to 100 - let early stopping decide when to stop
+EPOCHS_STAGE1 = 50                     # Extended to 50 - let early stopping decide when to stop
 EPOCHS_STAGE2 = 50                      # Default epochs for Stage 2
 
 # Batch Sizes - CONSISTENT ACROSS BOTH STAGES & AUTO-DETECTED
@@ -103,11 +103,11 @@ GRADIENT_MONITOR_THRESHOLD = 5.0        # Earlier warning threshold for gradient
 # Based on "Super-Convergence" (Smith, 2018) and medical imaging best practices
 
 # Stage 1 Learning Rate Schedule (OneCycleLR)
-STAGE1_MAX_LR = 2e-3                    # Peak learning rate (found via LR range test)
-STAGE1_BASE_LR = 8e-4                   # Base learning rate (max_lr / div_factor = 2e-3/25)
+STAGE1_MAX_LR = 3e-3                    # Peak learning rate (found via LR range test) - REVERTED to better value
+STAGE1_BASE_LR = 1.2e-4                 # Base learning rate (max_lr / div_factor = 3e-3/25) 
 STAGE1_DIV_FACTOR = 25                  # Conservative div_factor for stability
-STAGE1_FINAL_DIV_FACTOR = 1e4           # Strong final decay for polishing
-STAGE1_PCT_START = 0.15                 # 15% warmup - longer high-LR phase for scattering
+STAGE1_FINAL_DIV_FACTOR = 100           # FIXED: Much more reasonable final decay (was 1e4 - too aggressive!)
+STAGE1_PCT_START = 0.2                  # 20% warmup - REVERTED to better value you mentioned
 STAGE1_CYCLE_MOMENTUM = True            # Enable momentum cycling for CNN training
 
 # Stage 1 AdamW Optimizer Parameters
