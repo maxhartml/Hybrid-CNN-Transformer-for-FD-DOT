@@ -1,3 +1,8 @@
-\begin{thebibliography}{}
+\begin{thebibliography}{1}
+
+\bibitem{sample2024}
+A.~Sample.
+\newblock A sample reference for testing.
+\newblock {\em Test Journal}, 1(1):1--10, 2024.
 
 \end{thebibliography}

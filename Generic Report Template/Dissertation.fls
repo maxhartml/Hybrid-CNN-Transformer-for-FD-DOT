@@ -260,6 +260,7 @@ INPUT Chapter8/Chapter8.tex
 INPUT ./Dissertation.bbl
 INPUT ./Dissertation.bbl
 INPUT Dissertation.bbl
+INPUT /usr/local/texlive/2024/texmf-dist/fonts/tfm/public/cm/cmti10.tfm
 INPUT ./Appendices/Appendices.tex
 INPUT ./Appendices/Appendices.tex
 OUTPUT Appendices/Appendices.aux
@@ -321,3 +322,4 @@ INPUT /usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pf
 INPUT /usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb
 INPUT /usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmr17.pfb
 INPUT /usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmr9.pfb
+INPUT /usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmti10.pfb
