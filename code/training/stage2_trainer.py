@@ -234,6 +234,19 @@ class Stage2Trainer:
                 "frozen_parameters": sum(p.numel() for p in self.model.parameters() if not p.requires_grad),
             }
         )
+        
+        # Define separate x-axes for different metric types to avoid step conflicts
+        wandb.define_metric("training_step")  # Custom x-axis for learning rate
+        wandb.define_metric("epoch")  # Custom x-axis for all other metrics
+        
+        # Map metric categories to their respective x-axes
+        wandb.define_metric("LR_Scheduler/*", step_metric="training_step")
+        wandb.define_metric("Metrics/*", step_metric="epoch")
+        wandb.define_metric("RMSE_Details/*", step_metric="epoch")
+        wandb.define_metric("System/*", step_metric="epoch")
+        wandb.define_metric("Analysis/*", step_metric="epoch")
+        wandb.define_metric("Reconstructions/*", step_metric="epoch")
+        
         logger.info(f"🔬 W&B experiment initialized: {experiment_name}")
     
     def load_stage1_checkpoint(self, checkpoint_path):
@@ -406,20 +419,21 @@ class Stage2Trainer:
             return
             
         try:
-            import wandb
             if not wandb.run:
                 return
                 
             current_lr = self.optimizer.param_groups[0]['lr']
             
-            # Calculate global step for scheduler tracking
-            global_step = epoch * total_batches + batch_idx
+            # Calculate global step for scheduler tracking (dissertation graphs need this!)
+            global_step = epoch * total_batches + batch_idx + 1  # Start from 1, not 0
             
-            # Log essential learning rate tracking (Linear Warmup + Cosine Decay pattern)
+            # Log detailed learning rate for smooth LinearWarmupCosineDecay visualization
+            # Essential for dissertation graphs showing scheduler behavior
             wandb.log({
-                "Analysis/Learning_Rate": current_lr,
-                "Analysis/Training_Progress": epoch + (batch_idx / total_batches)
-            }, step=global_step)
+                "LR_Scheduler/Learning_Rate": current_lr,
+                "LR_Scheduler/Training_Progress": epoch + (batch_idx / total_batches),
+                "training_step": global_step
+            })
                 
         except Exception as e:
             logger.debug(f"W&B LR logging failed: {e}")
@@ -554,7 +568,7 @@ class Stage2Trainer:
                 # Linear Warmup + Cosine Decay updates per-batch (essential for smooth scheduling)
                 self.scheduler.step()
                 
-                # Log learning rate to W&B
+                # Log learning rate to W&B every batch for smooth curves
                 self._log_learning_rate_to_wandb(epoch, batch_idx, len(data_loader))
             except RuntimeError as e:
                 logger.error(f"🚨 Gradient error: {e}")
@@ -574,10 +588,11 @@ class Stage2Trainer:
                     if key in epoch_metrics:
                         epoch_metrics[key] += value
             
-            # Show batch progress with standardized metrics format (match Stage 1)
+            # Show batch progress with standardized metrics format (including LR for LinearWarmupCosineDecay monitoring)
+            current_lr = self.optimizer.param_groups[0]['lr']
             logger.info(f"🏋️ TRAIN | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
                        f"RMSE: {loss.item():.4f} | SSIM: {batch_metrics.get('ssim', 0):.4f} | "
-                       f"PSNR: {batch_metrics.get('psnr', 0):.1f}dB")
+                       f"PSNR: {batch_metrics.get('psnr', 0):.1f}dB | LR: {current_lr:.2e}")
             
             # Log gradient norm at debug level for monitoring training health (match Stage 1)
             logger.debug(f"🔧 Batch {batch_idx + 1} | Gradient Norm: {grad_norm:.3f}")
@@ -600,10 +615,14 @@ class Stage2Trainer:
         
         return avg_loss, epoch_metrics
     
-    def _log_reconstruction_images(self, predictions, targets, nir_measurements, epoch):
+    def _log_reconstruction_images(self, predictions, targets, nir_measurements, epoch, step=None):
         """Log 3D reconstruction slices to W&B for visualization (match Stage 1 style)."""
         if not self.use_wandb:
             return
+            
+        # Use epoch-based step if not provided
+        if step is None:
+            step = (epoch + 1) * 10000  # Same calculation as in metrics logging
             
         try:
             # Take middle slices of first batch item for visualization
@@ -683,7 +702,8 @@ class Stage2Trainer:
                 f"Reconstructions/Scattering/target_xz_slice": wandb.Image(target_xz_scat_norm, caption=f"Epoch {epoch} - Ground Truth μ′s XZ slice (y=32)"),
                 f"Reconstructions/Scattering/predicted_yz_slice": wandb.Image(pred_yz_scat_norm, caption=f"Epoch {epoch} - Predicted μ′s YZ slice (x=32)"),
                 f"Reconstructions/Scattering/target_yz_slice": wandb.Image(target_yz_scat_norm, caption=f"Epoch {epoch} - Ground Truth μ′s YZ slice (x=32)"),
-            }, step=epoch)  # KEY: Use step=epoch for sliders!
+                "epoch": epoch
+            })
             
             logger.debug(f"✅ Successfully logged Stage 2 reconstruction images for epoch {epoch}")
             
@@ -833,7 +853,9 @@ class Stage2Trainer:
             if self.use_wandb:
                 mode = "Enhanced" if self.use_tissue_patches else "Baseline"
                 # Use consistent step value throughout this epoch (epoch + 1)
-                current_step = epoch + 1
+                # Use high epoch-based step value to avoid conflict with batch-level LR logging
+                # Batch LR logging goes up to ~3100, so use 10000+ for epochs
+                epoch_step = (epoch + 1) * 10000
                 
                 # Log comprehensive metrics in organized format
                 wandb.log({
@@ -858,15 +880,15 @@ class Stage2Trainer:
                     "RMSE_Details/Scattering_Valid": val_metrics['rmse_scattering'],
                     
                     # === TRAINING SYSTEM ===
-                    "System/Learning_Rate": self.optimizer.param_groups[0]['lr'],
-                    "System/Epoch": current_step,
+                    "System/Epoch": epoch + 1,
                     "System/Mode": mode,
                     
                     # === ANALYSIS METRICS ===
                     "Analysis/Train_Valid_RMSE_Ratio": train_loss / val_loss if val_loss > 0 else 0,
                     "Analysis/SSIM_Improvement": val_metrics['ssim'] - train_metrics['ssim'],
                     "Analysis/PSNR_Improvement": val_metrics['psnr'] - train_metrics['psnr'],
-                }, step=current_step)
+                    "epoch": epoch + 1
+                })
                 
                 # Log reconstruction images periodically (and always on first/last epoch)
                 should_log_images = (epoch % LOG_IMAGES_EVERY == 0) or (epoch == 0) or (epoch == epochs - 1)
@@ -882,7 +904,7 @@ class Stage2Trainer:
                         
                         with torch.no_grad():
                             outputs = self.model(measurements, tissue_patches)
-                        self._log_reconstruction_images(outputs['reconstructed'], targets, measurements, current_step)
+                        self._log_reconstruction_images(outputs['reconstructed'], targets, measurements, epoch)
                     except Exception as e:
                         logger.warning(f"⚠️ Failed to log Stage 2 images at epoch {epoch + 1}: {e}")
             
@@ -930,7 +952,7 @@ class Stage2Trainer:
         
         # Finish W&B run
         if self.use_wandb:
-            wandb.log({f"System/final_best_val_loss": best_val_loss, f"System/final_mode": mode}, commit=False)
+            wandb.log({f"System/final_best_val_loss": best_val_loss, f"System/final_mode": mode, "epoch": epochs})
             wandb.finish()
             logger.info("🔬 W&B Stage 2 experiment finished")
         

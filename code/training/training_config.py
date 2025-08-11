@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Training Control - Set which stage to run
-CURRENT_TRAINING_STAGE = "stage2"       # Set to "stage1" or "stage2" to control which stage runs
+CURRENT_TRAINING_STAGE = "stage1"       # Set to "stage1" or "stage2" to control which stage runs
 STAGE1_CHECKPOINT_PATH = "checkpoints/stage1_best.pth"  # Path to Stage 1 checkpoint for Stage 2
 
 # W&B Control
@@ -46,8 +46,8 @@ LEARNING_RATE_STAGE1 = 5e-5             # CNN autoencoder learning rate (higher 
 LEARNING_RATE_STAGE2 = 3e-5             # Transformer learning rate (lower for stable fine-tuning on frozen CNN)
 
 # Training Duration
-EPOCHS_STAGE1 = 10                      # Increased for better convergence 
-EPOCHS_STAGE2 = 10                     # Default epochs for Stage 2
+EPOCHS_STAGE1 = 50                      # Increased for better convergence 
+EPOCHS_STAGE2 = 50                     # Default epochs for Stage 2
 
 # Batch Sizes - CONSISTENT ACROSS BOTH STAGES & AUTO-DETECTED
 def get_optimized_batch_size():
@@ -57,7 +57,7 @@ def get_optimized_batch_size():
         if gpu_memory > 30:  # A100 40GB or similar
             return 64        # Increased for better stability and A100 utilization
         elif gpu_memory > 15:  # RTX 3080/4080 class
-            return 32
+            return 64
         elif gpu_memory > 8:   # Smaller GPU
             return 16
         else:
@@ -116,6 +116,7 @@ MAX_MOMENTUM = 0.95                     # Maximum momentum value
 # Progress Logging
 PROGRESS_LOG_INTERVAL = 10              # Log progress every N epochs
 BATCH_LOG_INTERVAL = 5                  # Detailed logging every N batches
+LOG_LR_EVERY_N_BATCHES = 5              # Log learning rate to W&B every N batches (reduces streaming errors)
 FINAL_EPOCH_OFFSET = 1                  # Offset for final epoch logging
 
 # Checkpoint Configuration
@@ -143,7 +144,7 @@ CPU_DEVICE = "cpu"                      # CPU device identifier
 TRAINING_STAGE1 = "stage1"              # Stage 1 identifier
 TRAINING_STAGE2 = "stage2"              # Stage 2 identifier
 USE_TISSUE_PATCHES_STAGE1 = False       # Stage 1 doesn't use tissue patches
-USE_TISSUE_PATCHES_STAGE2 = True       # Stage 2 ENHANCED mode (set to False for baseline)
+USE_TISSUE_PATCHES_STAGE2 = False       # Stage 2 ENHANCED mode (set to False for baseline)
 
 # =============================================================================
 # GPU UTILITIES AND MONITORING
