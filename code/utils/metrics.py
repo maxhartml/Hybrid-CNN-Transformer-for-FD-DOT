@@ -21,7 +21,7 @@ Date: August 2025
 
 # Standard library imports
 import math
-from typing import Dict, Optional, Tuple, Any
+from typing import Dict, Optional, Tuple, Any, List
 
 # Third-party imports
 import torch
@@ -92,6 +92,52 @@ class RMSELoss(nn.Module):
         """
         mse = F.mse_loss(input, target)
         return torch.sqrt(mse)
+
+
+class ChannelWeightedRMSELoss(nn.Module):
+    """
+    Channel-weighted RMSE loss to balance absorption vs scattering learning.
+    
+    Since absorption typically converges faster than scattering in NIR-DOT,
+    this loss applies higher weight to scattering channel to encourage
+    balanced learning across both tissue properties.
+    
+    Weights: [1.0, 1.2] for [absorption, scattering] channels respectively
+    """
+    
+    def __init__(self, channel_weights: List[float] = [1.0, 1.2]):
+        """
+        Initialize channel-weighted RMSE loss.
+        
+        Args:
+            channel_weights: List of weights for [absorption, scattering] channels
+        """
+        super().__init__()
+        self.channel_weights = torch.tensor(channel_weights)
+        
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Compute channel-weighted RMSE loss.
+        
+        Args:
+            input (torch.Tensor): Predicted volume [batch, 2, D, H, W]
+            target (torch.Tensor): Ground truth volume [batch, 2, D, H, W]
+            
+        Returns:
+            torch.Tensor: Weighted RMSE loss value
+        """
+        self.channel_weights = self.channel_weights.to(input.device)
+        
+        # Compute per-channel MSE
+        channel_mse = []
+        for c in range(input.shape[1]):  # For each channel
+            mse_c = F.mse_loss(input[:, c], target[:, c])
+            weighted_mse_c = self.channel_weights[c] * mse_c
+            channel_mse.append(weighted_mse_c)
+        
+        # Average across channels and take sqrt
+        total_mse = torch.stack(channel_mse).mean()
+        return torch.sqrt(total_mse)
 
 
 # =============================================================================

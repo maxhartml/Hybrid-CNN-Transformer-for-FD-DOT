@@ -12,7 +12,14 @@ representations and basic reconstruction capabilities before introducing
 the complexity of transformer-based spatial modeling.
 
 Classes:
-    RMSELoss: Root Mean Square Error loss function for reconstruction optimization
+    RMSELoss: Root Mean Square Error loss func            # Print epoch summary every epoch (always log progress)
+            logger.info(f"")
+            logger.info(f"{'='*80}")
+            logger.info(f"📊 EPOCH {epoch+1:3d}/{epochs} SUMMARY")
+            logger.info(f"{'='*80}")
+            logger.info(f"📈 Train RMSE: {train_loss:.4f} | Valid RMSE: {val_loss:.4f} | LR: {self.optimizer.param_groups[0]['lr']:.2e}")
+            logger.info(f"📊 Train SSIM: {train_metrics['ssim']:.4f} | Valid SSIM: {val_metrics['ssim']:.4f}")
+            logger.info(f"📊 Train PSNR: {train_metrics['psnr']:.1f}dB | Valid PSNR: {val_metrics['psnr']:.1f}dB")reconstruction optimization
     Stage1Trainer: Complete training pipeline for CNN autoencoder pre-training
 
 Features:
@@ -81,12 +88,12 @@ class Stage1Trainer:
         optimizer (torch.optim.Adam): Model parameter optimizer
     
     Example:
-        >>> trainer = Stage1Trainer(learning_rate=1e-4, device="cuda")
-        >>> results = trainer.train(data_loaders, epochs=50)
+        >>> trainer = Stage1Trainer(learning_rate=STAGE1_BASE_LR, device="cuda")
+        >>> results = trainer.train(data_loaders, epochs=EPOCHS_STAGE1)
         >>> print(f"Best validation loss: {results['best_val_loss']:.6f}")
     """
     
-    def __init__(self, learning_rate=LEARNING_RATE_STAGE1, device=CPU_DEVICE, use_wandb=True, 
+    def __init__(self, learning_rate=STAGE1_BASE_LR, device=CPU_DEVICE, use_wandb=True, 
                  weight_decay=WEIGHT_DECAY, early_stopping_patience=EARLY_STOPPING_PATIENCE):
         """
         Initialize the Stage 1 trainer with model and optimization components.
@@ -119,12 +126,34 @@ class Stage1Trainer:
         # 3. Memory allocation is done once for consistency across stages
         self.model = HybridCNNTransformer(
             use_tissue_patches=USE_TISSUE_PATCHES_STAGE1,
-            training_stage=TRAINING_STAGE1
+            training_stage=TRAINING_STAGE1,
+            dropout=DROPOUT_TRANSFORMER,
+            cnn_dropout=DROPOUT_CNN,
+            nir_dropout=DROPOUT_NIR_PROCESSOR
         )
         self.model.to(self.device)
         
-        # Loss function
-        self.criterion = RMSELoss()
+        # Performance optimizations
+        if USE_CHANNELS_LAST_MEMORY_FORMAT and self.device.type == 'cuda':
+            self.model = self.model.to(memory_format=torch.channels_last_3d)
+            logger.info("🔧 Enabled channels_last_3d memory format for better performance")
+        
+        # PyTorch 2.0 compilation for 2x speedup (if available)
+        if USE_MODEL_COMPILATION and hasattr(torch, 'compile'):
+            logger.info(f"⚡ Compiling model with mode '{COMPILATION_MODE}' for 2x speedup...")
+            self.model = torch.compile(self.model, mode=COMPILATION_MODE)
+            logger.info("✅ Model compilation complete")
+        elif USE_MODEL_COMPILATION:
+            logger.warning("⚠️ PyTorch 2.0+ required for model compilation - skipping")
+        
+        # Loss function - Choose between standard RMSE and channel-weighted RMSE
+        if USE_CHANNEL_WEIGHTED_LOSS:
+            from code.utils.metrics import ChannelWeightedRMSELoss
+            self.criterion = ChannelWeightedRMSELoss(channel_weights=CHANNEL_WEIGHTS)
+            logger.info(f"🎯 Using channel-weighted RMSE loss with weights: {CHANNEL_WEIGHTS}")
+        else:
+            self.criterion = RMSELoss()
+            logger.info("📊 Using standard RMSE loss")
         
         # NOTE: Optimizer and scheduler are created in this stage using research-validated
         # AdamW + OneCycleLR for optimal CNN autoencoder training from scratch.
@@ -155,7 +184,7 @@ class Stage1Trainer:
             gpu_name = torch.cuda.get_device_name(0)
             gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
             logger.info(f"🖥️  GPU: {gpu_name} ({gpu_memory:.1f}GB)")
-            logger.info(f"🔧 Current Batch Size: {BATCH_SIZE_STAGE1}")
+            logger.info(f"🔧 Current Batch Size: {BATCH_SIZE}")
         else:
             logger.info(f"💻 CPU Mode: Enabled")
         logger.info(f"{'='*80}")
@@ -255,9 +284,9 @@ class Stage1Trainer:
         
         self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
             self.optimizer,
-            max_lr=STAGE1_MAX_LR,                # Peak LR (3e-3, found via LR range test)
+            max_lr=STAGE1_MAX_LR,                # Peak LR (2e-3, found via LR range test)
             total_steps=total_steps,
-            pct_start=STAGE1_PCT_START,          # 20% warmup (conservative)
+            pct_start=STAGE1_PCT_START,          # 15% warmup (conservative)
             div_factor=STAGE1_DIV_FACTOR,        # Conservative div_factor (25)
             final_div_factor=STAGE1_FINAL_DIV_FACTOR,  # Strong final decay (1e4)
             anneal_strategy='cos',               # Smooth cosine annealing
@@ -403,8 +432,9 @@ class Stage1Trainer:
             # OneCycleLR updates per-batch (essential for proper LR scheduling)
             self.scheduler.step()
             
-            # Log learning rate and momentum to W&B every batch for smooth curves
-            self._log_learning_rate_to_wandb(epoch, batch_idx, len(data_loader))
+            # Log learning rate every 5 batches to avoid W&B buffer warnings
+            if batch_idx % LOG_LR_EVERY_N_BATCHES == 0:
+                self._log_learning_rate_to_wandb(epoch, batch_idx, len(data_loader))
                 
             logger.debug(f"💰 Batch loss: {loss.item():.6f}")
             logger.debug("✅ Optimizer step completed")
@@ -433,7 +463,7 @@ class Stage1Trainer:
             logger.debug(f"🔧 Batch {batch_idx + 1} | Gradient Norm: {grad_norm:.3f}")
             
             # Additional detailed logging at DEBUG level
-            if batch_idx % BATCH_LOG_INTERVAL == 0:  # Log every 5 batches during DEBUG
+            if batch_idx % 10 == 0:  # Log every 10 batches for stability monitoring
                 logger.debug(f"🔍 Detailed: Batch {batch_idx}: Loss = {loss.item():.6f}, "
                            f"Running Avg = {total_loss/num_batches:.6f}")
         
@@ -450,102 +480,14 @@ class Stage1Trainer:
         
         return avg_loss, epoch_metrics
     
-    def _log_reconstruction_images(self, predictions, targets, epoch, step=None):
+    def _log_reconstruction_images(self, predictions, targets, epoch, phantom_ids=None, step=None):
         """Log 3D reconstruction slices to W&B for visualization."""
         if not self.use_wandb:
             return
             
-        # Use epoch-based step if not provided
-        if step is None:
-            step = (epoch + 1) * 10000  # High epoch-based step to avoid batch conflicts
-            
-        try:
-            # Take middle slices of first batch item for visualization
-            # Shape: (batch_size, channels, D, H, W) -> take middle slice in each dimension
-            pred_batch = predictions[0].cpu().numpy()  # First item in batch
-            target_batch = targets[0].cpu().numpy()
-            
-            logger.debug(f"Logging images - Pred shape: {pred_batch.shape}, Target shape: {target_batch.shape}")
-            
-            # Function to normalize data to 0-255 range for W&B visualization
-            def normalize_for_display(data):
-                """Normalize data to 0-255 range for W&B visualization."""
-                data_min = data.min()
-                data_max = data.max()
-                if data_max > data_min:
-                    normalized = ((data - data_min) / (data_max - data_min)) * 255.0
-                else:
-                    normalized = np.zeros_like(data)
-                return normalized.astype(np.uint8)
-            
-                        # Log slices from different dimensions for BOTH channels
-            absorption_channel = 0  # μₐ (absorption coefficient)
-            scattering_channel = 1  # μ′s (reduced scattering coefficient)
-            
-            # XY plane (Z=32) - middle slice in Z dimension - ABSORPTION
-            pred_xy_abs = pred_batch[absorption_channel, :, :, pred_batch.shape[-1]//2]
-            target_xy_abs = target_batch[absorption_channel, :, :, target_batch.shape[-1]//2]
-            
-            # XY plane (Z=32) - middle slice in Z dimension - SCATTERING  
-            pred_xy_scat = pred_batch[scattering_channel, :, :, pred_batch.shape[-1]//2]
-            target_xy_scat = target_batch[scattering_channel, :, :, target_batch.shape[-1]//2]
-            
-            # XZ plane (Y=32) - middle slice in Y dimension - ABSORPTION
-            pred_xz_abs = pred_batch[absorption_channel, :, pred_batch.shape[-2]//2, :]
-            target_xz_abs = target_batch[absorption_channel, :, target_batch.shape[-2]//2, :]
-            
-            # XZ plane (Y=32) - middle slice in Y dimension - SCATTERING
-            pred_xz_scat = pred_batch[scattering_channel, :, pred_batch.shape[-2]//2, :]
-            target_xz_scat = target_batch[scattering_channel, :, target_batch.shape[-2]//2, :]
-            
-            # YZ plane (X=32) - middle slice in X dimension - ABSORPTION
-            pred_yz_abs = pred_batch[absorption_channel, pred_batch.shape[-3]//2, :, :]
-            target_yz_abs = target_batch[absorption_channel, pred_batch.shape[-3]//2, :, :]
-            
-            # YZ plane (X=32) - middle slice in X dimension - SCATTERING
-            pred_yz_scat = pred_batch[scattering_channel, pred_batch.shape[-3]//2, :, :]
-            target_yz_scat = target_batch[scattering_channel, pred_batch.shape[-3]//2, :, :]
-            
-            # Normalize all images for proper W&B display
-            pred_xy_abs_norm = normalize_for_display(pred_xy_abs)
-            target_xy_abs_norm = normalize_for_display(target_xy_abs)
-            pred_xy_scat_norm = normalize_for_display(pred_xy_scat)
-            target_xy_scat_norm = normalize_for_display(target_xy_scat)
-            
-            pred_xz_abs_norm = normalize_for_display(pred_xz_abs)
-            target_xz_abs_norm = normalize_for_display(target_xz_abs)
-            pred_xz_scat_norm = normalize_for_display(pred_xz_scat)
-            target_xz_scat_norm = normalize_for_display(target_xz_scat)
-            
-            pred_yz_abs_norm = normalize_for_display(pred_yz_abs)
-            target_yz_abs_norm = normalize_for_display(target_yz_abs)
-            pred_yz_scat_norm = normalize_for_display(pred_yz_scat)
-            target_yz_scat_norm = normalize_for_display(target_yz_scat)
-            
-            wandb.log({
-                # Absorption channel (μₐ) - existing
-                f"Reconstructions/Absorption/predicted_xy_slice": wandb.Image(pred_xy_abs_norm, caption=f"Epoch {epoch} - Predicted μₐ XY slice (z=32)"),
-                f"Reconstructions/Absorption/target_xy_slice": wandb.Image(target_xy_abs_norm, caption=f"Epoch {epoch} - Ground Truth μₐ XY slice (z=32)"),
-                f"Reconstructions/Absorption/predicted_xz_slice": wandb.Image(pred_xz_abs_norm, caption=f"Epoch {epoch} - Predicted μₐ XZ slice (y=32)"),
-                f"Reconstructions/Absorption/target_xz_slice": wandb.Image(target_xz_abs_norm, caption=f"Epoch {epoch} - Ground Truth μₐ XZ slice (y=32)"),
-                f"Reconstructions/Absorption/predicted_yz_slice": wandb.Image(pred_yz_abs_norm, caption=f"Epoch {epoch} - Predicted μₐ YZ slice (x=32)"),
-                f"Reconstructions/Absorption/target_yz_slice": wandb.Image(target_yz_abs_norm, caption=f"Epoch {epoch} - Ground Truth μₐ YZ slice (x=32)"),
-                
-                # Scattering channel (μ′s) - NEW!
-                f"Reconstructions/Scattering/predicted_xy_slice": wandb.Image(pred_xy_scat_norm, caption=f"Epoch {epoch} - Predicted μ′s XY slice (z=32)"),
-                f"Reconstructions/Scattering/target_xy_slice": wandb.Image(target_xy_scat_norm, caption=f"Epoch {epoch} - Ground Truth μ′s XY slice (z=32)"),
-                f"Reconstructions/Scattering/predicted_xz_slice": wandb.Image(pred_xz_scat_norm, caption=f"Epoch {epoch} - Predicted μ′s XZ slice (y=32)"),
-                f"Reconstructions/Scattering/target_xz_slice": wandb.Image(target_xz_scat_norm, caption=f"Epoch {epoch} - Ground Truth μ′s XZ slice (y=32)"),
-                f"Reconstructions/Scattering/predicted_yz_slice": wandb.Image(pred_yz_scat_norm, caption=f"Epoch {epoch} - Predicted μ′s YZ slice (x=32)"),
-                f"Reconstructions/Scattering/target_yz_slice": wandb.Image(target_yz_scat_norm, caption=f"Epoch {epoch} - Ground Truth μ′s YZ slice (x=32)"),
-                "epoch": epoch
-            })
-            
-            logger.debug(f"✅ Successfully logged reconstruction images for epoch {epoch}")
-            
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to log reconstruction images: {e}")
-            logger.debug(f"Error details: {str(e)}")
+        # Use shared visualization function to avoid code duplication
+        from code.utils.visualization import log_reconstruction_images_to_wandb
+        log_reconstruction_images_to_wandb(predictions, targets, epoch, "Reconstructions", step, phantom_ids)
     
     def validate(self, data_loader):
         """
@@ -642,7 +584,7 @@ class Stage1Trainer:
         
         Example:
             >>> data_loaders = {'train': train_loader, 'val': val_loader}
-            >>> results = trainer.train(data_loaders, epochs=100)
+            >>> results = trainer.train(data_loaders, epochs=EPOCHS_STAGE1)
             >>> print(f"Training completed with best loss: {results['best_val_loss']}")
         """
         # Initialize AdamW optimizer and OneCycleLR scheduler
@@ -712,9 +654,10 @@ class Stage1Trainer:
                     try:
                         sample_batch = next(iter(data_loaders['val']))
                         ground_truth = sample_batch['ground_truth'].to(self.device)
+                        phantom_ids = sample_batch['phantom_id'].cpu().numpy()  # Get phantom IDs
                         with torch.no_grad():
                             outputs = self.model(ground_truth, tissue_patches=None)
-                        self._log_reconstruction_images(outputs['reconstructed'], ground_truth, epoch)
+                        self._log_reconstruction_images(outputs['reconstructed'], ground_truth, epoch, phantom_ids)
                     except Exception as e:
                         logger.warning(f"⚠️ Failed to log images at epoch {epoch + 1}: {e}")
             
@@ -727,13 +670,11 @@ class Stage1Trainer:
                 logger.info(f"📈 Train RMSE: {train_loss:.4f} | Valid RMSE: {val_loss:.4f} | LR: {self.optimizer.param_groups[0]['lr']:.2e}")
                 logger.info(f"📊 Train SSIM: {train_metrics['ssim']:.4f} | Valid SSIM: {val_metrics['ssim']:.4f}")
                 logger.info(f"📊 Train PSNR: {train_metrics['psnr']:.1f}dB | Valid PSNR: {val_metrics['psnr']:.1f}dB")
-                logger.info(f"{'='*80}")
-                
-                # Log GPU stats every progress log interval
-                if torch.cuda.is_available():
-                    log_gpu_stats()
+            logger.info(f"{'='*80}")
             
-            # Learning rate scheduling (OneCycleLR updates per-batch, no epoch-level action needed)
+            # Log GPU stats every 5 epochs
+            if epoch % 5 == 0 and torch.cuda.is_available():
+                log_gpu_stats()            # Learning rate scheduling (OneCycleLR updates per-batch, no epoch-level action needed)
             # OneCycleLR is updated per-batch in train_epoch, so no action needed here
             
             # Early stopping and best model tracking

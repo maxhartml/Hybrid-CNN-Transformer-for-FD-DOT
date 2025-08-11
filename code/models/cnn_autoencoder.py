@@ -171,7 +171,8 @@ class CNNEncoder(nn.Module):
     
     def __init__(self, input_channels: int = INPUT_CHANNELS, 
                  base_channels: int = BASE_CHANNELS, 
-                 feature_dim: int = FEATURE_DIM):
+                 feature_dim: int = FEATURE_DIM,
+                 dropout_rate: float = 0.1):
         super().__init__()
         
         # Initial feature extraction with aggressive downsampling
@@ -199,6 +200,9 @@ class CNNEncoder(nn.Module):
         
         # Spatial dimension reduction to fixed-size feature vector
         self.global_avg_pool = nn.AdaptiveAvgPool3d((1, 1, 1))
+        
+        # Dropout for regularization
+        self.dropout = nn.Dropout(dropout_rate)
         
         # Configurable feature dimension with linear projection
         self.feature_dim = feature_dim
@@ -261,6 +265,9 @@ class CNNEncoder(nn.Module):
         
         x = x.view(x.size(0), -1)  # Flatten to [batch_size, base_channels * 16]
         logger.debug(f"📦 After flatten: {x.shape}")
+        
+        x = self.dropout(x)  # Apply dropout for regularization
+        logger.debug(f"📦 After dropout: {x.shape}")
         
         x = self.feature_projection(x)  # Project to configurable feature dimension
         logger.debug(f"📦 CNNEncoder output features: {x.shape}")
@@ -430,13 +437,15 @@ class CNNAutoEncoder(nn.Module):
     def __init__(self, input_channels: int = INPUT_CHANNELS, 
                  output_size: Tuple[int, int, int] = OUTPUT_SIZE,
                  feature_dim: int = FEATURE_DIM,
-                 base_channels: int = BASE_CHANNELS):
+                 base_channels: int = BASE_CHANNELS,
+                 dropout_rate: float = 0.1):
         super().__init__()
         
         logger.info(f"🏗️  Initializing CNN Autoencoder: input_channels={input_channels}, "
-                   f"output_size={output_size}, feature_dim={feature_dim}, base_channels={base_channels}")
+                   f"output_size={output_size}, feature_dim={feature_dim}, base_channels={base_channels}, "
+                   f"dropout_rate={dropout_rate}")
         
-        self.encoder = CNNEncoder(input_channels, base_channels, feature_dim)
+        self.encoder = CNNEncoder(input_channels, base_channels, feature_dim, dropout_rate)
         self.decoder = CNNDecoder(feature_dim, output_size, base_channels)
         
         # Initialize network weights

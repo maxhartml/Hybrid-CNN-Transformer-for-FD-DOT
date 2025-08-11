@@ -38,10 +38,11 @@ DEFAULT_PHANTOM_SHAPE = (64, 64, 64)    # Volume dimensions
 DEFAULT_N_GENERATED_MEASUREMENTS = 1000 # Generated measurements per phantom
 DEFAULT_N_TRAINING_MEASUREMENTS = 256   # Subsampled measurements for training
 
-# Dataset split configuration
-TRAIN_SPLIT_RATIO = 0.8
-VALIDATION_SPLIT_RATIO = 0.1
-TEST_SPLIT_RATIO = 0.1
+# Dataset split configuration - CONFIGURABLE HYPERPARAMETERS
+TRAIN_SPLIT_RATIO = 0.8                 # 80% for training (recommended: keep at 0.8)
+VALIDATION_SPLIT_RATIO = 0.1             # 10% for validation (recommended: keep at 0.1)  
+TEST_SPLIT_RATIO = 0.1                   # 10% for test (recommended: keep at 0.1)
+# Note: Ratios must sum to 1.0. Current 80-10-10 split is optimal for your 5000 phantom dataset
 
 # DataLoader configuration
 DEFAULT_BATCH_SIZE = 8

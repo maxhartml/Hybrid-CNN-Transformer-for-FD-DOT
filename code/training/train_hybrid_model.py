@@ -36,7 +36,6 @@ Date: August 2025
 
 # Standard library imports
 import os
-from pathlib import Path
 
 # Third-party imports
 import torch
@@ -104,8 +103,8 @@ def main():
     current_stage = CURRENT_TRAINING_STAGE
     epochs = EPOCHS_STAGE1 if current_stage == TRAINING_STAGE1 else EPOCHS_STAGE2
     use_tissue_patches = USE_TISSUE_PATCHES_STAGE1 if current_stage == TRAINING_STAGE1 else USE_TISSUE_PATCHES_STAGE2
-    batch_size = BATCH_SIZE_STAGE1 if current_stage == TRAINING_STAGE1 else BATCH_SIZE_STAGE2
-    learning_rate = LEARNING_RATE_STAGE1 if current_stage == TRAINING_STAGE1 else LEARNING_RATE_STAGE2
+    batch_size = BATCH_SIZE
+    learning_rate = STAGE1_BASE_LR if current_stage == TRAINING_STAGE1 else STAGE2_BASE_LR
     
     # Prepare experiment configuration
     config = {
@@ -214,7 +213,6 @@ def main():
             learning_rate=learning_rate,
             device=DEVICE,
             use_wandb=USE_WANDB_LOGGING,
-            weight_decay=WEIGHT_DECAY,
             early_stopping_patience=EARLY_STOPPING_PATIENCE
         )
         logger.debug("✅ Stage 2 trainer initialized successfully")

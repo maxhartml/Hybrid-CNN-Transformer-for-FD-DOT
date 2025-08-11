@@ -244,7 +244,7 @@ class SimplifiedNIRProcessor(nn.Module):
     - Maintains dual-path architecture for baseline/enhanced modes
     """
     
-    def __init__(self):
+    def __init__(self, dropout: float = 0.15):
         super().__init__()
         
         logger.info("🏗️  Initializing SimplifiedNIRProcessor")
@@ -256,14 +256,14 @@ class SimplifiedNIRProcessor(nn.Module):
         self.baseline_projection = nn.Sequential(
             nn.Linear(NIR_INPUT_DIM, 128),  # 8 → 128
             nn.ReLU(),
-            nn.Dropout(0.1),
+            nn.Dropout(dropout),
             nn.Linear(128, CNN_FEATURE_DIM)  # 128 → 256
         )
         
         self.enhanced_projection = nn.Sequential(
             nn.Linear(NIR_INPUT_DIM + TISSUE_CONTEXT_DIM, 96),  # 16 → 96  
             nn.ReLU(),
-            nn.Dropout(0.1),
+            nn.Dropout(dropout),
             nn.Linear(96, CNN_FEATURE_DIM)  # 96 → 256
         )
         

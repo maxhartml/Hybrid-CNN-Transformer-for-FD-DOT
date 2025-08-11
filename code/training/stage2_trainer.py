@@ -32,7 +32,6 @@ Date: August 2025
 
 # Standard library imports
 import math
-from pathlib import Path
 from typing import Dict
 from datetime import datetime
 
@@ -91,15 +90,15 @@ class Stage2Trainer:
         >>> trainer = Stage2Trainer(
         ...     stage1_checkpoint_path="checkpoints/stage1_best.pth",
         ...     use_tissue_patches=True,
-        ...     learning_rate=5e-5,
+        ...     learning_rate=STAGE2_BASE_LR,
         ...     device="cuda"
         ... )
-        >>> trainer.train(data_loaders, epochs=100)
+        >>> trainer.train(data_loaders, epochs=EPOCHS_STAGE2)
     """
     
     def __init__(self, stage1_checkpoint_path, use_tissue_patches=USE_TISSUE_PATCHES_STAGE2, 
-                 learning_rate=LEARNING_RATE_STAGE2, device=CPU_DEVICE, use_wandb=True,
-                 weight_decay=WEIGHT_DECAY, early_stopping_patience=EARLY_STOPPING_PATIENCE):
+                 learning_rate=STAGE2_BASE_LR, device=CPU_DEVICE, use_wandb=True,
+                 early_stopping_patience=EARLY_STOPPING_PATIENCE):
         """
         Initialize the Stage 2 trainer with pre-trained CNN components.
         
@@ -112,14 +111,12 @@ class Stage2Trainer:
                                  Typically lower than Stage 1. Default from constants
             device (str): Training device ('cpu' or 'cuda'). Default from constants
             use_wandb (bool): Whether to use Weights & Biases logging. Default: True
-            weight_decay (float): L2 regularization strength. Default: 1e-4
             early_stopping_patience (int): Early stopping patience in epochs. Default: 8
         """
         self.device = torch.device(device)
         self.learning_rate = learning_rate
         self.use_tissue_patches = use_tissue_patches
         self.use_wandb = use_wandb
-        self.weight_decay = weight_decay
         self.early_stopping_patience = early_stopping_patience
         
         # Early stopping tracking
@@ -133,9 +130,25 @@ class Stage2Trainer:
         # Initialize model
         self.model = HybridCNNTransformer(
             use_tissue_patches=use_tissue_patches,
-            training_stage=TRAINING_STAGE2  # IMPORTANT: Set to stage 2 for correct forward pass
+            training_stage=TRAINING_STAGE2,  # IMPORTANT: Set to stage 2 for correct forward pass
+            dropout=DROPOUT_TRANSFORMER,
+            cnn_dropout=DROPOUT_CNN,
+            nir_dropout=DROPOUT_NIR_PROCESSOR
         )
         self.model.to(self.device)
+        
+        # Performance optimizations
+        if USE_CHANNELS_LAST_MEMORY_FORMAT and self.device.type == 'cuda':
+            self.model = self.model.to(memory_format=torch.channels_last_3d)
+            logger.info("🔧 Enabled channels_last_3d memory format for better performance")
+        
+        # PyTorch 2.0 compilation for 2x speedup (if available)
+        if USE_MODEL_COMPILATION and hasattr(torch, 'compile'):
+            logger.info(f"⚡ Compiling model with mode '{COMPILATION_MODE}' for 2x speedup...")
+            self.model = torch.compile(self.model, mode=COMPILATION_MODE)
+            logger.info("✅ Model compilation complete")
+        elif USE_MODEL_COMPILATION:
+            logger.warning("⚠️ PyTorch 2.0+ required for model compilation - skipping")
         
         # Load Stage 1 checkpoint
         self.load_stage1_checkpoint(stage1_checkpoint_path)
@@ -143,8 +156,14 @@ class Stage2Trainer:
         # Freeze CNN decoder (Robin Dale's approach)
         self.freeze_cnn_decoder()
         
-        # Loss function
-        self.criterion = RMSELoss()
+        # Loss function - Choose between standard RMSE and channel-weighted RMSE (same as Stage 1)
+        if USE_CHANNEL_WEIGHTED_LOSS:
+            from code.utils.metrics import ChannelWeightedRMSELoss
+            self.criterion = ChannelWeightedRMSELoss(channel_weights=CHANNEL_WEIGHTS)
+            logger.info(f"🎯 Stage 2 using channel-weighted RMSE loss with weights: {CHANNEL_WEIGHTS}")
+        else:
+            self.criterion = RMSELoss()
+            logger.info("📊 Stage 2 using standard RMSE loss")
         
         # NOTE: Optimizer and scheduler are created in this stage using research-validated
         # AdamW + Linear Warmup + Cosine Decay for optimal transformer fine-tuning.
@@ -173,7 +192,7 @@ class Stage2Trainer:
             gpu_name = torch.cuda.get_device_name(0)
             gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
             logger.info(f"🖥️  GPU: {gpu_name} ({gpu_memory:.1f}GB)")
-            logger.info(f"🔧 Current Batch Size: {BATCH_SIZE_STAGE2}")
+            logger.info(f"🔧 Current Batch Size: {BATCH_SIZE}")
         else:
             logger.info(f"💻 CPU Mode: Enabled")
         logger.info(f"{'='*80}")
@@ -568,8 +587,9 @@ class Stage2Trainer:
                 # Linear Warmup + Cosine Decay updates per-batch (essential for smooth scheduling)
                 self.scheduler.step()
                 
-                # Log learning rate to W&B every batch for smooth curves
-                self._log_learning_rate_to_wandb(epoch, batch_idx, len(data_loader))
+                # Log learning rate every 5 batches to avoid W&B buffer warnings
+                if batch_idx % LOG_LR_EVERY_N_BATCHES == 0:
+                    self._log_learning_rate_to_wandb(epoch, batch_idx, len(data_loader))
             except RuntimeError as e:
                 logger.error(f"🚨 Gradient error: {e}")
                 raise e
@@ -598,7 +618,7 @@ class Stage2Trainer:
             logger.debug(f"🔧 Batch {batch_idx + 1} | Gradient Norm: {grad_norm:.3f}")
             
             # Additional detailed logging at DEBUG level
-            if batch_idx % BATCH_LOG_INTERVAL == 0:  # Log every 5 batches during DEBUG
+            if batch_idx % 10 == 0:  # Log every 10 batches for stability monitoring
                 logger.debug(f"🔍 Detailed: Batch {batch_idx}: Loss = {loss.item():.6f}, "
                            f"Running Avg = {total_loss/num_batches:.6f}")
         
@@ -615,101 +635,14 @@ class Stage2Trainer:
         
         return avg_loss, epoch_metrics
     
-    def _log_reconstruction_images(self, predictions, targets, nir_measurements, epoch, step=None):
-        """Log 3D reconstruction slices to W&B for visualization (match Stage 1 style)."""
+    def _log_reconstruction_images(self, predictions, targets, nir_measurements, epoch, step=None, phantom_ids=None):
+        """Log 3D reconstruction slices to W&B for visualization (using shared function)."""
         if not self.use_wandb:
             return
             
-        # Use epoch-based step if not provided
-        if step is None:
-            step = (epoch + 1) * 10000  # Same calculation as in metrics logging
-            
-        try:
-            # Take middle slices of first batch item for visualization
-            pred_batch = predictions[0].cpu().numpy()  # First item in batch
-            target_batch = targets[0].cpu().numpy()
-            
-            logger.debug(f"Logging Stage 2 images - Pred shape: {pred_batch.shape}, Target shape: {target_batch.shape}")
-            
-            # Function to normalize data to 0-255 range for W&B visualization
-            def normalize_for_display(data):
-                """Normalize data to 0-255 range for W&B visualization."""
-                data_min = data.min()
-                data_max = data.max()
-                if data_max > data_min:
-                    normalized = ((data - data_min) / (data_max - data_min)) * 255.0
-                else:
-                    normalized = np.zeros_like(data)
-                return normalized.astype(np.uint8)
-            
-            # Log slices from different dimensions for BOTH channels (match Stage 1)
-            absorption_channel = 0  # μₐ (absorption coefficient)
-            scattering_channel = 1  # μ′s (reduced scattering coefficient)
-            
-            # XY plane (Z=32) - middle slice in Z dimension - ABSORPTION
-            pred_xy_abs = pred_batch[absorption_channel, :, :, pred_batch.shape[-1]//2]
-            target_xy_abs = target_batch[absorption_channel, :, :, target_batch.shape[-1]//2]
-            
-            # XY plane (Z=32) - middle slice in Z dimension - SCATTERING  
-            pred_xy_scat = pred_batch[scattering_channel, :, :, pred_batch.shape[-1]//2]
-            target_xy_scat = target_batch[scattering_channel, :, :, target_batch.shape[-1]//2]
-            
-            # XZ plane (Y=32) - middle slice in Y dimension - ABSORPTION
-            pred_xz_abs = pred_batch[absorption_channel, :, pred_batch.shape[-2]//2, :]
-            target_xz_abs = target_batch[absorption_channel, :, target_batch.shape[-2]//2, :]
-            
-            # XZ plane (Y=32) - middle slice in Y dimension - SCATTERING
-            pred_xz_scat = pred_batch[scattering_channel, :, pred_batch.shape[-2]//2, :]
-            target_xz_scat = target_batch[scattering_channel, :, target_batch.shape[-2]//2, :]
-            
-            # YZ plane (X=32) - middle slice in X dimension - ABSORPTION
-            pred_yz_abs = pred_batch[absorption_channel, pred_batch.shape[-3]//2, :, :]
-            target_yz_abs = target_batch[absorption_channel, pred_batch.shape[-3]//2, :, :]
-            
-            # YZ plane (X=32) - middle slice in X dimension - SCATTERING
-            pred_yz_scat = pred_batch[scattering_channel, pred_batch.shape[-3]//2, :, :]
-            target_yz_scat = target_batch[scattering_channel, pred_batch.shape[-3]//2, :, :]
-            
-            # Normalize all images for proper W&B display
-            pred_xy_abs_norm = normalize_for_display(pred_xy_abs)
-            target_xy_abs_norm = normalize_for_display(target_xy_abs)
-            pred_xy_scat_norm = normalize_for_display(pred_xy_scat)
-            target_xy_scat_norm = normalize_for_display(target_xy_scat)
-            
-            pred_xz_abs_norm = normalize_for_display(pred_xz_abs)
-            target_xz_abs_norm = normalize_for_display(target_xz_abs)
-            pred_xz_scat_norm = normalize_for_display(pred_xz_scat)
-            target_xz_scat_norm = normalize_for_display(target_xz_scat)
-            
-            pred_yz_abs_norm = normalize_for_display(pred_yz_abs)
-            target_yz_abs_norm = normalize_for_display(target_yz_abs)
-            pred_yz_scat_norm = normalize_for_display(pred_yz_scat)
-            target_yz_scat_norm = normalize_for_display(target_yz_scat)
-            
-            wandb.log({
-                # Absorption channel (μₐ) - match Stage 1 exactly
-                f"Reconstructions/Absorption/predicted_xy_slice": wandb.Image(pred_xy_abs_norm, caption=f"Epoch {epoch} - Predicted μₐ XY slice (z=32)"),
-                f"Reconstructions/Absorption/target_xy_slice": wandb.Image(target_xy_abs_norm, caption=f"Epoch {epoch} - Ground Truth μₐ XY slice (z=32)"),
-                f"Reconstructions/Absorption/predicted_xz_slice": wandb.Image(pred_xz_abs_norm, caption=f"Epoch {epoch} - Predicted μₐ XZ slice (y=32)"),
-                f"Reconstructions/Absorption/target_xz_slice": wandb.Image(target_xz_abs_norm, caption=f"Epoch {epoch} - Ground Truth μₐ XZ slice (y=32)"),
-                f"Reconstructions/Absorption/predicted_yz_slice": wandb.Image(pred_yz_abs_norm, caption=f"Epoch {epoch} - Predicted μₐ YZ slice (x=32)"),
-                f"Reconstructions/Absorption/target_yz_slice": wandb.Image(target_yz_abs_norm, caption=f"Epoch {epoch} - Ground Truth μₐ YZ slice (x=32)"),
-                
-                # Scattering channel (μ′s) - match Stage 1 exactly
-                f"Reconstructions/Scattering/predicted_xy_slice": wandb.Image(pred_xy_scat_norm, caption=f"Epoch {epoch} - Predicted μ′s XY slice (z=32)"),
-                f"Reconstructions/Scattering/target_xy_slice": wandb.Image(target_xy_scat_norm, caption=f"Epoch {epoch} - Ground Truth μ′s XY slice (z=32)"),
-                f"Reconstructions/Scattering/predicted_xz_slice": wandb.Image(pred_xz_scat_norm, caption=f"Epoch {epoch} - Predicted μ′s XZ slice (y=32)"),
-                f"Reconstructions/Scattering/target_xz_slice": wandb.Image(target_xz_scat_norm, caption=f"Epoch {epoch} - Ground Truth μ′s XZ slice (y=32)"),
-                f"Reconstructions/Scattering/predicted_yz_slice": wandb.Image(pred_yz_scat_norm, caption=f"Epoch {epoch} - Predicted μ′s YZ slice (x=32)"),
-                f"Reconstructions/Scattering/target_yz_slice": wandb.Image(target_yz_scat_norm, caption=f"Epoch {epoch} - Ground Truth μ′s YZ slice (x=32)"),
-                "epoch": epoch
-            })
-            
-            logger.debug(f"✅ Successfully logged Stage 2 reconstruction images for epoch {epoch}")
-            
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to log Stage 2 reconstruction images: {e}")
-            logger.debug(f"Error details: {str(e)}")
+        # Use shared visualization function to avoid code duplication
+        from code.utils.visualization import log_reconstruction_images_to_wandb
+        log_reconstruction_images_to_wandb(predictions, targets, epoch, "Reconstructions", step, phantom_ids=phantom_ids)
     
     def validate(self, data_loader):
         """
@@ -815,7 +748,7 @@ class Stage2Trainer:
         Example:
             >>> # Enhanced mode with tissue patches
             >>> trainer = Stage2Trainer(checkpoint_path, use_tissue_patches=True)
-            >>> trainer.train(data_loaders, epochs=150)
+            >>> trainer.train(data_loaders, epochs=EPOCHS_STAGE2)
         """
         # Initialize AdamW optimizer and Linear Warmup + Cosine Decay scheduler
         if self.optimizer is None:
@@ -898,31 +831,31 @@ class Stage2Trainer:
                         # Stage 2 uses NIR measurements as input and ground truth as target
                         measurements = sample_batch['nir_measurements'].to(self.device)  # Fixed key
                         targets = sample_batch['ground_truth'].to(self.device)          # Fixed key
+                        phantom_ids = sample_batch['phantom_id'].cpu().numpy()          # Extract phantom IDs
                         tissue_patches = sample_batch.get('tissue_patches', None)
                         if tissue_patches is not None:
                             tissue_patches = tissue_patches.to(self.device)
                         
                         with torch.no_grad():
                             outputs = self.model(measurements, tissue_patches)
-                        self._log_reconstruction_images(outputs['reconstructed'], targets, measurements, epoch)
+                        self._log_reconstruction_images(outputs['reconstructed'], targets, measurements, epoch, phantom_ids=phantom_ids)
                     except Exception as e:
                         logger.warning(f"⚠️ Failed to log Stage 2 images at epoch {epoch + 1}: {e}")
             
-            # Print epoch summary with clear visual formatting
-            if epoch % PROGRESS_LOG_INTERVAL == 0 or epoch == epochs - FINAL_EPOCH_OFFSET:
-                logger.info(f"")
-                logger.info(f"{'='*80}")
-                logger.info(f"🚀 EPOCH {epoch+1:3d}/{epochs} SUMMARY")
-                logger.info(f"{'='*80}")
-                logger.info(f"📈 Train RMSE: {train_loss:.4f} | Valid RMSE: {val_loss:.4f} | LR: {self.optimizer.param_groups[0]['lr']:.2e}")
-                logger.info(f"📊 Train SSIM: {train_metrics['ssim']:.4f} | Valid SSIM: {val_metrics['ssim']:.4f}")
-                logger.info(f"📊 Train PSNR: {train_metrics['psnr']:.1f}dB | Valid PSNR: {val_metrics['psnr']:.1f}dB")
-                logger.info(f"🔮 Feature Enhancement: {val_metrics['feature_enhancement_ratio']:.4f} | Attention: {val_metrics['attention_entropy']:.4f} | Mode: {mode}")
-                logger.info(f"{'='*80}")
-                
-                # Log GPU stats every progress log interval
-                if torch.cuda.is_available():
-                    log_gpu_stats()
+            # Print epoch summary every epoch (always log progress)
+            logger.info(f"")
+            logger.info(f"{'='*80}")
+            logger.info(f"🚀 EPOCH {epoch+1:3d}/{epochs} SUMMARY")
+            logger.info(f"{'='*80}")
+            logger.info(f"📈 Train RMSE: {train_loss:.4f} | Valid RMSE: {val_loss:.4f} | LR: {self.optimizer.param_groups[0]['lr']:.2e}")
+            logger.info(f"📊 Train SSIM: {train_metrics['ssim']:.4f} | Valid SSIM: {val_metrics['ssim']:.4f}")
+            logger.info(f"📊 Train PSNR: {train_metrics['psnr']:.1f}dB | Valid PSNR: {val_metrics['psnr']:.1f}dB")
+            logger.info(f"🔮 Feature Enhancement: {val_metrics['feature_enhancement_ratio']:.4f} | Attention: {val_metrics['attention_entropy']:.4f} | Mode: {mode}")
+            logger.info(f"{'='*80}")
+            
+            # Log GPU stats every 5 epochs
+            if epoch % 5 == 0 and torch.cuda.is_available():
+                log_gpu_stats()
             
             # Learning rate scheduling (Linear Warmup + Cosine Decay updates per-batch)
             # No epoch-level action needed - scheduler updates per-batch automatically

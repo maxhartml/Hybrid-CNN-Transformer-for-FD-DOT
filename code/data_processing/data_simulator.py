@@ -90,8 +90,8 @@ import nirfasterff as ff  # type: ignore
 from code.utils.logging_config import get_data_logger, NIRDOTLogger
 
 # Constants for phantom generation
-MASTER_RANDOM_SEED = 42                      # Master seed for reproducible datasets (change for different datasets)
-DEFAULT_N_PHANTOMS = 5000                    # Number of phantoms to generate for dataset (10 hours @ 12 sec/phantom)
+MASTER_RANDOM_SEED = 123456                  # Master seed for EXTENDED dataset (different from original 42)
+DEFAULT_N_PHANTOMS = 5000                    # Number of phantoms to generate for EXTENDED dataset (phantoms 5001-10000)
 DEFAULT_PHANTOM_SHAPE = (64, 64, 64)        # Default cubic phantom dimensions in voxels (power of 2)
 DEFAULT_TISSUE_RADIUS_RANGE = (25, 30)      # Healthy tissue ellipsoid semi-axis range (25-30mm with 1mm voxels)
 DEFAULT_TUMOR_RADIUS_RANGE = (5, 15)        # Tumor ellipsoid semi-axis range (5-15mm with 1mm voxels)
@@ -1758,7 +1758,7 @@ def main():
     # STEP 1: Initialize comprehensive output directory structure and logging framework
     # Create hierarchical data directory in mah422 folder using absolute paths
     # This ensures datasets are always stored in the correct location regardless of where script is run
-    data_dir = project_root / "data"  # Absolute path to mah422/data directory
+    data_dir = project_root / "data_extended"  # Absolute path to mah422/data_extended directory (phantoms 5001-10000)
     data_dir.mkdir(exist_ok=True)  # Create directory if it doesn't exist, ignore if it does
     
     # Configure professional logging system using centralized NIRDOTLogger
@@ -1770,6 +1770,7 @@ def main():
     # Generate comprehensive pipeline initialization summary for monitoring and reproducibility
     logger.info("="*80)
     logger.info("STARTING NIR FREQUENCY-DOMAIN PHANTOM DATASET GENERATION PIPELINE")
+    logger.info("GENERATING PHANTOMS 5001-10000 FOR EXPANDED 10K DATASET")
     logger.info("="*80)
     logger.info(f"Output directory: {data_dir.absolute()}")  # Absolute path for clarity
     logger.info(f"Logs directory: {logs_dir.absolute()}")  # Show where logs are actually stored
@@ -1857,7 +1858,7 @@ def main():
         
         # SUBSTEP 3.1: Create phantom-specific output directory with systematic naming convention
         # Each phantom gets its own subdirectory for organized dataset storage and easy access
-        phantom_dir = data_dir / f"phantom_{phantom_idx+1:02d}"  # Use pathlib for cleaner path handling
+        phantom_dir = data_dir / f"phantom_{phantom_idx+5001:05d}"  # Extended dataset: phantoms 5001-10000
         phantom_dir.mkdir(exist_ok=True)  # Create directory with error handling
         logger.debug(f"Created phantom directory: {phantom_dir.absolute()}")
 
@@ -1957,7 +1958,7 @@ def main():
                 # ============================================================================
                 step6_start = time.time()
                 logger.info("▶️  STEP 6/6: Executing frequency-domain diffusion equation simulation and dataset generation...")
-                h5_output_path = phantom_dir / f"phantom_{phantom_idx+1:03d}_scan.h5"  # Use pathlib for systematic HDF5 naming
+                h5_output_path = phantom_dir / f"phantom_{phantom_idx+5001:05d}_scan.h5"  # Extended dataset HDF5 naming
                 
                 # Execute complete forward modeling pipeline with noise simulation and data processing
                 # This now returns True/False based on NaN detection

@@ -130,6 +130,8 @@ class HybridCNNTransformer(nn.Module):
                  transformer_num_heads: int = transformer_config.NUM_HEADS,
                  mlp_ratio: int = transformer_config.MLP_RATIO,
                  dropout: float = transformer_config.DROPOUT,
+                 cnn_dropout: float = 0.1,  # CNN autoencoder dropout
+                 nir_dropout: float = 0.15,  # NIR processor dropout
                  
                  # Model behavior configuration
                  use_tissue_patches: bool = USE_TISSUE_PATCHES,
@@ -150,11 +152,12 @@ class HybridCNNTransformer(nn.Module):
         self.cnn_autoencoder = CNNAutoEncoder(
             input_channels=input_channels,
             output_size=output_size,
-            base_channels=cnn_base_channels
+            base_channels=cnn_base_channels,
+            dropout_rate=cnn_dropout
         )
         
         # Initialize Simplified NIR Processor (attention removed for efficiency)
-        self.nir_processor = SimplifiedNIRProcessor()
+        self.nir_processor = SimplifiedNIRProcessor(dropout=nir_dropout)
         
         # Initialize Optimized Transformer Encoder (stage 2 component)
         self.transformer_encoder = TransformerEncoder(
