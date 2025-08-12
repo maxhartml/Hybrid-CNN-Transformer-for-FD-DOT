@@ -684,9 +684,7 @@ class Stage1Trainer:
                 self.patience_counter = 0  # Reset patience counter
                 checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_STAGE1}"
                 logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best RMSE: {self.best_val_loss:.4f}")
-                logger.debug(f"💾 Checkpoint path: {checkpoint_path}")
                 self.save_checkpoint(checkpoint_path, epoch, val_loss)
-                logger.debug(f"💾 New best model saved at epoch {epoch+1}")
             else:
                 self.patience_counter += 1
                 logger.debug(f"📊 No improvement. Current: {val_loss:.6f}, Best: {self.best_val_loss:.6f}, Patience: {self.patience_counter}/{self.early_stopping_patience}")
@@ -755,5 +753,5 @@ class Stage1Trainer:
         }
         
         torch.save(checkpoint_data, path)
-        logger.debug(f"💾 Checkpoint saved: {path}")
+        logger.info(f"💾 ✅ CHECKPOINT SAVED | Path: {path} | Epoch: {epoch+1} | Val Loss: {val_loss:.6f}")
         logger.debug(f"📊 Checkpoint data keys: {list(checkpoint_data.keys())}")

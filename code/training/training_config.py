@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Training Control - Set which stage to run
-CURRENT_TRAINING_STAGE = "stage2"       # Set to "stage1" or "stage2" to control which stage runs
+CURRENT_TRAINING_STAGE = "stage1"       # Set to "stage1" or "stage2" to control which stage runs
 STAGE1_CHECKPOINT_PATH = "checkpoints/stage1_best.pth"  # Path to Stage 1 checkpoint for Stage 2
 
 # W&B Control
@@ -47,15 +47,15 @@ COMPILATION_MODE = "default"            # Options: "default", "reduce-overhead",
 USE_CHANNELS_LAST_MEMORY_FORMAT = True  # More efficient memory layout for 3D convolutions
 
 # Loss Function Configuration
-USE_CHANNEL_WEIGHTED_LOSS = False       # EXPERIMENTAL: Use channel-weighted RMSE loss for balanced learning
-CHANNEL_WEIGHTS = [1.0, 1.2]           # Weights for [absorption, scattering] channels (if enabled)
+USE_CHANNEL_WEIGHTED_LOSS = True        # FIXED: Enable channel-weighted RMSE loss for balanced learning
+CHANNEL_WEIGHTS = [0.8, 0.2]           # FIXED: 80/20 weighting [absorption, scattering] - addresses 140x scale difference
 
 # =============================================================================
 # TRAINING HYPERPARAMETERS
 # =============================================================================
 
 # Training Duration
-EPOCHS_STAGE1 = 50                     # Extended to 50 - let early stopping decide when to stop
+EPOCHS_STAGE1 = 100                     # Extended to 50 - let early stopping decide when to stop
 EPOCHS_STAGE2 = 50                      # Default epochs for Stage 2
 
 # Batch Sizes - CONSISTENT ACROSS BOTH STAGES & AUTO-DETECTED
@@ -83,13 +83,13 @@ PIN_MEMORY = torch.cuda.is_available()  # Enable GPU memory pinning if CUDA avai
 PREFETCH_FACTOR = 8 if torch.cuda.is_available() else 4  # Aggressive prefetching for GPU
 PERSISTENT_WORKERS = True               # Keep workers alive between epochs
 
-# Regularization and Optimization
-WEIGHT_DECAY = 1e-4                     # L2 regularization strength (CNN standard)
+# Regularization and Optimization - STRENGTHENED FOR 10K PHANTOMS
+WEIGHT_DECAY = 5e-4                     # Increased from 1e-4 for better regularization with more data
 WEIGHT_DECAY_TRANSFORMER = 0.01         # Higher weight decay for transformer (standard)
-EARLY_STOPPING_PATIENCE = 10           # Reduced to 10 - cleaner stopping criterion
+EARLY_STOPPING_PATIENCE = 15           # FIXED: Increased to 15 - more exploration time for transformer learning
 
-# Dropout Configuration - Enhanced regularization for longer training
-DROPOUT_CNN = 0.1                       # Dropout for CNN autoencoder layers
+# Dropout Configuration - Enhanced regularization for longer training with more data
+DROPOUT_CNN = 0.15                      # Increased from 0.1 for stronger regularization with 10K phantoms
 DROPOUT_TRANSFORMER = 0.1               # Dropout for transformer attention/MLP
 DROPOUT_NIR_PROCESSOR = 0.15            # Dropout for NIR processor (more aggressive due to complexity)
 
@@ -102,12 +102,12 @@ GRADIENT_MONITOR_THRESHOLD = 5.0        # Earlier warning threshold for gradient
 # =============================================================================
 # Based on "Super-Convergence" (Smith, 2018) and medical imaging best practices
 
-# Stage 1 Learning Rate Schedule (OneCycleLR)
-STAGE1_MAX_LR = 3e-3                    # Peak learning rate (found via LR range test) - REVERTED to better value
+# Stage 1 Learning Rate Schedule (OneCycleLR) - TRULY OPTIMAL FOR 10K PHANTOMS
+STAGE1_MAX_LR = 3e-3                    # OPTIMAL: Higher peak for effective learning (matches successful runs)
 STAGE1_BASE_LR = 1.2e-4                 # Base learning rate (max_lr / div_factor = 3e-3/25) 
-STAGE1_DIV_FACTOR = 25                  # Conservative div_factor for stability
-STAGE1_FINAL_DIV_FACTOR = 35            # OPTIMIZED: For 100 epochs + more data - balanced final LR ~3.4e-06
-STAGE1_PCT_START = 0.15                 # 15% warmup for longer training (more conservative)
+STAGE1_DIV_FACTOR = 25                  # Standard div_factor for stability
+STAGE1_FINAL_DIV_FACTOR = 100           # Aggressive final decay (final LR ≈ 3e-05)
+STAGE1_PCT_START = 0.3                  # CRITICAL FIX: 30% warmup (30 epochs) - prevents plateau bug
 STAGE1_CYCLE_MOMENTUM = True            # Enable momentum cycling for CNN training
 
 # Stage 1 AdamW Optimizer Parameters
@@ -118,11 +118,12 @@ ADAMW_EPS_STAGE1 = 1e-8                # Numerical stability epsilon
 # STAGE 2 LINEAR WARMUP + COSINE DECAY SCHEDULER CONFIGURATION  
 # =============================================================================
 # Based on "Attention Is All You Need", BERT, and ViT papers
+# FIXED: Addresses learning rate starvation causing "safe prediction syndrome"
 
 # Stage 2 Learning Rate Schedule (Linear Warmup + Cosine Decay)
-STAGE2_BASE_LR = 1e-3                   # Increased to 1e-3 for meaningful transformer learning (BERT-scale)
-STAGE2_WARMUP_PCT = 0.1                 # 10% warmup (BERT standard - maintains academic rigor)
-STAGE2_ETA_MIN_PCT = 0.03               # Final LR = 3% of peak (standard for transformer fine-tuning)
+STAGE2_BASE_LR = 5e-3                   # FIXED: Increased to 5e-3 for meaningful transformer learning (prevents LR starvation)
+STAGE2_WARMUP_PCT = 0.05                # FIXED: Shortened to 5% warmup (2.5 epochs) - faster convergence start
+STAGE2_ETA_MIN_PCT = 0.01               # FIXED: Reduced to 1% final LR for stronger decay pressure
 
 # Stage 2 AdamW Optimizer Parameters  
 ADAMW_BETAS_STAGE2 = (0.9, 0.98)       # Transformer-standard betas (BERT/ViT)

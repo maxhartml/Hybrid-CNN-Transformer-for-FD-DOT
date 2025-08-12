@@ -876,9 +876,7 @@ class Stage2Trainer:
                 checkpoint_filename = CHECKPOINT_STAGE2_ENHANCED if self.use_tissue_patches else CHECKPOINT_STAGE2_BASELINE
                 checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{checkpoint_filename}"
                 logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best RMSE: {best_val_loss:.4f}")
-                logger.debug(f"💾 Stage 2 checkpoint path: {checkpoint_path}")
                 self.save_checkpoint(checkpoint_path, epoch, val_loss)
-                logger.debug(f"💾 New best Stage 2 model saved at epoch {epoch}")
             else:
                 logger.debug(f"📊 Stage 2 no improvement. Current: {val_loss:.6f}, Best: {best_val_loss:.6f}")
         
@@ -932,4 +930,5 @@ class Stage2Trainer:
             'val_loss': val_loss,
             'use_tissue_patches': self.use_tissue_patches
         }, path)
-        logger.debug(f"💾 Saved checkpoint: {path}")
+        mode = "Enhanced" if self.use_tissue_patches else "Baseline"
+        logger.info(f"💾 ✅ CHECKPOINT SAVED | Mode: {mode} | Path: {path} | Epoch: {epoch+1} | Val Loss: {val_loss:.6f}")
