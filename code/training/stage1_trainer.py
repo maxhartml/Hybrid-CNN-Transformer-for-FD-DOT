@@ -12,14 +12,7 @@ representations and basic reconstruction capabilities before introducing
 the complexity of transformer-based spatial modeling.
 
 Classes:
-    RMSELoss: Root Mean Square Error loss func            # Print epoch summary every epoch (always log progress)
-            logger.info(f"")
-            logger.info(f"{'='*80}")
-            logger.info(f"📊 EPOCH {epoch+1:3d}/{epochs} SUMMARY")
-            logger.info(f"{'='*80}")
-            logger.info(f"📈 Train RMSE: {train_loss:.4f} | Valid RMSE: {val_loss:.4f} | LR: {self.optimizer.param_groups[0]['lr']:.2e}")
-            logger.info(f"📊 Train SSIM: {train_metrics['ssim']:.4f} | Valid SSIM: {val_metrics['ssim']:.4f}")
-            logger.info(f"📊 Train PSNR: {train_metrics['psnr']:.1f}dB | Valid PSNR: {val_metrics['psnr']:.1f}dB")reconstruction optimization
+Classes:
     Stage1Trainer: Complete training pipeline for CNN autoencoder pre-training
 
 Features:
@@ -146,14 +139,9 @@ class Stage1Trainer:
         elif USE_MODEL_COMPILATION:
             logger.warning("⚠️ PyTorch 2.0+ required for model compilation - skipping")
         
-        # Loss function - Choose between standard RMSE and channel-weighted RMSE
-        if USE_CHANNEL_WEIGHTED_LOSS:
-            from code.utils.metrics import ChannelWeightedRMSELoss
-            self.criterion = ChannelWeightedRMSELoss(channel_weights=CHANNEL_WEIGHTS)
-            logger.info(f"🎯 Using channel-weighted RMSE loss with weights: {CHANNEL_WEIGHTS}")
-        else:
-            self.criterion = RMSELoss()
-            logger.info("📊 Using standard RMSE loss")
+        # Loss function - Standard RMSE loss
+        self.criterion = RMSELoss()
+        logger.info("📊 Using standard RMSE loss")
         
         # NOTE: Optimizer and scheduler are created in this stage using research-validated
         # AdamW + OneCycleLR for optimal CNN autoencoder training from scratch.
@@ -175,9 +163,15 @@ class Stage1Trainer:
             logger.info(f"🚀 Mixed Precision: Enabled (A100 Optimized)")
         logger.info(f"📅 Scheduler: Will be created during training initialization")
         
-        # Log model info
+        # Log stage-specific model info
         total_params = sum(p.numel() for p in self.model.parameters())
-        logger.info(f"📊 Model Parameters: {total_params:,}")
+        cnn_params = sum(p.numel() for p in self.model.cnn_autoencoder.parameters())
+        
+        logger.info("📊 STAGE 1 PARAMETER USAGE:")
+        logger.info(f"   ├─ Total Model: {total_params:,} params")
+        logger.info(f"   ├─ CNN Autoencoder: {cnn_params:,} params (ACTIVE)")
+        logger.info(f"   └─ Transformer Pipeline: {total_params - cnn_params:,} params (INACTIVE)")
+        logger.info("🎯 Stage 1 trains ONLY the CNN autoencoder for spatial feature learning")
         
         # Log GPU info if available
         if torch.cuda.is_available():
@@ -369,7 +363,7 @@ class Stage1Trainer:
         
         # Initialize metrics tracking
         epoch_metrics = {
-            'ssim': 0.0, 'psnr': 0.0, 'rmse_overall': 0.0,
+            'dice': 0.0, 'contrast_ratio': 0.0, 'rmse_overall': 0.0,
             'rmse_absorption': 0.0, 'rmse_scattering': 0.0
         }
         
@@ -456,8 +450,8 @@ class Stage1Trainer:
             # Show batch progress with standardized metrics format (including LR for OneCycleLR monitoring)
             current_lr = self.optimizer.param_groups[0]['lr']
             logger.info(f"🏋️  TRAIN | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
-                       f"RMSE: {loss.item():.4f} | SSIM: {batch_metrics.get('ssim', 0):.4f} | "
-                       f"PSNR: {batch_metrics.get('psnr', 0):.1f}dB | LR: {current_lr:.2e}")
+                       f"RMSE: {loss.item():.4f} | Dice: {batch_metrics.get('dice', 0):.4f} | "
+                       f"Contrast: {batch_metrics.get('contrast_ratio', 0):.4f} | LR: {current_lr:.2e}")
             
             # Log gradient norm at debug level for monitoring training health
             logger.debug(f"🔧 Batch {batch_idx + 1} | Gradient Norm: {grad_norm:.3f}")
@@ -474,8 +468,8 @@ class Stage1Trainer:
             epoch_metrics[key] /= num_batches
         
         logger.debug(f"✅ Training epoch completed. Average loss: {avg_loss:.6f}")
-        logger.info(f"📊 TRAIN SUMMARY | RMSE: {avg_loss:.4f} | SSIM: {epoch_metrics['ssim']:.4f} | "
-                   f"PSNR: {epoch_metrics['psnr']:.1f}dB | Abs: {epoch_metrics['rmse_absorption']:.4f} | "
+        logger.info(f"📊 TRAIN SUMMARY | RMSE: {avg_loss:.4f} | Dice: {epoch_metrics['dice']:.4f} | "
+                   f"Contrast: {epoch_metrics['contrast_ratio']:.4f} | Abs: {epoch_metrics['rmse_absorption']:.4f} | "
                    f"Scat: {epoch_metrics['rmse_scattering']:.4f}")
         
         return avg_loss, epoch_metrics
@@ -511,7 +505,7 @@ class Stage1Trainer:
         
         # Initialize metrics tracking
         epoch_metrics = {
-            'ssim': 0.0, 'psnr': 0.0, 'rmse_overall': 0.0,
+            'dice': 0.0, 'contrast_ratio': 0.0, 'rmse_overall': 0.0,
             'rmse_absorption': 0.0, 'rmse_scattering': 0.0
         }
         
@@ -551,8 +545,8 @@ class Stage1Trainer:
                 
                 # Show validation batch progress with standardized format
                 logger.info(f"🔍 VALID | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
-                           f"RMSE: {loss.item():.4f} | SSIM: {batch_metrics.get('ssim', 0):.4f} | "
-                           f"PSNR: {batch_metrics.get('psnr', 0):.1f}dB")
+                           f"RMSE: {loss.item():.4f} | Dice: {batch_metrics.get('dice', 0):.4f} | "
+                           f"Contrast: {batch_metrics.get('contrast_ratio', 0):.4f}")
         
         avg_loss = total_loss / num_batches
         
@@ -561,8 +555,8 @@ class Stage1Trainer:
             epoch_metrics[key] /= num_batches
         
         logger.debug(f"✅ Validation completed. Average loss: {avg_loss:.6f}")
-        logger.info(f"📊 VALID SUMMARY | RMSE: {avg_loss:.4f} | SSIM: {epoch_metrics['ssim']:.4f} | "
-                   f"PSNR: {epoch_metrics['psnr']:.1f}dB | Abs: {epoch_metrics['rmse_absorption']:.4f} | "
+        logger.info(f"📊 VALID SUMMARY | RMSE: {avg_loss:.4f} | Dice: {epoch_metrics['dice']:.4f} | "
+                   f"Contrast: {epoch_metrics['contrast_ratio']:.4f} | Abs: {epoch_metrics['rmse_absorption']:.4f} | "
                    f"Scat: {epoch_metrics['rmse_scattering']:.4f}")
         
         return avg_loss, epoch_metrics
@@ -627,10 +621,10 @@ class Stage1Trainer:
                     # === PRIMARY METRICS (most important) ===
                     "Metrics/RMSE_Overall_Train": train_loss,
                     "Metrics/RMSE_Overall_Valid": val_loss,
-                    "Metrics/SSIM_Train": train_metrics['ssim'],
-                    "Metrics/SSIM_Valid": val_metrics['ssim'],
-                    "Metrics/PSNR_Train": train_metrics['psnr'],
-                    "Metrics/PSNR_Valid": val_metrics['psnr'],
+                    "Metrics/Dice_Train": train_metrics['dice'],
+                    "Metrics/Dice_Valid": val_metrics['dice'],
+                    "Metrics/ContrastRatio_Train": train_metrics['contrast_ratio'],
+                    "Metrics/ContrastRatio_Valid": val_metrics['contrast_ratio'],
                     
                     # === DETAILED RMSE BREAKDOWN ===
                     "RMSE_Details/Absorption_Train": train_metrics['rmse_absorption'],
@@ -643,8 +637,8 @@ class Stage1Trainer:
                     
                     # === ANALYSIS METRICS ===
                     "Analysis/Train_Valid_RMSE_Ratio": train_loss / val_loss if val_loss > 0 else 0,
-                    "Analysis/SSIM_Improvement": val_metrics['ssim'] - train_metrics['ssim'],
-                    "Analysis/PSNR_Improvement": val_metrics['psnr'] - train_metrics['psnr'],
+                    "Analysis/Dice_Improvement": val_metrics['dice'] - train_metrics['dice'],
+                    "Analysis/ContrastRatio_Improvement": val_metrics['contrast_ratio'] - train_metrics['contrast_ratio'],
                 })
                 
                 # Log reconstruction images periodically (and always on first/last epoch)
@@ -668,8 +662,8 @@ class Stage1Trainer:
                 logger.info(f"� EPOCH {epoch+1:3d}/{epochs} SUMMARY")
                 logger.info(f"{'='*80}")
                 logger.info(f"📈 Train RMSE: {train_loss:.4f} | Valid RMSE: {val_loss:.4f} | LR: {self.optimizer.param_groups[0]['lr']:.2e}")
-                logger.info(f"📊 Train SSIM: {train_metrics['ssim']:.4f} | Valid SSIM: {val_metrics['ssim']:.4f}")
-                logger.info(f"📊 Train PSNR: {train_metrics['psnr']:.1f}dB | Valid PSNR: {val_metrics['psnr']:.1f}dB")
+                logger.info(f"📊 Train Dice: {train_metrics['dice']:.4f} | Valid Dice: {val_metrics['dice']:.4f}")
+                logger.info(f"📊 Train Contrast: {train_metrics['contrast_ratio']:.4f} | Valid Contrast: {val_metrics['contrast_ratio']:.4f}")
             logger.info(f"{'='*80}")
             
             # Log GPU stats every 5 epochs

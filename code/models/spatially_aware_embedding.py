@@ -7,7 +7,7 @@ processes measurement and position information separately, then combines them wi
 measurement-specific tissue context for enhanced spatial modeling.
 
 Key Features:
-- Robin's spatially-aware embedding for measurement/position processing
+- Spatially-aware embedding for measurement/position processing
 - Measurement-specific tissue patch integration (our innovation)
 - Learned fusion of measurement and tissue information
 - Maintains 1:1 correspondence between measurements and tissue context
@@ -18,7 +18,7 @@ Architecture Flow:
 3. Learned Fusion: hi_tokens + tissue_features → enhanced_tokens [256D]
 
 Classes:
-    SpatiallyAwareEmbedding: Robin's measurement/position embedding
+    SpatiallyAwareEmbedding: Measurement/position embedding
     TissueFeatureExtractor: CNN encoder for tissue patches with learned fusion
     SpatiallyAwareEncoderBlock: Complete encoder combining both components
 
@@ -47,8 +47,8 @@ MEASUREMENT_DIM = 2                     # [log_amplitude, phase] - xi
 POSITION_DIM = 6                        # [src_x, src_y, src_z, det_x, det_y, det_z] - pi
 NIR_INPUT_DIM = 8                       # Total: xi + pi
 
-# Embedding dimensions - Following Robin's thesis architecture
-EMBED_DIM = 256                         # Target embedding dimension (d_embed in Robin's notation)
+# Embedding dimensions - Following transformer architecture best practices
+EMBED_DIM = 256                         # Target embedding dimension
 INTERMEDIATE_DIM = 128                  # Intermediate dimension for initial measurement processing
 
 # Tissue processing
@@ -72,9 +72,9 @@ logger = get_model_logger(__name__)
 
 class SpatiallyAwareEmbedding(nn.Module):
     """
-    Spatially-Aware Embedding Block following Robin's thesis architecture.
+    Spatially-Aware Embedding Block following transformer best practices.
     
-    This implements Robin's exact approach from Figure 5.4:
+    This implements the measurement/position embedding approach from Figure 5.4:
     1. Measurement vector Xi → FC layer with d_embed nodes
     2. Output concatenated with position vector Pi  
     3. Concatenated result → Another FC layer with d_embed nodes
@@ -84,25 +84,25 @@ class SpatiallyAwareEmbedding(nn.Module):
     that doubled dimensions through concatenation.
     
     Args:
-        embed_dim (int): Target embedding dimension (d_embed in Robin's notation)
+        embed_dim (int): Target embedding dimension
         dropout (float): Dropout probability for regularization
     """
     
     def __init__(self, embed_dim: int = EMBED_DIM, dropout: float = 0.1):
         super().__init__()
         
-        logger.info(f"🏗️  Initializing SpatiallyAwareEmbedding: embed_dim={embed_dim} (Robin's approach)")
+        logger.info(f"🏗️  Initializing SpatiallyAwareEmbedding: embed_dim={embed_dim}")
         
         self.embed_dim = embed_dim
         
-        # Step 1: Measurement vector Xi → FC layer with d_embed nodes (Robin's first FC)
+        # Step 1: Measurement vector Xi → FC layer with d_embed nodes (first FC)
         self.measurement_embedding = nn.Sequential(
-            nn.Linear(MEASUREMENT_DIM, embed_dim),  # 2D → embed_dim (Robin's approach)
+            nn.Linear(MEASUREMENT_DIM, embed_dim),  # 2D → embed_dim
             nn.ReLU(),
             nn.Dropout(dropout)
         )
         
-        # Step 2: Concatenated [measurement_embed + position] → FC layer with d_embed nodes (Robin's second FC)
+        # Step 2: Concatenated [measurement_embed + position] → FC layer with d_embed nodes (second FC)
         concat_dim = embed_dim + POSITION_DIM  # embed_dim + 6D positions
         self.combined_projection = nn.Sequential(
             nn.Linear(concat_dim, embed_dim),       # (embed_dim + 6) → embed_dim
@@ -123,7 +123,7 @@ class SpatiallyAwareEmbedding(nn.Module):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
     
     def _init_weights(self):
-        """Initialize weights following Robin's approach."""
+        """Initialize weights following standard practices."""
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 nn.init.normal_(m.weight, std=WEIGHT_INIT_STD)

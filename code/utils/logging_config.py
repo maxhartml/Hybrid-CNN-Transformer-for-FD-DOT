@@ -1,8 +1,8 @@
 """
 Centralized logging configuration for NIR-DOT reconstruction pipeline.
 
-Simple logging system with:
-- Module-specific log files (data_processing, models, training, testing)
+Simplified logging system with:
+- Two log categories: data_processing (phantom simulation) and training (everything else)
 - Console + file output with rotation
 - Easy DEBUG/INFO/WARNING/ERROR level control
 """
@@ -21,7 +21,7 @@ class NIRDOTLogger:
     
     Features:
     - Automatic log directory creation
-    - Module-specific log files  
+    - Simplified log categories: data_processing and training only
     - Console + file output with rotation
     - Experiment tracking
     """
@@ -51,8 +51,8 @@ class NIRDOTLogger:
         log_path = Path(log_dir)
         log_path.mkdir(exist_ok=True)
         
-        # Create module subdirectories
-        modules = ['data_processing', 'models', 'training', 'testing']
+        # Create simplified module subdirectories
+        modules = ['data_processing', 'training']  # Simplified: only data processing and training
         for module in modules:
             (log_path / module).mkdir(exist_ok=True)
         
@@ -89,21 +89,10 @@ class NIRDOTLogger:
         console_handler.setFormatter(formatter)
         root_logger.addHandler(console_handler)
         
-        # Main file handler with rotation
-        main_log_file = log_path / "main.log"
-        main_handler = logging.handlers.RotatingFileHandler(
-            main_log_file, 
-            maxBytes=max_file_size,
-            backupCount=backup_count
-        )
-        main_handler.setLevel(getattr(logging, log_level.upper()))
-        main_handler.setFormatter(formatter)
-        root_logger.addHandler(main_handler)
-        
         cls._initialized = True
         
         # Log initialization
-        logger = cls.get_logger("logging_config")
+        logger = cls.get_logger("logging_config", "training")
         logger.info("🚀 NIR-DOT Logging Initialized")
         logger.info(f"📂 Log directory: {log_path.absolute()}")
         logger.info(f"📊 Log level: {log_level}")
@@ -188,19 +177,20 @@ class NIRDOTLogger:
         logger.info("=" * 60)
 
 
-# Convenience functions for module-specific logging
+# Convenience functions for simplified logging
 def get_data_logger(name: str) -> logging.Logger:
-    """Get logger for data processing components."""
+    """Get logger for data processing components (phantom simulation, data generation)."""
     return NIRDOTLogger.get_logger(name, "data_processing")
 
-def get_model_logger(name: str) -> logging.Logger:
-    """Get logger for model components."""
-    return NIRDOTLogger.get_logger(name, "models")
-
 def get_training_logger(name: str) -> logging.Logger:
-    """Get logger for training components."""
+    """Get logger for all training-related components (models, training, testing, main)."""
+    return NIRDOTLogger.get_logger(name, "training")
+
+# Legacy compatibility functions - all redirect to training logs for simplicity
+def get_model_logger(name: str) -> logging.Logger:
+    """Get logger for model components (redirects to training logs)."""
     return NIRDOTLogger.get_logger(name, "training")
 
 def get_testing_logger(name: str) -> logging.Logger:
-    """Get logger for testing components."""
-    return NIRDOTLogger.get_logger(name, "testing")
+    """Get logger for testing components (redirects to training logs)."""
+    return NIRDOTLogger.get_logger(name, "training")

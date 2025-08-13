@@ -3,11 +3,11 @@
 Enhanced Metrics for NIR-DOT Reconstruction Evaluation.
 
 This module implements comprehensive metrics for evaluating NIR-DOT reconstruction
-quality, including standard reconstruction metrics (SSIM, PSNR, RMSE) and 
+quality, including standard reconstruction metrics (Dice Coefficient, Contrast Ratio, RMSE) and 
 advanced feature analysis metrics for transformer enhancement evaluation.
 
 Metrics Categories:
-1. Reconstruction Quality: SSIM, PSNR, channel-specific RMSE
+1. Reconstruction Quality: Dice Coefficient, Contrast Ratio, channel-specific RMSE
 2. Feature Analysis: Enhancement ratio, attention entropy (Stage 2 only)
 3. W&B Integration: Automatic logging with proper formatting
 
@@ -37,16 +37,12 @@ from code.utils.logging_config import get_model_logger
 # CONSTANTS
 # =============================================================================
 
-# SSIM Configuration
-SSIM_WINDOW_SIZE = 11                   # Window size for SSIM calculation
-SSIM_SIGMA = 1.5                        # Gaussian window standard deviation
-SSIM_K1 = 0.01                          # SSIM stability constant 1
-SSIM_K2 = 0.03                          # SSIM stability constant 2
-SSIM_DATA_RANGE = 1.0                   # Assumed data range for SSIM
+# Dice Coefficient Configuration
+DICE_SMOOTH = 1e-6                      # Smoothing factor for numerical stability
+DICE_THRESHOLD = 0.5                    # Threshold for binary mask creation
 
-# PSNR Configuration
-PSNR_DATA_RANGE = 1.0                   # Assumed data range for PSNR
-PSNR_EPS = 1e-8                         # Small epsilon to prevent log(0)
+# Contrast Ratio Configuration  
+CONTRAST_EPS = 1e-8                     # Small epsilon to prevent division by zero
 
 # Feature Analysis Configuration
 ENTROPY_EPS = 1e-12                     # Small epsilon for entropy calculation
@@ -94,195 +90,149 @@ class RMSELoss(nn.Module):
         return torch.sqrt(mse)
 
 
-class ChannelWeightedRMSELoss(nn.Module):
-    """
-    Channel-weighted RMSE loss to balance absorption vs scattering learning.
-    
-    Since absorption typically converges faster than scattering in NIR-DOT,
-    this loss applies higher weight to scattering channel to encourage
-    balanced learning across both tissue properties.
-    
-    Weights: [1.0, 1.2] for [absorption, scattering] channels respectively
-    """
-    
-    def __init__(self, channel_weights: List[float] = [1.0, 1.2]):
-        """
-        Initialize channel-weighted RMSE loss.
-        
-        Args:
-            channel_weights: List of weights for [absorption, scattering] channels
-        """
-        super().__init__()
-        self.channel_weights = torch.tensor(channel_weights)
-        
-    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        """
-        Compute channel-weighted RMSE loss.
-        
-        Args:
-            input (torch.Tensor): Predicted volume [batch, 2, D, H, W]
-            target (torch.Tensor): Ground truth volume [batch, 2, D, H, W]
-            
-        Returns:
-            torch.Tensor: Weighted RMSE loss value
-        """
-        self.channel_weights = self.channel_weights.to(input.device)
-        
-        # Compute per-channel MSE
-        channel_mse = []
-        for c in range(input.shape[1]):  # For each channel
-            mse_c = F.mse_loss(input[:, c], target[:, c])
-            weighted_mse_c = self.channel_weights[c] * mse_c
-            channel_mse.append(weighted_mse_c)
-        
-        # Average across channels and take sqrt
-        total_mse = torch.stack(channel_mse).mean()
-        return torch.sqrt(total_mse)
-
-
 # =============================================================================
 # CORE RECONSTRUCTION METRICS
 # =============================================================================
 
-class SSIMMetric(nn.Module):
+class DiceCoefficient(nn.Module):
     """
-    Structural Similarity Index Metric (SSIM) for 3D volumes.
+    Sørensen–Dice Coefficient (SDC) for 3D volumes.
     
-    SSIM measures structural similarity between predicted and target volumes,
-    considering luminance, contrast, and structure. Values range from -1 to 1,
-    with 1 indicating perfect similarity.
+    Dice coefficient measures spatial similarity between predicted and target volumes
+    by comparing overlap between binary masks. Values range from 0 to 1,
+    with 1 indicating perfect spatial overlap.
     
-    This implementation supports both 2D slices and 3D volumes with proper
-    padding handling and numerical stability.
+    Formula: SDC = 2 * |M̂ ∩ M| / (|M̂| + |M|)
+    where M̂ is the predicted anomaly mask and M is the ground-truth anomaly mask.
     """
     
-    def __init__(self, window_size: int = SSIM_WINDOW_SIZE, 
-                 sigma: float = SSIM_SIGMA, 
-                 data_range: float = SSIM_DATA_RANGE,
-                 k1: float = SSIM_K1, 
-                 k2: float = SSIM_K2):
+    def __init__(self, threshold: float = DICE_THRESHOLD, smooth: float = DICE_SMOOTH):
         super().__init__()
-        
-        self.window_size = window_size
-        self.sigma = sigma
-        self.data_range = data_range
-        self.k1 = k1
-        self.k2 = k2
-        
-        # Create Gaussian window
-        self.register_buffer('window', self._create_gaussian_window())
-        
-        logger.debug(f"🔧 SSIM metric initialized: window_size={window_size}, sigma={sigma}")
-    
-    def _create_gaussian_window(self) -> torch.Tensor:
-        """Create Gaussian window for SSIM calculation."""
-        coords = torch.arange(self.window_size, dtype=torch.float32)
-        coords -= self.window_size // 2
-        
-        # Create 1D Gaussian
-        g = torch.exp(-(coords ** 2) / (2 * self.sigma ** 2))
-        g /= g.sum()
-        
-        # Create 3D Gaussian window
-        window_3d = g[:, None, None] * g[None, :, None] * g[None, None, :]
-        return window_3d.unsqueeze(0).unsqueeze(0)  # [1, 1, W, H, D]
+        self.threshold = threshold
+        self.smooth = smooth
+        logger.debug(f"🔧 Dice coefficient initialized: threshold={threshold}, smooth={smooth}")
     
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """
-        Calculate SSIM between predicted and target volumes.
+        Calculate Dice coefficient between predicted and target volumes.
         
         Args:
             pred (torch.Tensor): Predicted volume [B, C, D, H, W]
             target (torch.Tensor): Target volume [B, C, D, H, W]
             
         Returns:
-            torch.Tensor: Mean SSIM value across batch and channels
+            torch.Tensor: Mean Dice coefficient across batch and channels
         """
-        logger.debug(f"🏃 SSIM calculation: pred {pred.shape}, target {target.shape}")
+        logger.debug(f"🏃 Dice calculation: pred {pred.shape}, target {target.shape}")
         
-        # Calculate SSIM per channel and average
         batch_size, num_channels = pred.shape[0], pred.shape[1]
-        ssim_values = []
+        dice_values = []
         
         for c in range(num_channels):
-            pred_c = pred[:, c:c+1, ...]  # [B, 1, D, H, W]
-            target_c = target[:, c:c+1, ...]  # [B, 1, D, H, W]
+            pred_c = pred[:, c, ...]  # [B, D, H, W]
+            target_c = target[:, c, ...]  # [B, D, H, W]
             
-            # Ensure same device and dtype for mixed precision compatibility
-            # Convert both to the same dtype (prefer float32 for stability)
-            common_dtype = torch.float32
-            pred_c = pred_c.to(dtype=common_dtype)
-            target_c = target_c.to(dtype=common_dtype)
-            window = self.window.to(pred_c.device, dtype=common_dtype)
+            # Normalize to [0, 1] range using min-max normalization
+            pred_norm = (pred_c - pred_c.min()) / (pred_c.max() - pred_c.min() + CONTRAST_EPS)
+            target_norm = (target_c - target_c.min()) / (target_c.max() - target_c.min() + CONTRAST_EPS)
             
-            # Constants for SSIM
-            c1 = (self.k1 * self.data_range) ** 2
-            c2 = (self.k2 * self.data_range) ** 2
+            # Create binary masks using threshold
+            pred_mask = (pred_norm > self.threshold).float()
+            target_mask = (target_norm > self.threshold).float()
             
-            # Calculate means
-            mu1 = F.conv3d(pred_c, window, padding=self.window_size // 2, groups=1)
-            mu2 = F.conv3d(target_c, window, padding=self.window_size // 2, groups=1)
+            # Calculate intersection and union
+            intersection = (pred_mask * target_mask).sum(dim=[1, 2, 3])  # [B]
+            pred_sum = pred_mask.sum(dim=[1, 2, 3])  # [B]
+            target_sum = target_mask.sum(dim=[1, 2, 3])  # [B]
             
-            mu1_sq = mu1 ** 2
-            mu2_sq = mu2 ** 2
-            mu1_mu2 = mu1 * mu2
-            
-            # Calculate variances and covariance
-            sigma1_sq = F.conv3d(pred_c ** 2, window, padding=self.window_size // 2, groups=1) - mu1_sq
-            sigma2_sq = F.conv3d(target_c ** 2, window, padding=self.window_size // 2, groups=1) - mu2_sq
-            sigma12 = F.conv3d(pred_c * target_c, window, padding=self.window_size // 2, groups=1) - mu1_mu2
-            
-            # Calculate SSIM
-            numerator = (2 * mu1_mu2 + c1) * (2 * sigma12 + c2)
-            denominator = (mu1_sq + mu2_sq + c1) * (sigma1_sq + sigma2_sq + c2)
-            
-            ssim_map = numerator / (denominator + PSNR_EPS)
-            ssim_values.append(ssim_map.mean())
+            # Calculate Dice coefficient
+            dice = (2.0 * intersection + self.smooth) / (pred_sum + target_sum + self.smooth)
+            dice_values.append(dice.mean())  # Average across batch
         
         # Average across all channels
-        mean_ssim = torch.stack(ssim_values).mean()
-        logger.debug(f"📦 SSIM value: {mean_ssim.item():.6f}")
-        return mean_ssim
+        mean_dice = torch.stack(dice_values).mean()
+        logger.debug(f"📦 Dice coefficient: {mean_dice.item():.6f}")
+        return mean_dice
 
 
-class PSNRMetric(nn.Module):
+class ContrastRatio(nn.Module):
     """
-    Peak Signal-to-Noise Ratio (PSNR) for 3D volumes.
+    Contrast Ratio (CR) for 3D volumes.
     
-    PSNR measures reconstruction quality in decibels (dB). Higher values
-    indicate better reconstruction quality. Typical ranges for good
-    reconstruction are 20-40 dB.
+    Measures the ratio between reconstructed anomaly/background contrast 
+    and the ground-truth contrast. Values closer to 1 indicate better
+    contrast preservation.
+    
+    Formula: CR = (⟨ŷ_M⟩/⟨ŷ_¬M⟩) / (⟨y_M⟩/⟨y_¬M⟩)
+    where M is the anomaly mask, ⟨⟩ denotes spatial average.
     """
     
-    def __init__(self, data_range: float = PSNR_DATA_RANGE):
+    def __init__(self, threshold: float = DICE_THRESHOLD):
         super().__init__()
-        self.data_range = data_range
-        logger.debug(f"🔧 PSNR metric initialized: data_range={data_range}")
+        self.threshold = threshold
+        logger.debug(f"🔧 Contrast ratio initialized: threshold={threshold}")
     
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """
-        Calculate PSNR between predicted and target volumes.
+        Calculate contrast ratio between predicted and target volumes.
         
         Args:
             pred (torch.Tensor): Predicted volume [B, C, D, H, W]
             target (torch.Tensor): Target volume [B, C, D, H, W]
             
         Returns:
-            torch.Tensor: PSNR value in dB
+            torch.Tensor: Mean contrast ratio across batch and channels
         """
-        logger.debug(f"🏃 PSNR calculation: pred {pred.shape}, target {target.shape}")
+        logger.debug(f"🏃 Contrast ratio calculation: pred {pred.shape}, target {target.shape}")
         
-        # Calculate MSE
-        mse = F.mse_loss(pred, target)
+        batch_size, num_channels = pred.shape[0], pred.shape[1]
+        contrast_ratios = []
         
-        # Prevent log(0) for perfect reconstruction
-        mse = torch.clamp(mse, min=PSNR_EPS)
+        for c in range(num_channels):
+            pred_c = pred[:, c, ...]  # [B, D, H, W]
+            target_c = target[:, c, ...]  # [B, D, H, W]
+            
+            # Normalize target to [0, 1] to create anomaly mask
+            target_norm = (target_c - target_c.min()) / (target_c.max() - target_c.min() + CONTRAST_EPS)
+            anomaly_mask = (target_norm > self.threshold).float()  # [B, D, H, W]
+            background_mask = 1.0 - anomaly_mask
+            
+            batch_ratios = []
+            for b in range(batch_size):
+                pred_b = pred_c[b]  # [D, H, W]
+                target_b = target_c[b]  # [D, H, W]
+                mask_anomaly = anomaly_mask[b]  # [D, H, W]
+                mask_background = background_mask[b]  # [D, H, W]
+                
+                # Check if there are any anomaly and background voxels
+                if mask_anomaly.sum() > 0 and mask_background.sum() > 0:
+                    # Calculate mean values in anomaly and background regions
+                    pred_anomaly_mean = (pred_b * mask_anomaly).sum() / (mask_anomaly.sum() + CONTRAST_EPS)
+                    pred_background_mean = (pred_b * mask_background).sum() / (mask_background.sum() + CONTRAST_EPS)
+                    
+                    target_anomaly_mean = (target_b * mask_anomaly).sum() / (mask_anomaly.sum() + CONTRAST_EPS)
+                    target_background_mean = (target_b * mask_background).sum() / (mask_background.sum() + CONTRAST_EPS)
+                    
+                    # Calculate contrast ratios
+                    pred_contrast = pred_anomaly_mean / (pred_background_mean + CONTRAST_EPS)
+                    target_contrast = target_anomaly_mean / (target_background_mean + CONTRAST_EPS)
+                    
+                    # Calculate contrast ratio
+                    contrast_ratio = pred_contrast / (target_contrast + CONTRAST_EPS)
+                    batch_ratios.append(contrast_ratio)
+                else:
+                    # If no anomalies detected, set contrast ratio to 1.0
+                    batch_ratios.append(torch.tensor(1.0, device=pred.device))
+            
+            if batch_ratios:
+                contrast_ratios.append(torch.stack(batch_ratios).mean())
+            else:
+                contrast_ratios.append(torch.tensor(1.0, device=pred.device))
         
-        # Calculate PSNR
-        psnr = 20 * torch.log10(self.data_range / torch.sqrt(mse))
-        
-        logger.debug(f"📦 PSNR value: {psnr.item():.2f} dB")
-        return psnr
+        # Average across all channels
+        mean_contrast_ratio = torch.stack(contrast_ratios).mean()
+        logger.debug(f"📦 Contrast ratio: {mean_contrast_ratio.item():.6f}")
+        return mean_contrast_ratio
 
 
 class ChannelSpecificRMSE(nn.Module):
@@ -452,8 +402,8 @@ class NIRDOTMetrics:
         self.stage = stage
         
         # Initialize reconstruction metrics (both stages)
-        self.ssim_metric = SSIMMetric()
-        self.psnr_metric = PSNRMetric()
+        self.dice_metric = DiceCoefficient()
+        self.contrast_ratio_metric = ContrastRatio()
         self.rmse_metric = ChannelSpecificRMSE()
         
         # Initialize feature analysis metrics (Stage 2 only)
@@ -477,13 +427,13 @@ class NIRDOTMetrics:
         """
         metrics = {}
         
-        # Calculate SSIM
-        ssim_value = self.ssim_metric(pred, target)
-        metrics['ssim'] = ssim_value.item()
+        # Calculate Dice Coefficient
+        dice_value = self.dice_metric(pred, target)
+        metrics['dice'] = dice_value.item()
         
-        # Calculate PSNR
-        psnr_value = self.psnr_metric(pred, target)
-        metrics['psnr'] = psnr_value.item()
+        # Calculate Contrast Ratio
+        contrast_ratio_value = self.contrast_ratio_metric(pred, target)
+        metrics['contrast_ratio'] = contrast_ratio_value.item()
         
         # Calculate channel-specific RMSE
         rmse_values = self.rmse_metric(pred, target)

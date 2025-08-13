@@ -165,14 +165,12 @@ class Stage2Trainer:
         # Freeze CNN decoder (ECBO 2025 approach)
         self.freeze_cnn_decoder()
         
-        # Loss function - Choose between standard RMSE and channel-weighted RMSE (same as Stage 1)
-        if USE_CHANNEL_WEIGHTED_LOSS:
-            from code.utils.metrics import ChannelWeightedRMSELoss
-            self.criterion = ChannelWeightedRMSELoss(channel_weights=CHANNEL_WEIGHTS)
-            logger.info(f"🎯 Stage 2 using channel-weighted RMSE loss with weights: {CHANNEL_WEIGHTS}")
-        else:
-            self.criterion = RMSELoss()
-            logger.info("📊 Stage 2 using standard RMSE loss")
+        # Log stage-specific parameter usage after freezing
+        self._log_stage2_parameter_breakdown()
+        
+        # Loss function - Standard RMSE loss
+        self.criterion = RMSELoss()
+        logger.info("📊 Stage 2 using standard RMSE loss")
         
         # NOTE: Optimizer and scheduler are created in this stage using research-validated
         # AdamW + Linear Warmup + Cosine Decay for optimal transformer fine-tuning.
@@ -277,6 +275,44 @@ class Stage2Trainer:
         
         logger.info(f"🔬 W&B experiment initialized: {experiment_name}")
     
+    def _log_stage2_parameter_breakdown(self):
+        """
+        Log detailed parameter breakdown for Stage 2 after freezing.
+        """
+        # Count parameters by component
+        total_params = sum(p.numel() for p in self.model.parameters())
+        trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        frozen_params = sum(p.numel() for p in self.model.parameters() if not p.requires_grad)
+        
+        # Component-wise breakdown
+        cnn_total = sum(p.numel() for p in self.model.cnn_autoencoder.parameters())
+        cnn_decoder = sum(p.numel() for p in self.model.cnn_autoencoder.decoder.parameters())
+        cnn_encoder = sum(p.numel() for p in self.model.cnn_autoencoder.encoder.parameters())
+        
+        embedding_total = sum(p.numel() for p in self.model.spatially_aware_encoder.parameters())
+        transformer_total = sum(p.numel() for p in self.model.transformer_encoder.parameters())
+        pooling_total = sum(p.numel() for p in self.model.global_pooling_encoder.parameters())
+        
+        # Count trainable in each component
+        cnn_decoder_trainable = sum(p.numel() for p in self.model.cnn_autoencoder.decoder.parameters() if p.requires_grad)
+        embedding_trainable = sum(p.numel() for p in self.model.spatially_aware_encoder.parameters() if p.requires_grad)
+        transformer_trainable = sum(p.numel() for p in self.model.transformer_encoder.parameters() if p.requires_grad)
+        pooling_trainable = sum(p.numel() for p in self.model.global_pooling_encoder.parameters() if p.requires_grad)
+        
+        logger.info("📊 STAGE 2 PARAMETER BREAKDOWN (AFTER FREEZING):")
+        logger.info("   ┌─────────────────────────────────────────────────────────────┐")
+        logger.info(f"   │ CNN Decoder:           {cnn_decoder:>8,} params ({cnn_decoder_trainable:>8,} trainable) │")
+        logger.info(f"   │ Spatially-Aware Embed: {embedding_total:>8,} params ({embedding_trainable:>8,} trainable) │")
+        logger.info(f"   │ Transformer Encoder:   {transformer_total:>8,} params ({transformer_trainable:>8,} trainable) │")
+        logger.info(f"   │ Global Pooling:        {pooling_total:>8,} params ({pooling_trainable:>8,} trainable) │")
+        logger.info("   ├─────────────────────────────────────────────────────────────┤")
+        logger.info(f"   │ TOTAL MODEL:           {total_params:>8,} params                 │")
+        logger.info(f"   │ TRAINABLE:             {trainable_params:>8,} params                 │")
+        logger.info(f"   │ FROZEN:                {frozen_params:>8,} params                 │")
+        logger.info("   └─────────────────────────────────────────────────────────────┘")
+        logger.info(f"❄️  DISCARDED: CNN Encoder ({cnn_encoder:,} params - not used in Stage 2)")
+        logger.info("🎯 Stage 2 trains transformer pipeline with frozen CNN decoder")
+    
     def load_stage1_checkpoint(self, checkpoint_path):
         """
         Load pre-trained Stage 1 checkpoint into the model.
@@ -326,8 +362,13 @@ class Stage2Trainer:
             logger.info(f"Initialized {len(missing_keys)} new parameters (tissue encoder, etc.)")
         
         logger.info(f"📂 Loaded Stage 1 checkpoint: {checkpoint_path}")
-        logger.info(f"📊 Checkpoint epoch: {checkpoint.get('epoch', 'N/A')}, "
-                   f"val_loss: {checkpoint.get('val_loss', 'N/A'):.6f}")
+        
+        epoch_info = checkpoint.get('epoch', 'N/A')
+        val_loss_info = checkpoint.get('val_loss', None)
+        if val_loss_info is not None:
+            logger.info(f"📊 Checkpoint epoch: {epoch_info}, val_loss: {val_loss_info:.6f}")
+        else:
+            logger.info(f"📊 Checkpoint epoch: {epoch_info}, val_loss: N/A")
     
     def _create_parameter_groups(self):
         """
@@ -532,7 +573,7 @@ class Stage2Trainer:
         
         # Initialize metrics tracking (includes feature analysis for Stage 2)
         epoch_metrics = {
-            'ssim': 0.0, 'psnr': 0.0, 'rmse_overall': 0.0,
+            'dice': 0.0, 'contrast_ratio': 0.0, 'rmse_overall': 0.0,
             'rmse_absorption': 0.0, 'rmse_scattering': 0.0,
             'feature_enhancement_ratio': 0.0, 'attention_entropy': 0.0
         }
@@ -653,8 +694,8 @@ class Stage2Trainer:
             # Show batch progress with standardized metrics format (including LR for LinearWarmupCosineDecay monitoring)
             current_lr = self.optimizer.param_groups[0]['lr']
             logger.info(f"🏋️ TRAIN | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
-                       f"RMSE: {loss.item():.4f} | SSIM: {batch_metrics.get('ssim', 0):.4f} | "
-                       f"PSNR: {batch_metrics.get('psnr', 0):.1f}dB | LR: {current_lr:.2e}")
+                       f"RMSE: {loss.item():.4f} | Dice: {batch_metrics.get('dice', 0):.4f} | "
+                       f"Contrast: {batch_metrics.get('contrast_ratio', 0):.4f} | LR: {current_lr:.2e}")
             
             # Log gradient norm at debug level for monitoring training health (match Stage 1)
             logger.debug(f"🔧 Batch {batch_idx + 1} | Gradient Norm: {grad_norm:.3f}")
@@ -671,8 +712,8 @@ class Stage2Trainer:
             epoch_metrics[key] /= num_batches
         
         logger.debug(f"✅ Stage 2 training epoch completed. Average loss: {avg_loss:.6f}")
-        logger.info(f"📊 TRAIN SUMMARY | RMSE: {avg_loss:.4f} | SSIM: {epoch_metrics['ssim']:.4f} | "
-                   f"PSNR: {epoch_metrics['psnr']:.1f}dB | Abs: {epoch_metrics['rmse_absorption']:.4f} | "
+        logger.info(f"📊 TRAIN SUMMARY | RMSE: {avg_loss:.4f} | Dice: {epoch_metrics['dice']:.4f} | "
+                   f"Contrast: {epoch_metrics['contrast_ratio']:.4f} | Abs: {epoch_metrics['rmse_absorption']:.4f} | "
                    f"Scat: {epoch_metrics['rmse_scattering']:.4f}")
         
         return avg_loss, epoch_metrics
@@ -708,7 +749,7 @@ class Stage2Trainer:
         
         # Initialize metrics tracking (includes feature analysis for Stage 2)
         epoch_metrics = {
-            'ssim': 0.0, 'psnr': 0.0, 'rmse_overall': 0.0,
+            'dice': 0.0, 'contrast_ratio': 0.0, 'rmse_overall': 0.0,
             'rmse_absorption': 0.0, 'rmse_scattering': 0.0,
             'feature_enhancement_ratio': 0.0, 'attention_entropy': 0.0
         }
@@ -753,8 +794,8 @@ class Stage2Trainer:
                 
                 # Show validation batch progress with standardized format (match Stage 1)
                 logger.info(f"🔍 VALID | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
-                           f"RMSE: {loss.item():.4f} | SSIM: {batch_metrics.get('ssim', 0):.4f} | "
-                           f"PSNR: {batch_metrics.get('psnr', 0):.1f}dB")
+                           f"RMSE: {loss.item():.4f} | Dice: {batch_metrics.get('dice', 0):.4f} | "
+                           f"Contrast: {batch_metrics.get('contrast_ratio', 0):.4f}")
         
         avg_loss = total_loss / num_batches
         
@@ -763,8 +804,8 @@ class Stage2Trainer:
             epoch_metrics[key] /= num_batches
         
         logger.debug(f"✅ Stage 2 validation completed. Average loss: {avg_loss:.6f}")
-        logger.info(f"📊 VALID SUMMARY | RMSE: {avg_loss:.4f} | SSIM: {epoch_metrics['ssim']:.4f} | "
-                   f"PSNR: {epoch_metrics['psnr']:.1f}dB | Abs: {epoch_metrics['rmse_absorption']:.4f} | "
+        logger.info(f"📊 VALID SUMMARY | RMSE: {avg_loss:.4f} | Dice: {epoch_metrics['dice']:.4f} | "
+                   f"Contrast: {epoch_metrics['contrast_ratio']:.4f} | Abs: {epoch_metrics['rmse_absorption']:.4f} | "
                    f"Scat: {epoch_metrics['rmse_scattering']:.4f}")
         
         return avg_loss, epoch_metrics
@@ -837,10 +878,10 @@ class Stage2Trainer:
                     # === PRIMARY METRICS (most important) ===
                     "Metrics/RMSE_Overall_Train": train_loss,
                     "Metrics/RMSE_Overall_Valid": val_loss,
-                    "Metrics/SSIM_Train": train_metrics['ssim'],
-                    "Metrics/SSIM_Valid": val_metrics['ssim'],
-                    "Metrics/PSNR_Train": train_metrics['psnr'],
-                    "Metrics/PSNR_Valid": val_metrics['psnr'],
+                    "Metrics/Dice_Train": train_metrics['dice'],
+                    "Metrics/Dice_Valid": val_metrics['dice'],
+                    "Metrics/ContrastRatio_Train": train_metrics['contrast_ratio'],
+                    "Metrics/ContrastRatio_Valid": val_metrics['contrast_ratio'],
                     
                     # === TRANSFORMER SPECIFIC METRICS ===
                     "Transformer/Feature_Enhancement_Train": train_metrics['feature_enhancement_ratio'],
@@ -860,8 +901,8 @@ class Stage2Trainer:
                     
                     # === ANALYSIS METRICS ===
                     "Analysis/Train_Valid_RMSE_Ratio": train_loss / val_loss if val_loss > 0 else 0,
-                    "Analysis/SSIM_Improvement": val_metrics['ssim'] - train_metrics['ssim'],
-                    "Analysis/PSNR_Improvement": val_metrics['psnr'] - train_metrics['psnr'],
+                    "Analysis/Dice_Improvement": val_metrics['dice'] - train_metrics['dice'],
+                    "Analysis/ContrastRatio_Improvement": val_metrics['contrast_ratio'] - train_metrics['contrast_ratio'],
                     "epoch": epoch + 1
                 })
                 
@@ -890,8 +931,8 @@ class Stage2Trainer:
             logger.info(f"🚀 EPOCH {epoch+1:3d}/{epochs} SUMMARY")
             logger.info(f"{'='*80}")
             logger.info(f"📈 Train RMSE: {train_loss:.4f} | Valid RMSE: {val_loss:.4f} | LR: {self.optimizer.param_groups[0]['lr']:.2e}")
-            logger.info(f"📊 Train SSIM: {train_metrics['ssim']:.4f} | Valid SSIM: {val_metrics['ssim']:.4f}")
-            logger.info(f"📊 Train PSNR: {train_metrics['psnr']:.1f}dB | Valid PSNR: {val_metrics['psnr']:.1f}dB")
+            logger.info(f"📊 Train Dice: {train_metrics['dice']:.4f} | Valid Dice: {val_metrics['dice']:.4f}")
+            logger.info(f"📊 Train Contrast: {train_metrics['contrast_ratio']:.4f} | Valid Contrast: {val_metrics['contrast_ratio']:.4f}")
             logger.info(f"🔮 Feature Enhancement: {val_metrics['feature_enhancement_ratio']:.4f} | Attention: {val_metrics['attention_entropy']:.4f} | Mode: {mode}")
             logger.info(f"{'='*80}")
             

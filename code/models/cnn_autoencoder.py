@@ -452,10 +452,16 @@ class CNNAutoEncoder(nn.Module):
         self._init_weights()
         
         # Log model characteristics
+        # Calculate parameter counts
         total_params = sum(p.numel() for p in self.parameters())
         trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        logger.info(f"📊 CNN Autoencoder initialized: {total_params:,} total params, "
-                   f"{trainable_params:,} trainable params")
+        encoder_params = sum(p.numel() for p in self.encoder.parameters())
+        decoder_params = sum(p.numel() for p in self.decoder.parameters())
+        
+        logger.info(f"📊 CNN Autoencoder initialized: {total_params:,} total params")
+        logger.info(f"   ├─ Encoder: {encoder_params:,} params")
+        logger.info(f"   ├─ Decoder: {decoder_params:,} params")
+        logger.info(f"   └─ All trainable: {trainable_params:,} params")
     
     def _init_weights(self):
         """

@@ -39,6 +39,10 @@ import os
 
 # Third-party imports
 import torch
+import torch._dynamo
+
+# Configure torch dynamo to suppress compilation errors and fall back to eager mode
+torch._dynamo.config.suppress_errors = True
 
 # Project imports
 from code.data_processing.data_loader import create_phantom_dataloaders
@@ -72,6 +76,59 @@ def get_best_device():
         return CPU_DEVICE
 
 DEVICE = get_best_device()
+
+def create_dataloaders_with_fallback(data_dir, batch_size, extract_tissue_patches, stage_name):
+    """
+    Create DataLoaders with automatic fallback to conservative settings on memory errors.
+    
+    Args:
+        data_dir: Data directory path
+        batch_size: Batch size for training
+        extract_tissue_patches: Whether to extract tissue patches
+        stage_name: Stage name for logging
+        
+    Returns:
+        DataLoaders dictionary
+    """
+    try:
+        logger.info(f"📊 Creating {stage_name} data loaders with training config settings...")
+        data_loaders = create_phantom_dataloaders(
+            data_dir=data_dir,
+            batch_size=batch_size,
+            num_workers=NUM_WORKERS,
+            prefetch_factor=PREFETCH_FACTOR,
+            pin_memory=PIN_MEMORY,
+            persistent_workers=PERSISTENT_WORKERS,
+            extract_tissue_patches=extract_tissue_patches
+        )
+        logger.info(f"✅ {stage_name} data loaders created successfully with training config settings")
+        return data_loaders
+        
+    except (RuntimeError, OSError, ConnectionResetError) as e:
+        if "shared memory" in str(e).lower() or "bus error" in str(e).lower() or "connection reset" in str(e).lower():
+            logger.warning(f"⚠️  Memory issue detected: {e}")
+            logger.warning(f"🛡️  Falling back to conservative DataLoader settings...")
+            
+            # Use hardcoded conservative settings
+            data_loaders = create_phantom_dataloaders(
+                data_dir=data_dir,
+                batch_size=batch_size,
+                num_workers=2,  # Conservative worker count
+                prefetch_factor=1,  # Minimal prefetch
+                pin_memory=True,  # Keep pin memory for GPU efficiency
+                persistent_workers=True,  # Still keep workers alive
+                extract_tissue_patches=extract_tissue_patches
+            )
+            logger.info(f"✅ {stage_name} data loaders created with conservative settings")
+            logger.info("🛡️  CONSERVATIVE DATALOADER CONFIGURATION:")
+            logger.info("   ├─ Workers: 2")
+            logger.info("   ├─ Pin Memory: True")  
+            logger.info("   ├─ Prefetch Factor: 1")
+            logger.info("   └─ Persistent Workers: True")
+            return data_loaders
+        else:
+            # Re-raise if it's not a memory-related error
+            raise
 
 # =============================================================================
 # MAIN TRAINING PIPELINE
@@ -147,28 +204,36 @@ def main():
     
     # Load data - both stages use phantom-level batching but access different data keys
     logger.info("📊 Loading NIR-DOT phantom datasets...")
+    
+    # Log DataLoader configuration for transparency
+    logger.info("⚙️  DATALOADER CONFIGURATION (from training_config.py):")
+    logger.info(f"   ├─ Workers: {NUM_WORKERS}")
+    logger.info(f"   ├─ Pin Memory: {PIN_MEMORY}")
+    logger.info(f"   ├─ Prefetch Factor: {PREFETCH_FACTOR}")
+    logger.info(f"   └─ Persistent Workers: {PERSISTENT_WORKERS}")
+    
     logger.debug(f"🗂️  Data directory: {DATA_DIRECTORY}")
     logger.debug(f"📁 Current working directory: {os.getcwd()}")
     
     if current_stage == TRAINING_STAGE1:
         logger.debug("🏗️  Creating Stage 1 data loaders (ground truth only)...")
         # Stage 1: Use phantom DataLoader for ground truth batching (CNN autoencoder training)
-        data_loaders = create_phantom_dataloaders(
+        data_loaders = create_dataloaders_with_fallback(
             data_dir=DATA_DIRECTORY,
             batch_size=batch_size,
-            extract_tissue_patches=False  # Skip tissue patches for Stage 1
+            extract_tissue_patches=False,  # Skip tissue patches for Stage 1
+            stage_name="Stage 1"
         )
-        logger.info(f"✅ Stage 1 data loaders created successfully")
         logger.debug(f"📊 Train batches: {len(data_loaders['train'])}, Val batches: {len(data_loaders['val'])}")
     else:  # stage2
         logger.debug("🏗️  Creating Stage 2 data loaders (NIR measurements + ground truth)...")
         # Stage 2: Use phantom DataLoader for NIR measurement + ground truth batching
-        data_loaders = create_phantom_dataloaders(
+        data_loaders = create_dataloaders_with_fallback(
             data_dir=DATA_DIRECTORY,
             batch_size=batch_size,
-            extract_tissue_patches=use_tissue_patches  # Extract tissue patches based on config
+            extract_tissue_patches=use_tissue_patches,  # Extract tissue patches based on config
+            stage_name="Stage 2"
         )
-        logger.info(f"✅ Stage 2 data loaders created successfully")
         logger.debug(f"📊 Train batches: {len(data_loaders['train'])}, Val batches: {len(data_loaders['val'])}")
         logger.debug(f"🧬 Tissue patches handled by model: {use_tissue_patches}")
 

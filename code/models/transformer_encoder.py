@@ -51,8 +51,8 @@ from code.utils.logging_config import get_model_logger
 # =============================================================================
 
 # Model Architecture Parameters (OPTIMIZED)
-EMBED_DIM = 256                         # Transformer embedding dimension (matches Robin's d_embed)
-NUM_LAYERS = 4                          # Number of transformer layers (reduced from 6)
+EMBED_DIM = 256                         # Transformer embedding dimension
+NUM_LAYERS = 6                          # Number of transformer layers (increased for better capacity)
 NUM_HEADS = 8                           # Number of attention heads (reduced from 12)
 MLP_RATIO = 3                           # MLP expansion ratio (reduced from 4)
 DROPOUT = 0.1                           # Dropout probability
@@ -348,11 +348,15 @@ class TransformerEncoder(nn.Module):
         # Initialize network weights
         self._init_weights()
         
-        # Log model characteristics
+        # Log model characteristics with architectural details
         total_params = sum(p.numel() for p in self.parameters())
         trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        logger.info(f"📊 Transformer Encoder initialized: {total_params:,} total params, "
-                   f"{trainable_params:,} trainable params")
+        
+        logger.info(f"📊 Transformer Encoder initialized:")
+        logger.info(f"   ├─ Architecture: {num_layers} layers × {num_heads} heads")
+        logger.info(f"   ├─ Embedding: {embed_dim}D (head_dim: {embed_dim//num_heads})")
+        logger.info(f"   ├─ Total params: {total_params:,}")
+        logger.info(f"   └─ All trainable: {trainable_params:,}")
     
     def _init_weights(self):
         """
@@ -483,6 +487,7 @@ class TransformerEncoder(nn.Module):
         return enhanced_features, attention_weights
     
     def forward_sequence(self, measurement_features: torch.Tensor, 
+                        attention_mask: Optional[torch.Tensor] = None,
                         tissue_context: Optional[torch.Tensor] = None,
                         use_tissue_patches: bool = False) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """
@@ -490,18 +495,21 @@ class TransformerEncoder(nn.Module):
         
         Processes multiple NIR measurement features as separate tokens, allowing
         the transformer to learn spatial relationships and attention patterns
-        across different measurement locations.
+        across different measurement locations. Supports binary masking for
+        dynamic undersampling.
         
         Args:
             measurement_features (torch.Tensor): Measurement features of shape 
                 (batch_size, n_measurements, cnn_feature_dim)
+            attention_mask (torch.Tensor, optional): Binary mask of shape (batch_size, seq_len)
+                where True indicates active measurements, False indicates masked positions
             tissue_context (torch.Tensor, optional): Tissue context features. Defaults to None.
             use_tissue_patches (bool, optional): Toggle for tissue context inclusion. 
                 Defaults to False.
         
         Returns:
             Tuple[torch.Tensor, Optional[torch.Tensor]]: 
-                - Aggregated enhanced features of shape (batch_size, cnn_feature_dim)
+                - Raw transformer output of shape (batch_size, seq_len, embed_dim)
                 - Attention weights from all layers (optional)
         """
         batch_size, n_measurements, feature_dim = measurement_features.shape
@@ -549,20 +557,30 @@ class TransformerEncoder(nn.Module):
             token_sequence = token_sequence + token_type_emb
             logger.debug(f"📦 Measurement-only token sequence: {token_sequence.shape}")
         
-        # Process through transformer layers
+        # Prepare attention mask for transformer layers
+        # Convert binary mask to attention mask format for multi-head attention
+        transformer_mask = None
+        if attention_mask is not None:
+            # attention_mask: [batch, seq_len] -> transformer_mask: [batch, 1, 1, seq_len]
+            # This format allows broadcasting across heads and queries
+            transformer_mask = attention_mask.unsqueeze(1).unsqueeze(1)  # [B, 1, 1, S]
+            logger.debug(f"📦 Prepared transformer attention mask: {transformer_mask.shape}")
+        
+        # Process through transformer layers with attention masking
         logger.debug(f"🔄 Processing through {len(self.layers)} transformer layers...")
         attention_weights_list = []
         x = token_sequence
         
         for i, layer in enumerate(self.layers):
-            x, attn_weights = layer(x)
+            x, attn_weights = layer(x, mask=transformer_mask)
             attention_weights_list.append(attn_weights)
+            logger.debug(f"🔄 Layer {i+1}/{len(self.layers)} completed: {x.shape}")
         
         # Apply final layer normalization
         x = self.layer_norm(x)
         
         # Return the raw transformer output for global pooling encoder
-        # The global pooling encoder will handle the aggregation
+        # The global pooling encoder will handle the aggregation with attention mask
         logger.debug(f"📦 Raw transformer output: {x.shape}")
         
         # Combine attention weights from all layers for analysis

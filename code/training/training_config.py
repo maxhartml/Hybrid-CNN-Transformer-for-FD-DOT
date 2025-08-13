@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Training Control - Set which stage to run
-CURRENT_TRAINING_STAGE = "stage2"       # Set to "stage1" or "stage2" to control which stage runs
+CURRENT_TRAINING_STAGE = "stage1"       # Set to "stage1" or "stage2" to control which stage runs
 STAGE1_CHECKPOINT_PATH = "checkpoints/stage1_best.pth"  # Path to Stage 1 checkpoint for Stage 2
 
 # W&B Control
@@ -46,17 +46,13 @@ USE_MODEL_COMPILATION = True            # Enable PyTorch 2.0 compilation for 2x 
 COMPILATION_MODE = "default"            # Options: "default", "reduce-overhead", "max-autotune"
 USE_CHANNELS_LAST_MEMORY_FORMAT = True  # More efficient memory layout for 3D convolutions
 
-# Loss Function Configuration
-USE_CHANNEL_WEIGHTED_LOSS = True        # FIXED: Enable channel-weighted RMSE loss for balanced learning
-CHANNEL_WEIGHTS = [0.8, 0.2]           # FIXED: 80/20 weighting [absorption, scattering] - addresses 140x scale difference
-
 # =============================================================================
 # TRAINING HYPERPARAMETERS
 # =============================================================================
 
 # Training Duration
-EPOCHS_STAGE1 = 100                     # Extended to 50 - let early stopping decide when to stop
-EPOCHS_STAGE2 = 100                      # Default epochs for Stage 2
+EPOCHS_STAGE1 = 100                     # Extended to 100 - let early stopping decide when to stop
+EPOCHS_STAGE2 = 20                      # Default epochs for Stage 2
 
 # Batch Sizes - CONSISTENT ACROSS BOTH STAGES & AUTO-DETECTED
 def get_optimized_batch_size():
@@ -77,10 +73,10 @@ def get_optimized_batch_size():
 # Use consistent batch size for both stages (better for comparison and simplicity)
 BATCH_SIZE = get_optimized_batch_size()
 
-# Data Loading Configuration - OPTIMIZED FOR MAXIMUM THROUGHPUT
-NUM_WORKERS = min(16, max(4, psutil.cpu_count(logical=False)))  # More aggressive CPU utilization
+# Data Loading Configuration - OPTIMIZED FOR STABILITY + PERFORMANCE
+NUM_WORKERS = min(8, max(4, psutil.cpu_count(logical=False) // 4))  # Reduced from 16 - more stable for 3D data
 PIN_MEMORY = torch.cuda.is_available()  # Enable GPU memory pinning if CUDA available
-PREFETCH_FACTOR = 8 if torch.cuda.is_available() else 4  # Aggressive prefetching for GPU
+PREFETCH_FACTOR = 4 if torch.cuda.is_available() else 2  # Reduced from 8 - balanced performance/memory
 PERSISTENT_WORKERS = True               # Keep workers alive between epochs
 
 # Regularization and Optimization - STRENGTHENED FOR 10K PHANTOMS
@@ -95,7 +91,9 @@ DROPOUT_NIR_PROCESSOR = 0.15            # Dropout for NIR processor (more aggres
 
 # Gradient Clipping Configuration (CRITICAL for stable training)
 GRADIENT_CLIP_MAX_NORM = 0.5            # More aggressive clipping for medical imaging stability
-GRADIENT_MONITOR_THRESHOLD = 2.0        # FIXED: Lower threshold for earlier gradient explosion detection
+GRADIENT_MONITOR_THRESHOLD = 6.0        # Higher threshold for 3D medical imaging 
+                                        # NOTE: High gradients (3-6) are NORMAL early in training
+                                        # as model rapidly learns basic features from random initialization
 
 # =============================================================================
 # STAGE 1 ONECYCLELR SCHEDULER CONFIGURATION

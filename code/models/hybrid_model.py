@@ -11,20 +11,22 @@ The hybrid approach uses a two-stage learning strategy:
 2. Stage 2: Transformer integration for sequence modeling and context enhancement
 
 The model includes optional tissue context integration for improved
-reconstruction accuracy through anatomical constraints.
+reconstruction accuracy through anatomical constraints, and adaptive
+sequence undersampling for massive data augmentation through dynamic masking.
 
 Classes:
     HybridCNNTransformer: Complete hybrid model combining CNN and Transformer components
 
 Features:
     - Two-stage training pipeline support
+    - Adaptive sequence undersampling (5-256 variable measurements)
     - Optional tissue context integration
     - Configurable architecture parameters
     - Stage-specific parameter freezing
     - Comprehensive logging and monitoring
 
 Author: Max Hart
-Date: July 2025
+Date: August 2025
 """
 
 # =============================================================================
@@ -55,8 +57,12 @@ from code.models import transformer_encoder as transformer_config
 
 # NIR Measurement Configuration
 NIR_INPUT_DIM = 8                       # 8D NIR feature vectors (log_amp, phase, source_xyz, det_xyz)
-N_MEASUREMENTS = 256                    # Number of measurements for training (subsampled from 1000 generated)
 N_GENERATED_MEASUREMENTS = 1000         # Number of measurements generated per phantom (50 sources × 20 detectors)
+
+# Dynamic Undersampling Configuration (massive data augmentation through variable measurements)
+MIN_MEASUREMENTS_TRAINING = 5           # Minimum measurements per batch item
+MAX_MEASUREMENTS_TRAINING = 256         # Maximum measurements per batch item
+DEFAULT_MEASUREMENTS_INFERENCE = 256    # Default for inference when not training
 
 # Tissue patch configuration (used by NIR processor)
 TISSUE_PATCH_SIZE = 16                  # Size of tissue patches (enhanced from 11 for better context)
@@ -75,6 +81,84 @@ STAGE2 = "stage2"                       # Transformer training stage
 logger = get_model_logger(__name__)
 
 # =============================================================================
+# DYNAMIC SEQUENCE UNDERSAMPLING
+# =============================================================================
+
+def dynamic_sequence_undersampling(nir_measurements: torch.Tensor, 
+                                  tissue_patches: Optional[torch.Tensor] = None,
+                                  min_measurements: int = MIN_MEASUREMENTS_TRAINING,
+                                  max_measurements: int = MAX_MEASUREMENTS_TRAINING,
+                                  training: bool = True) -> Tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor]:
+    """
+    Dynamic sequence undersampling using binary masking for massive data augmentation.
+    
+    Creates random binary masks for each batch item to simulate varying scan densities.
+    This approach enables transformers to handle variable-length sequences naturally
+    while providing massive data augmentation through different measurement combinations.
+    
+    Args:
+        nir_measurements (torch.Tensor): Full NIR measurements of shape (batch_size, seq_len, 8)
+        tissue_patches (torch.Tensor, optional): Full tissue patches of shape (batch_size, seq_len, 2, 2, 16, 16, 16)
+        min_measurements (int): Minimum measurements per batch item (default: 5)
+        max_measurements (int): Maximum measurements per batch item (default: 256) 
+        training (bool): Whether in training mode (uses random masking) or inference mode
+        
+    Returns:
+        Tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor]: 
+            - Masked NIR measurements (same shape as input, with zeros for masked positions)
+            - Masked tissue patches (if provided, with zeros for masked positions) or None
+            - Attention mask (bool tensor indicating valid positions)
+            
+    Note:
+        Training mode: Each batch item gets different random binary mask (5-256 active measurements)
+        Validation mode: All measurements active for consistency
+        Uses binary masking instead of tensor slicing for proper transformer integration
+    """
+    batch_size, seq_len, feature_dim = nir_measurements.shape
+    device = nir_measurements.device
+    
+    if not training:
+        # Inference mode: use all measurements consistently
+        attention_mask = torch.ones(batch_size, seq_len, dtype=torch.bool, device=device)
+        logger.debug(f"🎯 Inference mode: using all {seq_len} measurements")
+        return nir_measurements, tissue_patches, attention_mask
+    
+    # Training mode: generate random binary masks for each batch item
+    attention_masks = []
+    
+    for batch_idx in range(batch_size):
+        # Random number of active measurements for this batch item
+        n_active = torch.randint(min_measurements, max_measurements + 1, (1,), device=device).item()
+        n_active = min(n_active, seq_len)  # Ensure we don't exceed available measurements
+        
+        # Create binary mask for this batch item
+        mask = torch.zeros(seq_len, dtype=torch.bool, device=device)
+        active_indices = torch.randperm(seq_len, device=device)[:n_active]
+        mask[active_indices] = True
+        
+        attention_masks.append(mask)
+    
+    # Stack masks: [batch_size, seq_len]
+    attention_mask = torch.stack(attention_masks, dim=0)
+    
+    # Apply binary masks to zero out inactive measurements
+    # Expand mask dimensions to match data shapes
+    nir_mask = attention_mask.unsqueeze(-1).float()  # [batch, seq, 1]
+    masked_nir = nir_measurements * nir_mask
+    
+    # Apply masks to tissue patches if provided
+    masked_tissue = None
+    if tissue_patches is not None:
+        # Expand mask for tissue patches: [batch, seq, 1, 1, 1, 1, 1]
+        tissue_mask = attention_mask.view(batch_size, seq_len, 1, 1, 1, 1, 1).float()
+        masked_tissue = tissue_patches * tissue_mask
+    
+    active_counts = attention_mask.sum(dim=1).cpu().tolist()
+    logger.debug(f"🎯 Training undersampling: active measurements per batch: {active_counts}")
+    
+    return masked_nir, masked_tissue, attention_mask
+
+# =============================================================================
 # HYBRID MODEL ARCHITECTURE
 # =============================================================================
 
@@ -85,30 +169,26 @@ class HybridCNNTransformer(nn.Module):
     
     Combines the spatial feature extraction capabilities of CNNs with the
     sequence modeling power of transformers to achieve superior reconstruction
-    quality. The model supports a two-stage training paradigm and optional
+    quality. The model supports a two-stage training paradigm, adaptive
+    sequence undersampling for massive data augmentation, and optional
     tissue context integration.
     
     Architecture Components:
     - CNN Autoencoder: Spatial feature extraction and reconstruction
     - Transformer Encoder: Sequence modeling and context integration  
     - Tissue Context Encoder: Anatomical constraint processing (optional)
+    - Adaptive Undersampling: Variable sequence lengths (5-256 measurements)
     
     Training Stages:
     1. Stage 1: CNN autoencoder pre-training for low-level spatial features
-    2. Stage 2: Transformer training with frozen decoder for high-level modeling
+    2. Stage 2: Transformer training with frozen decoder and adaptive undersampling
     
-    Args:
-        input_channels (int, optional): Number of input channels. Defaults to 1.
-        output_size (Tuple[int, int, int], optional): Target output volume size. 
-            Defaults to (64, 64, 64).
-        base_channels (int, optional): Base CNN channels. Defaults to 64.
-        transformer_layers (int, optional): Number of transformer layers. Defaults to 6.
-        transformer_heads (int, optional): Number of attention heads. Defaults to 12.
-        embed_dim (int, optional): Transformer embedding dimension. Defaults to 768.
-        tissue_patch_size (int, optional): Size of tissue patches. Defaults to 16.
-        tissue_num_patches (int, optional): Number of tissue patches. Defaults to 2.
-        tissue_output_dim (int, optional): Tissue output dimension. Defaults to 8.
-        dropout (float, optional): Dropout probability. Defaults to 0.1.
+    Key Features:
+    - Adaptive sequence undersampling: 5-256 variable measurements
+    - Massive data augmentation through measurement subset variation
+    - Efficient validation mode (256 measurements for consistency)
+    - Optional tissue patch integration for enhanced reconstruction
+    - Stage-specific component freezing for optimal training
     """
     
     def __init__(self,
@@ -159,7 +239,7 @@ class HybridCNNTransformer(nn.Module):
         
         # Initialize Spatially-Aware Encoder Block (replaces NIR processor)
         self.spatially_aware_encoder = SpatiallyAwareEncoderBlock(
-            embed_dim=256,  # Robin's d_embed dimension
+            embed_dim=256,  # Transformer embedding dimension
             dropout=nir_dropout
         )
         
@@ -174,7 +254,7 @@ class HybridCNNTransformer(nn.Module):
         self.transformer_encoder = TransformerEncoder(
             cnn_feature_dim=256,  # Now receives 256D tokens from spatially-aware encoder
             tissue_context_dim=0,  # Tissue context now handled in spatially-aware encoder
-            embed_dim=256,  # Match Robin's d_embed dimension
+            embed_dim=256,  # Match transformer embedding dimension
             num_layers=transformer_num_layers,
             num_heads=transformer_num_heads,
             mlp_ratio=mlp_ratio,
@@ -184,11 +264,53 @@ class HybridCNNTransformer(nn.Module):
         # Initialize network weights
         self._init_weights()
         
-        # Log model characteristics
+        # Log detailed model characteristics
+        self._log_detailed_parameter_breakdown()
+    
+    def _log_detailed_parameter_breakdown(self):
+        """
+        Log detailed parameter breakdown by component and stage-specific usage.
+        """
+        # Count parameters by component
+        cnn_total = sum(p.numel() for p in self.cnn_autoencoder.parameters())
+        cnn_encoder = sum(p.numel() for p in self.cnn_autoencoder.encoder.parameters())
+        cnn_decoder = sum(p.numel() for p in self.cnn_autoencoder.decoder.parameters())
+        
+        embedding_total = sum(p.numel() for p in self.spatially_aware_encoder.parameters())
+        transformer_total = sum(p.numel() for p in self.transformer_encoder.parameters())
+        pooling_total = sum(p.numel() for p in self.global_pooling_encoder.parameters())
+        
         total_params = sum(p.numel() for p in self.parameters())
         trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        logger.info(f"📊 Hybrid Model initialized: {total_params:,} total params, "
-                   f"{trainable_params:,} trainable params")
+        
+        logger.info("📊 DETAILED PARAMETER BREAKDOWN:")
+        logger.info("   ┌─────────────────────────────────────────────────────────────┐")
+        logger.info(f"   │ CNN Autoencoder:        {cnn_total:>8,} params             │")
+        logger.info(f"   │   ├─ Encoder:           {cnn_encoder:>8,} params             │")
+        logger.info(f"   │   └─ Decoder:           {cnn_decoder:>8,} params             │")
+        logger.info(f"   │ Spatially-Aware Embed: {embedding_total:>8,} params             │")
+        logger.info(f"   │ Transformer Encoder:   {transformer_total:>8,} params             │")
+        logger.info(f"   │ Global Pooling:        {pooling_total:>8,} params             │")
+        logger.info("   ├─────────────────────────────────────────────────────────────┤")
+        logger.info(f"   │ TOTAL MODEL:           {total_params:>8,} params             │")
+        logger.info(f"   │ TRAINABLE:             {trainable_params:>8,} params             │")
+        logger.info("   └─────────────────────────────────────────────────────────────┘")
+        
+        # Stage-specific parameter usage
+        if self.training_stage == 'stage1':
+            logger.info("🎯 STAGE 1 PARAMETER USAGE:")
+            logger.info(f"   └─ Active: CNN Autoencoder ({cnn_total:,} params)")
+            logger.info(f"   └─ Unused: Transformer pipeline ({total_params - cnn_total:,} params)")
+        
+        elif self.training_stage == 'stage2':
+            stage2_active = cnn_decoder + embedding_total + transformer_total + pooling_total
+            logger.info("🎯 STAGE 2 PARAMETER USAGE:")
+            logger.info(f"   ├─ Active: CNN Decoder ({cnn_decoder:,} params)")
+            logger.info(f"   ├─ Active: Embedding ({embedding_total:,} params)")
+            logger.info(f"   ├─ Active: Transformer ({transformer_total:,} params)")
+            logger.info(f"   ├─ Active: Pooling ({pooling_total:,} params)")
+            logger.info(f"   └─ TOTAL ACTIVE: {stage2_active:,} params")
+            logger.info(f"   └─ Discarded: CNN Encoder ({cnn_encoder:,} params)")
     
     def _init_weights(self):
         """
@@ -253,28 +375,41 @@ class HybridCNNTransformer(nn.Module):
                     f"Expected shape: (batch_size, n_measurements, 8)"
                 )
             
-            logger.debug("� Stage 2: Robindale transformer enhancement")
+            logger.debug("🎯 Stage 2: Transformer enhancement with dynamic undersampling")
+            
+            # Step 0: Dynamic Sequence Undersampling (binary masking for massive data augmentation)
+            undersampled_nir, undersampled_tissue, attention_mask = dynamic_sequence_undersampling(
+                nir_measurements=dot_measurements,     # [batch, 1000, 8] 
+                tissue_patches=tissue_patches,         # [batch, 1000, 2, 2, 16, 16, 16] or None
+                min_measurements=MIN_MEASUREMENTS_TRAINING,
+                max_measurements=MAX_MEASUREMENTS_TRAINING,
+                training=self.training  # Use model's training state
+            )
+            
+            active_measurements = attention_mask.sum(dim=1).cpu().tolist()
+            logger.debug(f"🎯 Dynamic undersampling: {dot_measurements.shape} → active measurements: {active_measurements}")
             
             # Step 1: Spatially-Aware Encoder Block (spatially-aware embedding + tissue fusion)
             combined_tokens = self.spatially_aware_encoder(
-                nir_measurements=dot_measurements,    # [batch, n_measurements, 8]
-                tissue_patches=tissue_patches,        # [batch, n_measurements, 2, patch_volume*2] or None
+                nir_measurements=undersampled_nir,     # [batch, seq_len, 8] (with masked positions as zeros)
+                tissue_patches=undersampled_tissue,    # [batch, seq_len, 2, patch_volume*2] or None (with masked positions as zeros)
                 use_tissue_patches=self.use_tissue_patches
-            )  # Returns: [batch, total_tokens, embed_dim]
+            )  # Returns: [batch, seq_len, embed_dim]
             
             logger.debug(f"📦 Spatially-aware encoder tokens: {combined_tokens.shape}")
             
-            # Step 2: Transformer processing (self-attention + feed-forward)
+            # Step 2: Transformer processing (self-attention + feed-forward with attention masking)
             enhanced_tokens, attention_weights = self.transformer_encoder.forward_sequence(
-                measurement_features=combined_tokens,  # [batch, total_tokens, embed_dim]
+                measurement_features=combined_tokens,  # [batch, seq_len, embed_dim]
+                attention_mask=attention_mask,         # [batch, seq_len] - masks inactive positions
                 tissue_context=None,  # Tissue context already handled in spatially-aware encoder
                 use_tissue_patches=False  # Already integrated in tokens
-            )  # Returns: [batch, total_tokens, embed_dim]
+            )  # Returns: [batch, seq_len, embed_dim]
             
-            logger.debug(f"� Transformer enhanced tokens: {enhanced_tokens.shape}")
+            logger.debug(f"🔥 Transformer enhanced tokens: {enhanced_tokens.shape}")
             
-            # Step 3: Global pooling and encoded scan generation
-            encoded_scan = self.global_pooling_encoder(enhanced_tokens)  # [batch, encoded_scan_dim]
+            # Step 3: Global pooling and encoded scan generation (only pool over active tokens)
+            encoded_scan = self.global_pooling_encoder(enhanced_tokens, attention_mask=attention_mask)  # [batch, encoded_scan_dim]
             
             logger.debug(f"📦 Encoded scan: {encoded_scan.shape}")
             
@@ -289,6 +424,10 @@ class HybridCNNTransformer(nn.Module):
                 'enhanced_tokens': enhanced_tokens,
                 'combined_tokens': combined_tokens,
                 'attention_weights': attention_weights,
+                'attention_mask': attention_mask,         # Binary mask showing active measurements
+                'masked_nir': undersampled_nir,          # Masked NIR measurements (zeros for inactive)
+                'original_measurements': dot_measurements.shape[1],  # Original number of measurements
+                'active_measurements': attention_mask.sum(dim=1).cpu().tolist(),  # Number of active measurements per batch
                 'stage': STAGE2
             })
         

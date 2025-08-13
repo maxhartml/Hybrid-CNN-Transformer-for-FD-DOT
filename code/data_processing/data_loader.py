@@ -36,7 +36,7 @@ DEFAULT_NIR_FEATURE_DIMENSION = 8      # [log_amp, phase, src_x, src_y, src_z, d
 DEFAULT_OPTICAL_CHANNELS = 2            # [μ_a, μ_s] absorption and scattering
 DEFAULT_PHANTOM_SHAPE = (64, 64, 64)    # Volume dimensions
 DEFAULT_N_GENERATED_MEASUREMENTS = 1000 # Generated measurements per phantom
-DEFAULT_N_TRAINING_MEASUREMENTS = 256   # Subsampled measurements for training
+# Note: Removed DEFAULT_N_TRAINING_MEASUREMENTS for dynamic undersampling at model level
 
 # Dataset split configuration - CONFIGURABLE HYPERPARAMETERS
 TRAIN_SPLIT_RATIO = 0.8                 # 80% for training (recommended: keep at 0.8)
@@ -363,48 +363,26 @@ class NIRPhantomDataset(Dataset):
                         detector_pos[measurement_idx, 2]            # detector z
                     ])
                 
-                # 🎯 CRITICAL: Subsample from 1000 to 256 measurements for training
-                # This enables data augmentation - different random subsets each epoch
-                if n_measurements > DEFAULT_N_TRAINING_MEASUREMENTS:
-                    # Use phantom-specific random state for consistent subsampling per phantom per epoch
-                    # But allow different subsets across epochs via global random state
-                    subsample_indices = np.random.choice(
-                        n_measurements, 
-                        size=DEFAULT_N_TRAINING_MEASUREMENTS, 
-                        replace=False
-                    )
-                    nir_measurements = all_measurements[subsample_indices]
-                    logger.debug(f"Subsampled {DEFAULT_N_TRAINING_MEASUREMENTS} from {n_measurements} measurements for phantom {phantom_file.stem}")
-                else:
-                    nir_measurements = all_measurements
-                    logger.warning(f"Phantom has only {n_measurements} measurements, expected {DEFAULT_N_GENERATED_MEASUREMENTS}")
+                # 🎯 PASS ALL MEASUREMENTS: No longer subsample here - dynamic undersampling at model level
+                # This allows for adaptive sequence undersampling during Stage 2 training
+                nir_measurements = all_measurements
+                logger.debug(f"Loaded {n_measurements} measurements for phantom {phantom_file.stem}")
                 
                 # Extract phantom ID
                 phantom_id = int(phantom_file.stem.split('_')[1])
                 
-                # 🧬 TISSUE PATCH EXTRACTION: Extract 16x16x16 patches around source/detector locations
+                # 🧬 TISSUE PATCH EXTRACTION: Extract 16x16x16 patches for ALL measurements
                 # This provides local anatomical context for each measurement
                 if self.extract_tissue_patches:
-                    if n_measurements > DEFAULT_N_TRAINING_MEASUREMENTS:
-                        # Use the same subsample indices for tissue patches
-                        tissue_patches = extract_tissue_patches_from_measurements(
-                            ground_truth=ground_truth,           # (2, 64, 64, 64)
-                            source_positions=source_pos,         # (1000, 3) 
-                            detector_positions=detector_pos,     # (1000, 3)
-                            measurement_indices=subsample_indices, # (256,) selected indices
-                            patch_size=16
-                        )
-                    else:
-                        # Use all measurements if we have fewer than training target
-                        tissue_patches = extract_tissue_patches_from_measurements(
-                            ground_truth=ground_truth,
-                            source_positions=source_pos,
-                            detector_positions=detector_pos,
-                            measurement_indices=np.arange(n_measurements),
-                            patch_size=16
-                        )
+                    tissue_patches = extract_tissue_patches_from_measurements(
+                        ground_truth=ground_truth,           # (2, 64, 64, 64)
+                        source_positions=source_pos,         # (1000, 3) 
+                        detector_positions=detector_pos,     # (1000, 3)
+                        measurement_indices=np.arange(n_measurements), # Use all measurements
+                        patch_size=16
+                    )
                     
-                    logger.debug(f"Extracted tissue patches shape: {tissue_patches.shape}")  # Should be (256, 2, 8192)
+                    logger.debug(f"Extracted tissue patches shape: {tissue_patches.shape}")  # Should be (1000, 2, 8192)
                     
                     # 📊 TISSUE PATCH QUALITY MONITORING: Basic sanity check
                     tissue_tensor = torch.tensor(tissue_patches, dtype=torch.float32)
@@ -416,73 +394,28 @@ class NIRPhantomDataset(Dataset):
                     else:
                         logger.debug(f"✅ Normal tissue patch quality: {zero_ratio:.1%} zeros for phantom {phantom_id}")
                 else:
-                    # Create empty tissue patches if not extracting
-                    tissue_patches = np.zeros((DEFAULT_N_TRAINING_MEASUREMENTS, 2, 16**3 * 2), dtype=np.float32)
+                    # Create empty tissue patches for all measurements if not extracting
+                    # Keep consistent 6D format: (n_measurements, 2_patches, 2_channels, 16, 16, 16)
+                    tissue_patches = np.zeros((n_measurements, 2, 2, 16, 16, 16), dtype=np.float32)
                     logger.debug(f"Skipping tissue patch extraction for Stage 1 training")
                 
         except Exception as e:
             logger.error(f"Error loading complete phantom {phantom_idx} from {phantom_file}: {e}")
-            # Return zero-filled phantom with training dimensions
+            # Return zero-filled phantom with full measurement dimensions
+            # Keep consistent 6D format: (n_measurements, 2_patches, 2_channels, 16, 16, 16)
             return {
-                'nir_measurements': torch.zeros(DEFAULT_N_TRAINING_MEASUREMENTS, DEFAULT_NIR_FEATURE_DIMENSION, dtype=torch.float32),
+                'nir_measurements': torch.zeros(DEFAULT_N_GENERATED_MEASUREMENTS, DEFAULT_NIR_FEATURE_DIMENSION, dtype=torch.float32),
                 'ground_truth': torch.zeros(DEFAULT_OPTICAL_CHANNELS, *DEFAULT_PHANTOM_SHAPE, dtype=torch.float32),
-                'tissue_patches': torch.zeros(DEFAULT_N_TRAINING_MEASUREMENTS, 2, 16**3 * 2, dtype=torch.float32),
+                'tissue_patches': torch.zeros(DEFAULT_N_GENERATED_MEASUREMENTS, 2, 2, 16, 16, 16, dtype=torch.float32),
                 'phantom_id': torch.tensor(0, dtype=torch.long)
             }
         
         return {
-            'nir_measurements': torch.tensor(nir_measurements, dtype=torch.float32),    # (256, 8) - subsampled NIR measurements
+            'nir_measurements': torch.tensor(nir_measurements, dtype=torch.float32),    # (1000, 8) - full NIR measurements
             'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),           # (2, 64, 64, 64) - full ground truth
-            'tissue_patches': torch.tensor(tissue_patches, dtype=torch.float32),       # (256, 2, 8192) - tissue patches for each measurement
+            'tissue_patches': torch.tensor(tissue_patches, dtype=torch.float32),       # (1000, 2, 2, 16, 16, 16) - tissue patches for all measurements
             'phantom_id': torch.tensor(phantom_id, dtype=torch.long)                   # Phantom identifier
         }
-
-
-# ===============================================================================
-# HARDWARE OPTIMIZATION
-# ===============================================================================
-
-def get_optimal_dataloader_config() -> Dict:
-    """
-    Get optimal DataLoader configuration based on system hardware.
-    
-    Returns:
-        Dict: Configuration with optimal settings for num_workers, pin_memory, etc.
-    """
-    import psutil
-    
-    # Get CPU information
-    cpu_count = psutil.cpu_count(logical=False)  # Physical cores
-    logical_count = psutil.cpu_count(logical=True)  # Logical cores
-    
-    # Get memory information
-    memory = psutil.virtual_memory()
-    available_gb = memory.available / (1024**3)
-    
-    # Determine optimal number of workers
-    # Conservative approach: use physical cores but cap at 8 to avoid overhead
-    optimal_workers = min(max(1, cpu_count - 1), 8)
-    
-    # Enable pin memory if sufficient RAM and CUDA available
-    pin_memory = torch.cuda.is_available() and available_gb > 4.0
-    
-    # Set prefetch factor based on memory
-    prefetch_factor = 4 if available_gb > 16 else 2
-    
-    # Enable persistent workers for multi-worker setups
-    persistent_workers = optimal_workers > 1
-    
-    config = {
-        'num_workers': optimal_workers,
-        'pin_memory': pin_memory,
-        'prefetch_factor': prefetch_factor,
-        'persistent_workers': persistent_workers
-    }
-    
-    logger.info(f"Optimal DataLoader config: {config}")
-    logger.info(f"System: {cpu_count} physical cores, {logical_count} logical cores, {available_gb:.1f}GB available RAM")
-    
-    return config
 
 
 # ===============================================================================
@@ -491,7 +424,10 @@ def get_optimal_dataloader_config() -> Dict:
 
 def create_phantom_dataloaders(data_dir: str = "../data",
                               batch_size: int = DEFAULT_PHANTOM_BATCH_SIZE,
-                              num_workers: int = None,  # Auto-detect optimal workers
+                              num_workers: int = DEFAULT_NUM_WORKERS,
+                              prefetch_factor: int = 2,
+                              pin_memory: bool = True,
+                              persistent_workers: bool = True,
                               random_seed: int = DEFAULT_RANDOM_SEED,
                               extract_tissue_patches: bool = True) -> Dict[str, DataLoader]:
     """
@@ -504,7 +440,10 @@ def create_phantom_dataloaders(data_dir: str = "../data",
     Args:
         data_dir (str): Path to phantom data directory
         batch_size (int): Number of phantoms per batch
-        num_workers (int): Number of worker processes (auto-detected if None)
+        num_workers (int): Number of worker processes
+        prefetch_factor (int): Prefetch factor for DataLoader
+        pin_memory (bool): Enable pin memory for GPU efficiency
+        persistent_workers (bool): Keep workers alive between epochs
         random_seed (int): Random seed for splits
         extract_tissue_patches (bool): Whether to extract tissue patches (Stage 2 only)
         
@@ -512,18 +451,10 @@ def create_phantom_dataloaders(data_dir: str = "../data",
         Dict[str, DataLoader]: Dictionary with 'train', 'val', 'test' DataLoaders
     """
     
-    # Get optimal DataLoader configuration
-    if num_workers is None:
-        dataloader_config = get_optimal_dataloader_config()
-        num_workers = dataloader_config['num_workers']
-        pin_memory = dataloader_config['pin_memory']
-        prefetch_factor = dataloader_config['prefetch_factor']
-        persistent_workers = dataloader_config['persistent_workers'] and num_workers > 0
-    else:
-        # Use provided num_workers with safe defaults
-        pin_memory = torch.cuda.is_available() and ENABLE_PIN_MEMORY
+    # Ensure persistent workers is disabled for single worker
+    if num_workers == 0:
+        persistent_workers = False
         prefetch_factor = 2
-        persistent_workers = num_workers > 0
     
     dataloaders = {}
     
