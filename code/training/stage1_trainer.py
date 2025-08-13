@@ -9,17 +9,10 @@ serve as a foundation for subsequent transformer enhancement.
 
 The training process uses RMSE loss optimization to learn robust feature
 representations and basic reconstruction capabilities before introducing
-the complexity of transformer-based spatial modeling.
+transformer-based spatial modeling.
 
 Classes:
-    RMSELoss: Root Mean Square Error loss func            # Print epoch summary every epoch (always log progress)
-            logger.info(f"")
-            logger.info(f"{'='*80}")
-            logger.info(f"📊 EPOCH {epoch+1:3d}/{epochs} SUMMARY")
-            logger.info(f"{'='*80}")
-            logger.info(f"📈 Train RMSE: {train_loss:.4f} | Valid RMSE: {val_loss:.4f} | LR: {self.optimizer.param_groups[0]['lr']:.2e}")
-            logger.info(f"📊 Train SSIM: {train_metrics['ssim']:.4f} | Valid SSIM: {val_metrics['ssim']:.4f}")
-            logger.info(f"📊 Train PSNR: {train_metrics['psnr']:.1f}dB | Valid PSNR: {val_metrics['psnr']:.1f}dB")reconstruction optimization
+    RMSELoss: Root Mean Square Error loss function for reconstruction optimization
     Stage1Trainer: Complete training pipeline for CNN autoencoder pre-training
 
 Features:
@@ -39,7 +32,8 @@ Date: July 2025
 
 # Standard library imports
 import os
-from typing import Dict
+import pickle
+from typing import Dict, Optional
 from datetime import datetime
 
 # Third-party imports
@@ -116,6 +110,9 @@ class Stage1Trainer:
         self.patience_counter = 0
         self.early_stopped = False
         
+        # Phase 2: Latent vector caching will be done AFTER training completes
+        # No need to cache during training - we'll generate the full cache post-training
+        
         # Initialize enhanced metrics for Stage 1
         self.metrics = create_metrics_for_stage("stage1")
         
@@ -146,14 +143,9 @@ class Stage1Trainer:
         elif USE_MODEL_COMPILATION:
             logger.warning("⚠️ PyTorch 2.0+ required for model compilation - skipping")
         
-        # Loss function - Choose between standard RMSE and channel-weighted RMSE
-        if USE_CHANNEL_WEIGHTED_LOSS:
-            from code.utils.metrics import ChannelWeightedRMSELoss
-            self.criterion = ChannelWeightedRMSELoss(channel_weights=CHANNEL_WEIGHTS)
-            logger.info(f"🎯 Using channel-weighted RMSE loss with weights: {CHANNEL_WEIGHTS}")
-        else:
-            self.criterion = RMSELoss()
-            logger.info("📊 Using standard RMSE loss")
+        # Loss function - Use standard RMSE loss (Phase 2: simplified loss configuration)
+        logger.info("📏 Using RMSE loss for Stage 1 training")
+        self.criterion = RMSELoss()
         
         # NOTE: Optimizer and scheduler are created in this stage using research-validated
         # AdamW + OneCycleLR for optimal CNN autoencoder training from scratch.
@@ -369,8 +361,8 @@ class Stage1Trainer:
         
         # Initialize metrics tracking
         epoch_metrics = {
-            'ssim': 0.0, 'psnr': 0.0, 'rmse_overall': 0.0,
-            'rmse_absorption': 0.0, 'rmse_scattering': 0.0
+            'dice': 0.0, 'contrast_ratio': 0.0, 'rmse_overall': 0.0,
+            'rmse_mu_a': 0.0, 'rmse_mu_s': 0.0
         }
         
         logger.debug(f"📊 Processing {len(data_loader)} batches in training epoch")
@@ -453,11 +445,13 @@ class Stage1Trainer:
             total_loss += loss.item()
             num_batches += 1
             
-            # Show batch progress with standardized metrics format (including LR for OneCycleLR monitoring)
+            # Show batch progress with enhanced metrics format (including A-RMSE and S-RMSE)
             current_lr = self.optimizer.param_groups[0]['lr']
             logger.info(f"🏋️  TRAIN | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
-                       f"RMSE: {loss.item():.4f} | SSIM: {batch_metrics.get('ssim', 0):.4f} | "
-                       f"PSNR: {batch_metrics.get('psnr', 0):.1f}dB | LR: {current_lr:.2e}")
+                       f"RMSE: {loss.item():.4f} | Dice: {batch_metrics.get('dice', 0):.4f} | "
+                       f"CR: {batch_metrics.get('contrast_ratio', 0):.4f} | "
+                       f"A-RMSE: {batch_metrics.get('rmse_mu_a', 0):.4f} | "
+                       f"S-RMSE: {batch_metrics.get('rmse_mu_s', 0):.4f} | LR: {current_lr:.2e}")
             
             # Log gradient norm at debug level for monitoring training health
             logger.debug(f"🔧 Batch {batch_idx + 1} | Gradient Norm: {grad_norm:.3f}")
@@ -474,9 +468,9 @@ class Stage1Trainer:
             epoch_metrics[key] /= num_batches
         
         logger.debug(f"✅ Training epoch completed. Average loss: {avg_loss:.6f}")
-        logger.info(f"📊 TRAIN SUMMARY | RMSE: {avg_loss:.4f} | SSIM: {epoch_metrics['ssim']:.4f} | "
-                   f"PSNR: {epoch_metrics['psnr']:.1f}dB | Abs: {epoch_metrics['rmse_absorption']:.4f} | "
-                   f"Scat: {epoch_metrics['rmse_scattering']:.4f}")
+        logger.info(f"📊 TRAIN SUMMARY | RMSE: {avg_loss:.4f} | Dice: {epoch_metrics['dice']:.4f} | "
+                   f"CR: {epoch_metrics['contrast_ratio']:.4f} | μₐ: {epoch_metrics['rmse_mu_a']:.4f} | "
+                   f"μₛ: {epoch_metrics['rmse_mu_s']:.4f}")
         
         return avg_loss, epoch_metrics
     
@@ -511,8 +505,8 @@ class Stage1Trainer:
         
         # Initialize metrics tracking
         epoch_metrics = {
-            'ssim': 0.0, 'psnr': 0.0, 'rmse_overall': 0.0,
-            'rmse_absorption': 0.0, 'rmse_scattering': 0.0
+            'dice': 0.0, 'contrast_ratio': 0.0, 'rmse_overall': 0.0,
+            'rmse_mu_a': 0.0, 'rmse_mu_s': 0.0
         }
         
         logger.debug(f"📊 Processing {len(data_loader)} validation batches")
@@ -549,10 +543,12 @@ class Stage1Trainer:
                 total_loss += loss.item()
                 num_batches += 1
                 
-                # Show validation batch progress with standardized format
+                # Show validation batch progress with enhanced metrics format
                 logger.info(f"🔍 VALID | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
-                           f"RMSE: {loss.item():.4f} | SSIM: {batch_metrics.get('ssim', 0):.4f} | "
-                           f"PSNR: {batch_metrics.get('psnr', 0):.1f}dB")
+                           f"RMSE: {loss.item():.4f} | Dice: {batch_metrics.get('dice', 0):.4f} | "
+                           f"CR: {batch_metrics.get('contrast_ratio', 0):.4f} | "
+                           f"A-RMSE: {batch_metrics.get('rmse_mu_a', 0):.4f} | "
+                           f"S-RMSE: {batch_metrics.get('rmse_mu_s', 0):.4f}")
         
         avg_loss = total_loss / num_batches
         
@@ -561,9 +557,9 @@ class Stage1Trainer:
             epoch_metrics[key] /= num_batches
         
         logger.debug(f"✅ Validation completed. Average loss: {avg_loss:.6f}")
-        logger.info(f"📊 VALID SUMMARY | RMSE: {avg_loss:.4f} | SSIM: {epoch_metrics['ssim']:.4f} | "
-                   f"PSNR: {epoch_metrics['psnr']:.1f}dB | Abs: {epoch_metrics['rmse_absorption']:.4f} | "
-                   f"Scat: {epoch_metrics['rmse_scattering']:.4f}")
+        logger.info(f"📊 VALID SUMMARY | RMSE: {avg_loss:.4f} | Dice: {epoch_metrics['dice']:.4f} | "
+                   f"CR: {epoch_metrics['contrast_ratio']:.4f} | μₐ: {epoch_metrics['rmse_mu_a']:.4f} | "
+                   f"μₛ: {epoch_metrics['rmse_mu_s']:.4f}")
         
         return avg_loss, epoch_metrics
     
@@ -627,24 +623,24 @@ class Stage1Trainer:
                     # === PRIMARY METRICS (most important) ===
                     "Metrics/RMSE_Overall_Train": train_loss,
                     "Metrics/RMSE_Overall_Valid": val_loss,
-                    "Metrics/SSIM_Train": train_metrics['ssim'],
-                    "Metrics/SSIM_Valid": val_metrics['ssim'],
-                    "Metrics/PSNR_Train": train_metrics['psnr'],
-                    "Metrics/PSNR_Valid": val_metrics['psnr'],
+                    "Metrics/Dice_Train": train_metrics['dice'],
+                    "Metrics/Dice_Valid": val_metrics['dice'],
+                    "Metrics/ContrastRatio_Train": train_metrics['contrast_ratio'],
+                    "Metrics/ContrastRatio_Valid": val_metrics['contrast_ratio'],
                     
                     # === DETAILED RMSE BREAKDOWN ===
-                    "RMSE_Details/Absorption_Train": train_metrics['rmse_absorption'],
-                    "RMSE_Details/Absorption_Valid": val_metrics['rmse_absorption'],
-                    "RMSE_Details/Scattering_Train": train_metrics['rmse_scattering'],
-                    "RMSE_Details/Scattering_Valid": val_metrics['rmse_scattering'],
+                    "RMSE_Details/Absorption_Train": train_metrics['rmse_mu_a'],
+                    "RMSE_Details/Absorption_Valid": val_metrics['rmse_mu_a'],
+                    "RMSE_Details/Scattering_Train": train_metrics['rmse_mu_s'],
+                    "RMSE_Details/Scattering_Valid": val_metrics['rmse_mu_s'],
                     
                     # === TRAINING SYSTEM ===
                     "System/Epoch": epoch + 1,
                     
                     # === ANALYSIS METRICS ===
                     "Analysis/Train_Valid_RMSE_Ratio": train_loss / val_loss if val_loss > 0 else 0,
-                    "Analysis/SSIM_Improvement": val_metrics['ssim'] - train_metrics['ssim'],
-                    "Analysis/PSNR_Improvement": val_metrics['psnr'] - train_metrics['psnr'],
+                    "Analysis/Dice_Improvement": val_metrics['dice'] - train_metrics['dice'],
+                    "Analysis/ContrastRatio_Improvement": val_metrics['contrast_ratio'] - train_metrics['contrast_ratio'],
                 })
                 
                 # Log reconstruction images periodically (and always on first/last epoch)
@@ -668,8 +664,10 @@ class Stage1Trainer:
                 logger.info(f"� EPOCH {epoch+1:3d}/{epochs} SUMMARY")
                 logger.info(f"{'='*80}")
                 logger.info(f"📈 Train RMSE: {train_loss:.4f} | Valid RMSE: {val_loss:.4f} | LR: {self.optimizer.param_groups[0]['lr']:.2e}")
-                logger.info(f"📊 Train SSIM: {train_metrics['ssim']:.4f} | Valid SSIM: {val_metrics['ssim']:.4f}")
-                logger.info(f"📊 Train PSNR: {train_metrics['psnr']:.1f}dB | Valid PSNR: {val_metrics['psnr']:.1f}dB")
+                logger.info(f"📊 Train Dice: {train_metrics['dice']:.4f} | Valid Dice: {val_metrics['dice']:.4f}")
+                logger.info(f"📊 Train CR: {train_metrics['contrast_ratio']:.4f} | Valid CR: {val_metrics['contrast_ratio']:.4f}")
+                logger.info(f"📊 Train μₐ RMSE: {train_metrics['rmse_mu_a']:.4f} | Valid μₐ RMSE: {val_metrics['rmse_mu_a']:.4f}")
+                logger.info(f"📊 Train μₛ RMSE: {train_metrics['rmse_mu_s']:.4f} | Valid μₛ RMSE: {val_metrics['rmse_mu_s']:.4f}")
             logger.info(f"{'='*80}")
             
             # Log GPU stats every 5 epochs
@@ -755,3 +753,89 @@ class Stage1Trainer:
         torch.save(checkpoint_data, path)
         logger.info(f"💾 ✅ CHECKPOINT SAVED | Path: {path} | Epoch: {epoch+1} | Val Loss: {val_loss:.6f}")
         logger.debug(f"📊 Checkpoint data keys: {list(checkpoint_data.keys())}")
+    
+    def generate_latent_cache_post_training(self, data_loaders, checkpoint_path=None):
+        """
+        Generate latent vector cache AFTER Stage 1 training completes.
+        
+        This method loads the best trained CNN encoder and passes all phantoms
+        through it to generate latent vectors for Stage 2 training targets.
+        
+        Args:
+            data_loaders (dict): Data loaders with 'train', 'val', 'test' keys
+            checkpoint_path (str): Path to best checkpoint (optional)
+        
+        Returns:
+            dict: Latent cache with phantom_id -> latent_vector mapping
+        """
+        logger.info("🎯 Generating latent vectors cache for Stage 2 training...")
+        
+        # Load best checkpoint if provided
+        if checkpoint_path and os.path.exists(checkpoint_path):
+            logger.info(f"📂 Loading best checkpoint: {checkpoint_path}")
+            checkpoint = torch.load(checkpoint_path, map_location=self.device)
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            logger.info(f"✅ Loaded checkpoint from epoch {checkpoint['epoch']} with val_loss {checkpoint['val_loss']:.4f}")
+        
+        self.model.eval()
+        latent_cache = {}
+        total_processed = 0
+        
+        # Process all splits (train, val, test) to create complete latent cache
+        splits_to_process = ['train', 'val', 'test'] if 'test' in data_loaders else ['train', 'val']
+        
+        with torch.no_grad():
+            for split_name in splits_to_process:
+                logger.info(f"🔄 Processing {split_name} split for latent generation...")
+                data_loader = data_loaders[split_name]
+                
+                for batch_idx, batch in enumerate(data_loader):
+                    phantom_ids = batch['phantom_id'].cpu().numpy()
+                    ground_truth = batch['ground_truth'].to(self.device)
+                    
+                    # Forward pass through trained encoder
+                    if self.scaler:
+                        with autocast():
+                            outputs = self.model(ground_truth, tissue_patches=None)
+                    else:
+                        outputs = self.model(ground_truth, tissue_patches=None)
+                    
+                    # Extract and store latent vectors
+                    if 'latent_vectors' in outputs:
+                        latent_vectors = outputs['latent_vectors'].detach().cpu().numpy()
+                        
+                        for i, phantom_id in enumerate(phantom_ids):
+                            # Use consistent phantom ID format
+                            phantom_key = f"phantom_{int(phantom_id):05d}"
+                            latent_cache[phantom_key] = latent_vectors[i]
+                            total_processed += 1
+                    else:
+                        logger.error("❌ Model output missing 'latent_vectors' - check hybrid model implementation")
+                        return {}
+                    
+                    if (batch_idx + 1) % 10 == 0:
+                        logger.debug(f"📊 Processed {batch_idx + 1}/{len(data_loader)} batches in {split_name} split")
+        
+        # Save latent cache to disk
+        cache_path = "checkpoints/stage1_latent_cache.pkl"
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        
+        try:
+            with open(cache_path, 'wb') as f:
+                pickle.dump(latent_cache, f)
+            
+            logger.info(f"💾 ✅ LATENT CACHE GENERATED | Path: {cache_path} | Count: {len(latent_cache)} vectors")
+            logger.info(f"📊 Total phantoms processed: {total_processed}")
+            
+            # Log cache statistics
+            if latent_cache:
+                sample_vector = next(iter(latent_cache.values()))
+                logger.info(f"📏 Latent vector shape: {sample_vector.shape}")
+                logger.info(f"📈 Cache memory usage: ~{len(latent_cache) * sample_vector.nbytes / 1024 / 1024:.2f} MB")
+                logger.debug(f"🔑 Sample phantom IDs: {list(latent_cache.keys())[:5]}...")
+        
+        except Exception as e:
+            logger.error(f"❌ Failed to save latent cache: {e}")
+            raise
+        
+        return latent_cache

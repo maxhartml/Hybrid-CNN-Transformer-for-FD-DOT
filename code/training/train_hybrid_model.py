@@ -196,6 +196,11 @@ def main():
         results = trainer.train(data_loaders, epochs=epochs)
         logger.info("🎯 Stage 1 training execution completed!")
         
+        # CRITICAL: Generate latent cache for Stage 2 training
+        logger.info("🎯 Generating latent vectors cache for Stage 2...")
+        trainer.generate_latent_cache_post_training(data_loaders, STAGE1_CHECKPOINT_PATH)
+        logger.info("✅ Latent cache generation completed!")
+        
     elif current_stage == TRAINING_STAGE2:
         # Check if Stage 1 checkpoint exists
         if not os.path.exists(STAGE1_CHECKPOINT_PATH):

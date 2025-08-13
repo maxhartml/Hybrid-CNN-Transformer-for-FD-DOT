@@ -501,7 +501,9 @@ class CNNAutoEncoder(nn.Module):
             x (torch.Tensor): Input volume of shape (batch_size, channels, D, H, W)
             
         Returns:
-            torch.Tensor: Reconstructed volume of shape (batch_size, 2, D, H, W)
+            dict: Dictionary containing:
+                - 'reconstructed': Reconstructed volume of shape (batch_size, 2, D, H, W)
+                - 'latent_vectors': Encoded features of shape (batch_size, feature_dim)
         """
         logger.debug(f"🏃 CNN Autoencoder forward: input shape {x.shape}")
         
@@ -511,7 +513,10 @@ class CNNAutoEncoder(nn.Module):
         decoded = self.decoder(encoded)
         logger.debug(f"📦 Decoded volume: {decoded.shape}")
         
-        return decoded
+        return {
+            'reconstructed': decoded,
+            'latent_vectors': encoded
+        }
     
     def encode(self, x):
         """

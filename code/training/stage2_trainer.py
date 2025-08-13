@@ -32,7 +32,9 @@ Date: August 2025
 
 # Standard library imports
 import math
-from typing import Dict
+import os
+import pickle
+from typing import Dict, Optional
 from datetime import datetime
 
 # Third-party imports
@@ -133,7 +135,11 @@ class Stage2Trainer:
         self.patience_counter = 0
         self.early_stopped = False
         
-        # Initialize enhanced metrics for Stage 2 (includes feature analysis)
+        # Phase 2: Latent vector loading for transformer training
+        self.latent_cache = {}  # Cache for storing ground truth latent vectors
+        self.latent_cache_path = "checkpoints/stage1_latent_cache.pkl"  # Path to cached latents
+        
+        # Initialize enhanced metrics for Stage 2 (includes latent support)
         self.metrics = create_metrics_for_stage("stage2")
         
         # Initialize model
@@ -162,17 +168,15 @@ class Stage2Trainer:
         # Load Stage 1 checkpoint
         self.load_stage1_checkpoint(stage1_checkpoint_path)
         
+        # Phase 2: Load latent vectors from Stage 1 training
+        self.load_latent_cache()
+        
         # Freeze CNN decoder (ECBO 2025 approach)
         self.freeze_cnn_decoder()
         
-        # Loss function - Choose between standard RMSE and channel-weighted RMSE (same as Stage 1)
-        if USE_CHANNEL_WEIGHTED_LOSS:
-            from code.utils.metrics import ChannelWeightedRMSELoss
-            self.criterion = ChannelWeightedRMSELoss(channel_weights=CHANNEL_WEIGHTS)
-            logger.info(f"🎯 Stage 2 using channel-weighted RMSE loss with weights: {CHANNEL_WEIGHTS}")
-        else:
-            self.criterion = RMSELoss()
-            logger.info("📊 Stage 2 using standard RMSE loss")
+        # Phase 2: Use latent vector loss for Stage 2 training
+        self.criterion = RMSELoss()  # Unified RMSE for latent vector prediction
+        logger.info("📊 Stage 2 using latent vector RMSE loss (Phase 2)")
         
         # NOTE: Optimizer and scheduler are created in this stage using research-validated
         # AdamW + Linear Warmup + Cosine Decay for optimal transformer fine-tuning.
@@ -328,6 +332,50 @@ class Stage2Trainer:
         logger.info(f"📂 Loaded Stage 1 checkpoint: {checkpoint_path}")
         logger.info(f"📊 Checkpoint epoch: {checkpoint.get('epoch', 'N/A')}, "
                    f"val_loss: {checkpoint.get('val_loss', 'N/A'):.6f}")
+    
+    def load_latent_cache(self):
+        """
+        Load cached latent vectors from Stage 1 training.
+        
+        Phase 2: This method loads the latent vectors that were cached during
+        Stage 1 training. These latent vectors serve as the ground truth targets
+        for Stage 2 transformer training following Robin's approach.
+        """
+        try:
+            with open(self.latent_cache_path, 'rb') as f:
+                self.latent_cache = pickle.load(f)
+            
+            logger.info(f"📦 Loaded latent cache: {self.latent_cache_path}")
+            logger.info(f"📊 Cache contains {len(self.latent_cache)} latent vectors")
+            
+            # Log sample info
+            if self.latent_cache:
+                sample_key = list(self.latent_cache.keys())[0]
+                sample_vector = self.latent_cache[sample_key]
+                logger.info(f"📏 Latent vector shape: {sample_vector.shape}")
+                
+        except FileNotFoundError:
+            logger.error(f"❌ Latent cache not found: {self.latent_cache_path}")
+            logger.error("Make sure Stage 1 training has completed and cached latent vectors")
+            raise
+        except Exception as e:
+            logger.error(f"❌ Failed to load latent cache: {e}")
+            raise
+    
+    def get_latent_target(self, phantom_id: str) -> Optional[torch.Tensor]:
+        """
+        Get target latent vector for a phantom ID.
+        
+        Args:
+            phantom_id (str): Phantom identifier
+            
+        Returns:
+            Target latent vector or None if not found
+        """
+        if phantom_id in self.latent_cache:
+            latent_vector = self.latent_cache[phantom_id]
+            return torch.from_numpy(latent_vector).to(self.device)
+        return None
     
     def _create_parameter_groups(self):
         """
@@ -530,11 +578,11 @@ class Stage2Trainer:
         total_loss = 0
         num_batches = 0
         
-        # Initialize metrics tracking (includes feature analysis for Stage 2)
+        # Initialize metrics tracking (Phase 2: includes latent metrics)
         epoch_metrics = {
-            'ssim': 0.0, 'psnr': 0.0, 'rmse_overall': 0.0,
-            'rmse_absorption': 0.0, 'rmse_scattering': 0.0,
-            'feature_enhancement_ratio': 0.0, 'attention_entropy': 0.0
+            'latent_rmse': 0.0,  # Primary Phase 2 metric
+            'dice': 0.0, 'contrast_ratio': 0.0, 'rmse_overall': 0.0,
+            'rmse_mu_a': 0.0, 'rmse_mu_s': 0.0
         }
         
         logger.debug(f"📊 Processing {len(data_loader)} batches in Stage 2 training epoch")
@@ -542,60 +590,70 @@ class Stage2Trainer:
         for batch_idx, batch in enumerate(data_loader):
             logger.debug(f"🔍 Processing Stage 2 batch {batch_idx + 1}/{len(data_loader)}")
             
-            # In Stage 2: Complete phantom NIR measurements are input, ground truth volumes are target
+            # Phase 2: NIR measurements → latent vector prediction
             nir_measurements = batch['nir_measurements'].to(self.device)  # Shape: (batch_size, 256_subsampled, 8)
-            targets = batch['ground_truth'].to(self.device)               # Shape: (batch_size, 2, 64, 64, 64)
+            targets = batch['ground_truth'].to(self.device)               # Shape: (batch_size, 2, 64, 64, 64) - for volume metrics
+            
+            # Phase 2: Get latent targets for this batch
+            phantom_ids_raw = batch.get('phantom_id', batch.get('phantom_ids', []))
+            if isinstance(phantom_ids_raw, torch.Tensor):
+                # Convert tensor to list of integers then to formatted strings
+                phantom_ids_raw = phantom_ids_raw.cpu().numpy().tolist()
+            
+            phantom_ids = [f"phantom_{int(pid):05d}" for pid in phantom_ids_raw]
+            latent_targets = []
+            
+            for phantom_id in phantom_ids:
+                latent_target = self.get_latent_target(phantom_id)
+                if latent_target is None:
+                    logger.warning(f"⚠️ No latent target found for {phantom_id}, skipping batch")
+                    continue
+                latent_targets.append(latent_target)
+            
+            if len(latent_targets) != len(phantom_ids):
+                logger.warning(f"⚠️ Skipping batch due to missing latent targets")
+                continue
+                
+            latent_targets = torch.stack(latent_targets)  # [batch_size, latent_dim]
             
             logger.debug(f"📦 NIR measurements shape: {nir_measurements.shape}")
-            logger.debug(f"📦 Ground truth targets shape: {targets.shape}")
+            logger.debug(f"📦 Latent targets shape: {latent_targets.shape}")
             logger.debug(f"🖥️  Data moved to device: {nir_measurements.device}")
             
-            # Get tissue patches if using them (now implemented with tissue patch extraction!)
+            # Get tissue patches if using them
             tissue_patches = None
             if self.use_tissue_patches and 'tissue_patches' in batch:
                 tissue_patches = batch['tissue_patches'].to(self.device)
                 logger.debug(f"🧬 Using tissue patches: {tissue_patches.shape}")
-                logger.debug(f"🧬 Tissue patch format: (batch_size={tissue_patches.shape[0]}, "
-                           f"n_measurements={tissue_patches.shape[1]}, "
-                           f"patches={tissue_patches.shape[2]}, channels={tissue_patches.shape[3]}, "
-                           f"spatial={tissue_patches.shape[4]}×{tissue_patches.shape[5]}×{tissue_patches.shape[6]})")
             else:
                 logger.debug("🧬 No tissue patches used (baseline mode)")
                 
-            # Log data flow for tissue patch debugging
-            if tissue_patches is not None:
-                logger.debug(f"🔍 Tissue patch stats: min={tissue_patches.min():.4f}, "
-                           f"max={tissue_patches.max():.4f}, mean={tissue_patches.mean():.4f}")
-            
             
             # Forward pass through hybrid model with mixed precision
-            logger.debug("⚡ Starting Stage 2 forward pass (NIR → features → reconstruction)...")
+            logger.debug("⚡ Starting Stage 2 forward pass (NIR → latent prediction)...")
             self.optimizer.zero_grad()
             
             with autocast():
-                # The hybrid model handles: NIR measurements (batch, 256_subsampled, 8) → transformer → CNN decoder → reconstruction
-                # Note: 256 measurements are subsampled from 1000 generated measurements for data augmentation
+                # Phase 2: Model predicts latent vectors
                 outputs = self.model(nir_measurements, tissue_patches)
-                logger.debug(f"📤 Stage 2 model output shape: {outputs['reconstructed'].shape}")
+                predicted_latent = outputs['predicted_latent']  # [batch_size, latent_dim]
+                logger.debug(f"📤 Predicted latent shape: {predicted_latent.shape}")
                 
-                # SAFETY: Check for NaN values immediately after forward pass
-                if torch.isnan(outputs['reconstructed']).any():
-                    logger.error(f"🚨 NaN detected in model output at batch {batch_idx}")
-                    logger.error(f"🔍 NIR measurements stats: min={nir_measurements.min():.6f}, max={nir_measurements.max():.6f}, mean={nir_measurements.mean():.6f}")
-                    logger.error(f"🔍 Output stats: min={outputs['reconstructed'].min():.6f}, max={outputs['reconstructed'].max():.6f}")
-                    raise ValueError(f"NaN detected in model output - stopping training at batch {batch_idx}")
+                # SAFETY: Check for NaN values
+                if torch.isnan(predicted_latent).any():
+                    logger.error(f"🚨 NaN detected in predicted latent at batch {batch_idx}")
+                    raise ValueError(f"NaN detected in latent prediction - stopping training")
                 
-                # Compute loss
-                logger.debug("📏 Computing Stage 2 RMSE loss...")
-                loss = self.criterion(outputs['reconstructed'], targets)
+                # Phase 2: Compute latent loss (RMSE in latent space)
+                logger.debug("📏 Computing latent RMSE loss...")
+                loss = self.criterion(predicted_latent, latent_targets)
                 
-                # SAFETY: Check for NaN loss immediately
+                # SAFETY: Check for NaN loss
                 if torch.isnan(loss):
-                    logger.error(f"🚨 NaN loss detected at batch {batch_idx}")
-                    logger.error(f"🔍 Loss value: {loss}")
-                    raise ValueError(f"NaN loss detected - stopping training at batch {batch_idx}")
+                    logger.error(f"🚨 NaN latent loss detected at batch {batch_idx}")
+                    raise ValueError(f"NaN latent loss detected - stopping training")
                     
-                logger.debug(f"💰 Stage 2 batch loss: {loss.item():.6f}")
+                logger.debug(f"💰 Stage 2 latent loss: {loss.item():.6f}")
             
             # Backward pass with mixed precision scaling
             logger.debug("🔙 Starting Stage 2 backward pass (only transformer gradients)...")
@@ -639,10 +697,10 @@ class Stage2Trainer:
             total_loss += loss.item()
             num_batches += 1
             
-            # Calculate enhanced metrics for this batch
+            # Calculate enhanced metrics for this batch (Phase 2: with latent targets)
             with torch.no_grad():
                 batch_metrics = calculate_batch_metrics(
-                    self.metrics, outputs, targets, "stage2"
+                    self.metrics, outputs, targets, "stage2", target_latent=latent_targets
                 )
                 
                 # Accumulate metrics
@@ -650,11 +708,13 @@ class Stage2Trainer:
                     if key in epoch_metrics:
                         epoch_metrics[key] += value
             
-            # Show batch progress with standardized metrics format (including LR for LinearWarmupCosineDecay monitoring)
+            # Show batch progress with enhanced metrics format (Phase 2: including A-RMSE and S-RMSE)
             current_lr = self.optimizer.param_groups[0]['lr']
             logger.info(f"🏋️ TRAIN | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
-                       f"RMSE: {loss.item():.4f} | SSIM: {batch_metrics.get('ssim', 0):.4f} | "
-                       f"PSNR: {batch_metrics.get('psnr', 0):.1f}dB | LR: {current_lr:.2e}")
+                       f"Latent: {loss.item():.4f} | Dice: {batch_metrics.get('dice', 0):.4f} | "
+                       f"CR: {batch_metrics.get('contrast_ratio', 0):.4f} | "
+                       f"A-RMSE: {batch_metrics.get('rmse_mu_a', 0):.4f} | "
+                       f"S-RMSE: {batch_metrics.get('rmse_mu_s', 0):.4f} | LR: {current_lr:.2e}")
             
             # Log gradient norm at debug level for monitoring training health (match Stage 1)
             logger.debug(f"🔧 Batch {batch_idx + 1} | Gradient Norm: {grad_norm:.3f}")
@@ -671,9 +731,9 @@ class Stage2Trainer:
             epoch_metrics[key] /= num_batches
         
         logger.debug(f"✅ Stage 2 training epoch completed. Average loss: {avg_loss:.6f}")
-        logger.info(f"📊 TRAIN SUMMARY | RMSE: {avg_loss:.4f} | SSIM: {epoch_metrics['ssim']:.4f} | "
-                   f"PSNR: {epoch_metrics['psnr']:.1f}dB | Abs: {epoch_metrics['rmse_absorption']:.4f} | "
-                   f"Scat: {epoch_metrics['rmse_scattering']:.4f}")
+        logger.info(f"📊 TRAIN SUMMARY | RMSE: {avg_loss:.4f} | Dice: {epoch_metrics['dice']:.4f} | "
+                   f"CR: {epoch_metrics['contrast_ratio']:.4f} | μₐ: {epoch_metrics['rmse_mu_a']:.4f} | "
+                   f"μₛ: {epoch_metrics['rmse_mu_s']:.4f}")
         
         return avg_loss, epoch_metrics
     
@@ -706,11 +766,11 @@ class Stage2Trainer:
         total_loss = 0
         num_batches = 0
         
-        # Initialize metrics tracking (includes feature analysis for Stage 2)
+        # Initialize metrics tracking (Phase 2: includes latent metrics)
         epoch_metrics = {
-            'ssim': 0.0, 'psnr': 0.0, 'rmse_overall': 0.0,
-            'rmse_absorption': 0.0, 'rmse_scattering': 0.0,
-            'feature_enhancement_ratio': 0.0, 'attention_entropy': 0.0
+            'latent_rmse': 0.0,  # Primary Phase 2 metric
+            'dice': 0.0, 'contrast_ratio': 0.0, 'rmse_overall': 0.0,
+            'rmse_mu_a': 0.0, 'rmse_mu_s': 0.0
         }
         
         logger.debug(f"📊 Processing {len(data_loader)} Stage 2 validation batches")
@@ -719,11 +779,33 @@ class Stage2Trainer:
             for batch_idx, batch in enumerate(data_loader):
                 logger.debug(f"🔍 Validating Stage 2 batch {batch_idx + 1}/{len(data_loader)}")
                 
-                nir_measurements = batch['nir_measurements'].to(self.device)  # Shape: (batch_size, 256_subsampled, 8)
-                targets = batch['ground_truth'].to(self.device)               # Shape: (batch_size, 2, 64, 64, 64)
+                nir_measurements = batch['nir_measurements'].to(self.device)
+                targets = batch['ground_truth'].to(self.device)
+                
+                # Phase 2: Get latent targets for validation
+                phantom_ids_raw = batch.get('phantom_id', batch.get('phantom_ids', []))
+                if isinstance(phantom_ids_raw, torch.Tensor):
+                    # Convert tensor to list of integers then to formatted strings
+                    phantom_ids_raw = phantom_ids_raw.cpu().numpy().tolist()
+                
+                phantom_ids = [f"phantom_{int(pid):05d}" for pid in phantom_ids_raw]
+                latent_targets = []
+                
+                for phantom_id in phantom_ids:
+                    latent_target = self.get_latent_target(phantom_id)
+                    if latent_target is None:
+                        logger.warning(f"⚠️ No latent target found for validation {phantom_id}, skipping batch")
+                        continue
+                    latent_targets.append(latent_target)
+                
+                if len(latent_targets) != len(phantom_ids):
+                    logger.warning(f"⚠️ Skipping validation batch due to missing latent targets")
+                    continue
+                    
+                latent_targets = torch.stack(latent_targets)
                 
                 logger.debug(f"📦 Stage 2 validation NIR shape: {nir_measurements.shape}")
-                logger.debug(f"📦 Stage 2 validation target shape: {targets.shape}")
+                logger.debug(f"📦 Stage 2 validation latent targets shape: {latent_targets.shape}")
                 
                 tissue_patches = None
                 if self.use_tissue_patches and 'tissue_patches' in batch:
@@ -735,12 +817,15 @@ class Stage2Trainer:
                 logger.debug("⚡ Stage 2 validation forward pass (no gradients)...")
                 with autocast():
                     outputs = self.model(nir_measurements, tissue_patches)
-                    loss = self.criterion(outputs['reconstructed'], targets)
-                    logger.debug(f"💰 Stage 2 validation batch loss: {loss.item():.6f}")
+                    predicted_latent = outputs['predicted_latent']
+                    
+                    # Phase 2: Latent loss for validation
+                    loss = self.criterion(predicted_latent, latent_targets)
+                    logger.debug(f"💰 Stage 2 validation latent loss: {loss.item():.6f}")
                 
-                # Calculate enhanced metrics including feature analysis
+                # Calculate metrics with latent targets
                 batch_metrics = calculate_batch_metrics(
-                    self.metrics, outputs, targets, "stage2"
+                    self.metrics, outputs, targets, "stage2", target_latent=latent_targets
                 )
                 
                 # Accumulate metrics
@@ -751,10 +836,12 @@ class Stage2Trainer:
                 total_loss += loss.item()
                 num_batches += 1
                 
-                # Show validation batch progress with standardized format (match Stage 1)
+                # Show validation batch progress with enhanced metrics format
                 logger.info(f"🔍 VALID | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
-                           f"RMSE: {loss.item():.4f} | SSIM: {batch_metrics.get('ssim', 0):.4f} | "
-                           f"PSNR: {batch_metrics.get('psnr', 0):.1f}dB")
+                           f"RMSE: {loss.item():.4f} | Dice: {batch_metrics.get('dice', 0):.4f} | "
+                           f"CR: {batch_metrics.get('contrast_ratio', 0):.4f} | "
+                           f"A-RMSE: {batch_metrics.get('rmse_mu_a', 0):.4f} | "
+                           f"S-RMSE: {batch_metrics.get('rmse_mu_s', 0):.4f}")
         
         avg_loss = total_loss / num_batches
         
@@ -763,9 +850,9 @@ class Stage2Trainer:
             epoch_metrics[key] /= num_batches
         
         logger.debug(f"✅ Stage 2 validation completed. Average loss: {avg_loss:.6f}")
-        logger.info(f"📊 VALID SUMMARY | RMSE: {avg_loss:.4f} | SSIM: {epoch_metrics['ssim']:.4f} | "
-                   f"PSNR: {epoch_metrics['psnr']:.1f}dB | Abs: {epoch_metrics['rmse_absorption']:.4f} | "
-                   f"Scat: {epoch_metrics['rmse_scattering']:.4f}")
+        logger.info(f"📊 VALID SUMMARY | RMSE: {avg_loss:.4f} | Dice: {epoch_metrics['dice']:.4f} | "
+                   f"CR: {epoch_metrics['contrast_ratio']:.4f} | μₐ: {epoch_metrics['rmse_mu_a']:.4f} | "
+                   f"μₛ: {epoch_metrics['rmse_mu_s']:.4f}")
         
         return avg_loss, epoch_metrics
     
@@ -837,10 +924,10 @@ class Stage2Trainer:
                     # === PRIMARY METRICS (most important) ===
                     "Metrics/RMSE_Overall_Train": train_loss,
                     "Metrics/RMSE_Overall_Valid": val_loss,
-                    "Metrics/SSIM_Train": train_metrics['ssim'],
-                    "Metrics/SSIM_Valid": val_metrics['ssim'],
-                    "Metrics/PSNR_Train": train_metrics['psnr'],
-                    "Metrics/PSNR_Valid": val_metrics['psnr'],
+                    "Metrics/Dice_Train": train_metrics['dice'],
+                    "Metrics/Dice_Valid": val_metrics['dice'],
+                    "Metrics/Contrast_Ratio_Train": train_metrics['contrast_ratio'],
+                    "Metrics/Contrast_Ratio_Valid": val_metrics['contrast_ratio'],
                     
                     # === TRANSFORMER SPECIFIC METRICS ===
                     "Transformer/Feature_Enhancement_Train": train_metrics['feature_enhancement_ratio'],
@@ -849,10 +936,10 @@ class Stage2Trainer:
                     "Transformer/Attention_Entropy_Valid": val_metrics['attention_entropy'],
                     
                     # === DETAILED RMSE BREAKDOWN ===
-                    "RMSE_Details/Absorption_Train": train_metrics['rmse_absorption'],
-                    "RMSE_Details/Absorption_Valid": val_metrics['rmse_absorption'],
-                    "RMSE_Details/Scattering_Train": train_metrics['rmse_scattering'],
-                    "RMSE_Details/Scattering_Valid": val_metrics['rmse_scattering'],
+                    "RMSE_Details/Absorption_Train": train_metrics['rmse_mu_a'],
+                    "RMSE_Details/Absorption_Valid": val_metrics['rmse_mu_a'],
+                    "RMSE_Details/Scattering_Train": train_metrics['rmse_mu_s'],
+                    "RMSE_Details/Scattering_Valid": val_metrics['rmse_mu_s'],
                     
                     # === TRAINING SYSTEM ===
                     "System/Epoch": epoch + 1,
@@ -860,8 +947,8 @@ class Stage2Trainer:
                     
                     # === ANALYSIS METRICS ===
                     "Analysis/Train_Valid_RMSE_Ratio": train_loss / val_loss if val_loss > 0 else 0,
-                    "Analysis/SSIM_Improvement": val_metrics['ssim'] - train_metrics['ssim'],
-                    "Analysis/PSNR_Improvement": val_metrics['psnr'] - train_metrics['psnr'],
+                    "Analysis/Dice_Improvement": val_metrics['dice'] - train_metrics['dice'],
+                    "Analysis/Contrast_Improvement": val_metrics['contrast_ratio'] - train_metrics['contrast_ratio'],
                     "epoch": epoch + 1
                 })
                 
@@ -890,8 +977,8 @@ class Stage2Trainer:
             logger.info(f"🚀 EPOCH {epoch+1:3d}/{epochs} SUMMARY")
             logger.info(f"{'='*80}")
             logger.info(f"📈 Train RMSE: {train_loss:.4f} | Valid RMSE: {val_loss:.4f} | LR: {self.optimizer.param_groups[0]['lr']:.2e}")
-            logger.info(f"📊 Train SSIM: {train_metrics['ssim']:.4f} | Valid SSIM: {val_metrics['ssim']:.4f}")
-            logger.info(f"📊 Train PSNR: {train_metrics['psnr']:.1f}dB | Valid PSNR: {val_metrics['psnr']:.1f}dB")
+            logger.info(f"📊 Train Dice: {train_metrics['dice']:.4f} | Valid Dice: {val_metrics['dice']:.4f}")
+            logger.info(f"📊 Train CR: {train_metrics['contrast_ratio']:.4f} | Valid CR: {val_metrics['contrast_ratio']:.4f}")
             logger.info(f"🔮 Feature Enhancement: {val_metrics['feature_enhancement_ratio']:.4f} | Attention: {val_metrics['attention_entropy']:.4f} | Mode: {mode}")
             logger.info(f"{'='*80}")
             
