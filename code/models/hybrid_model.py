@@ -4,7 +4,7 @@ Hybrid CNN-Transformer Model for NIR-DOT Reconstruction.
 
 This module implements the complete hybrid architecture that combines 
 convolutional neural networks (CNN) with transformer encoders for 
-near-infrared diffuse optical tomography (NIR-DOT) volume reconstruc            logger.debug("🎯 Stage 2: Transformer with latent vector prediction")ion.
+near-infrared diffuse optical tomography (NIR-DOT) volume reconstruction.
 
 The hybrid approach uses a two-stage learning strategy:
 1. Stage 1: CNN autoencoder pre-training for spatial feature learning
@@ -70,9 +70,6 @@ TRAINING_STAGE = "stage1"               # Default training stage
 # Training Stage Identifiers
 STAGE1 = "stage1"                       # CNN autoencoder pre-training
 STAGE2 = "stage2"                       # Transformer training stage
-
-# Phase 2: Latent Vector Prediction Configuration
-LATENT_VECTOR_DIM = 256                 # Dimension of latent vectors from CNN encoder
 
 # Initialize module logger
 logger = get_model_logger(__name__)
@@ -152,9 +149,6 @@ class HybridCNNTransformer(nn.Module):
         self.output_size = output_size
         self.nir_input_dim = nir_input_dim  # Store NIR dimension
         
-        # Phase 2: Stage 2 always predicts latent vectors (simplified approach)
-        self.latent_vector_dim = LATENT_VECTOR_DIM  # Dimension of latent vectors
-        
         # Initialize CNN Autoencoder (used in both stages)
         self.cnn_autoencoder = CNNAutoEncoder(
             input_channels=input_channels,
@@ -165,7 +159,7 @@ class HybridCNNTransformer(nn.Module):
         
         # Initialize Spatially-Aware Encoder Block (replaces NIR processor)
         self.spatially_aware_encoder = SpatiallyAwareEncoderBlock(
-            embed_dim=256,  # Standard embedding dimension for transformer
+            embed_dim=256,  # Robin's d_embed dimension
             dropout=nir_dropout
         )
         
@@ -180,7 +174,7 @@ class HybridCNNTransformer(nn.Module):
         self.transformer_encoder = TransformerEncoder(
             cnn_feature_dim=256,  # Now receives 256D tokens from spatially-aware encoder
             tissue_context_dim=0,  # Tissue context now handled in spatially-aware encoder
-            embed_dim=256,  # Standard embedding dimension
+            embed_dim=256,  # Match Robin's d_embed dimension
             num_layers=transformer_num_layers,
             num_heads=transformer_num_heads,
             mlp_ratio=mlp_ratio,
@@ -245,15 +239,10 @@ class HybridCNNTransformer(nn.Module):
                     f"Expected shape: (batch_size, 2, 64, 64, 64)"
                 )
             
-            logger.debug("📍 Stage 1: CNN autoencoder training with latent vector capture")
-            
-            # Phase 2: Capture latent vectors during Stage 1 training
-            latent_vectors = self.cnn_autoencoder.encode(dot_measurements)
-            reconstructed = self.cnn_autoencoder.decode(latent_vectors)
-            
+            logger.debug("📍 Stage 1: CNN autoencoder training")
+            reconstructed = self.cnn_autoencoder(dot_measurements)
             outputs.update({
                 'reconstructed': reconstructed,
-                'latent_vectors': latent_vectors,  # Phase 2: Save latent vectors for training data
                 'stage': STAGE1
             })
             
@@ -264,7 +253,7 @@ class HybridCNNTransformer(nn.Module):
                     f"Expected shape: (batch_size, n_measurements, 8)"
                 )
             
-            logger.debug("🎯 Stage 2: Transformer with latent vector prediction")
+            logger.debug("� Stage 2: Robindale transformer enhancement")
             
             # Step 1: Spatially-Aware Encoder Block (spatially-aware embedding + tissue fusion)
             combined_tokens = self.spatially_aware_encoder(
@@ -284,27 +273,24 @@ class HybridCNNTransformer(nn.Module):
             
             logger.debug(f"� Transformer enhanced tokens: {enhanced_tokens.shape}")
             
-            # Step 3: Global pooling and encoded scan generation (predicted latent vectors)
-            predicted_latent = self.global_pooling_encoder(enhanced_tokens)  # [batch, latent_dim]
+            # Step 3: Global pooling and encoded scan generation
+            encoded_scan = self.global_pooling_encoder(enhanced_tokens)  # [batch, encoded_scan_dim]
             
-            logger.debug(f"📦 Predicted latent vectors: {predicted_latent.shape}")
+            logger.debug(f"📦 Encoded scan: {encoded_scan.shape}")
             
-            # Phase 2: Stage 2 always predicts latent vectors (simplified approach)
-            logger.debug("🎯 Stage 2: Predicting latent vectors")
+            # Step 4: CNN decoder (using pre-trained weights from Stage 1)
+            reconstructed = self.cnn_autoencoder.decode(encoded_scan)  # [batch, 2, 64, 64, 64]
+            
+            logger.debug(f"📦 Final reconstruction: {reconstructed.shape}")
+            
             outputs.update({
-                'predicted_latent': predicted_latent,  # Main output for Phase 2 training
+                'reconstructed': reconstructed,
+                'encoded_scan': encoded_scan,
                 'enhanced_tokens': enhanced_tokens,
                 'combined_tokens': combined_tokens,
                 'attention_weights': attention_weights,
                 'stage': STAGE2
             })
-            
-            # Decode for volume metrics/visualization (frozen decoder)
-            with torch.no_grad():
-                reconstructed = self.cnn_autoencoder.decode(predicted_latent)
-                outputs['reconstructed'] = reconstructed  # For volume-based metrics
-            
-            logger.debug(f"📦 Stage 2 outputs prepared: {list(outputs.keys())}")
         
         else:
             raise ValueError(f"Unknown training stage: {self.training_stage}")

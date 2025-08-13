@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Training Control - Set which stage to run
-CURRENT_TRAINING_STAGE = "stage1"       # Set to "stage1" or "stage2" to control which stage runs
+CURRENT_TRAINING_STAGE = "stage2"       # Set to "stage1" or "stage2" to control which stage runs
 STAGE1_CHECKPOINT_PATH = "checkpoints/stage1_best.pth"  # Path to Stage 1 checkpoint for Stage 2
 
 # W&B Control
@@ -46,13 +46,17 @@ USE_MODEL_COMPILATION = True            # Enable PyTorch 2.0 compilation for 2x 
 COMPILATION_MODE = "default"            # Options: "default", "reduce-overhead", "max-autotune"
 USE_CHANNELS_LAST_MEMORY_FORMAT = True  # More efficient memory layout for 3D convolutions
 
+# Loss Function Configuration
+USE_CHANNEL_WEIGHTED_LOSS = True        # FIXED: Enable channel-weighted RMSE loss for balanced learning
+CHANNEL_WEIGHTS = [0.8, 0.2]           # FIXED: 80/20 weighting [absorption, scattering] - addresses 140x scale difference
+
 # =============================================================================
 # TRAINING HYPERPARAMETERS
 # =============================================================================
 
 # Training Duration
-EPOCHS_STAGE1 = 100                    # 100 epochs for comprehensive training with 10K phantoms
-EPOCHS_STAGE2 = 100                    # Default epochs for Stage 2
+EPOCHS_STAGE1 = 100                     # Extended to 50 - let early stopping decide when to stop
+EPOCHS_STAGE2 = 100                      # Default epochs for Stage 2
 
 # Batch Sizes - CONSISTENT ACROSS BOTH STAGES & AUTO-DETECTED
 def get_optimized_batch_size():
@@ -80,9 +84,9 @@ PREFETCH_FACTOR = 8 if torch.cuda.is_available() else 4  # Aggressive prefetchin
 PERSISTENT_WORKERS = True               # Keep workers alive between epochs
 
 # Regularization and Optimization - STRENGTHENED FOR 10K PHANTOMS
-WEIGHT_DECAY = 3e-4                     # Increased from 1e-4 for better regularization with more data
+WEIGHT_DECAY = 5e-4                     # Increased from 1e-4 for better regularization with more data
 WEIGHT_DECAY_TRANSFORMER = 0.01         # Higher weight decay for transformer (standard)
-EARLY_STOPPING_PATIENCE = 20           # FIXED: Increased to 20 - more exploration time for transformer learning
+EARLY_STOPPING_PATIENCE = 15           # FIXED: Increased to 15 - more exploration time for transformer learning
 
 # Dropout Configuration - Enhanced regularization for longer training with more data
 DROPOUT_CNN = 0.15                      # Increased from 0.1 for stronger regularization with 10K phantoms
@@ -91,7 +95,7 @@ DROPOUT_NIR_PROCESSOR = 0.15            # Dropout for NIR processor (more aggres
 
 # Gradient Clipping Configuration (CRITICAL for stable training)
 GRADIENT_CLIP_MAX_NORM = 0.5            # More aggressive clipping for medical imaging stability
-GRADIENT_MONITOR_THRESHOLD = 5.0        # Higher threshold to reduce noise during initial training
+GRADIENT_MONITOR_THRESHOLD = 2.0        # FIXED: Lower threshold for earlier gradient explosion detection
 
 # =============================================================================
 # STAGE 1 ONECYCLELR SCHEDULER CONFIGURATION
@@ -99,7 +103,7 @@ GRADIENT_MONITOR_THRESHOLD = 5.0        # Higher threshold to reduce noise durin
 # Based on "Super-Convergence" (Smith, 2018) and medical imaging best practices
 
 # Stage 1 Learning Rate Schedule (OneCycleLR) - TRULY OPTIMAL FOR 10K PHANTOMS
-STAGE1_MAX_LR = 4e-3                    # OPTIMAL: Higher peak for effective learning (matches successful runs)
+STAGE1_MAX_LR = 3e-3                    # OPTIMAL: Higher peak for effective learning (matches successful runs)
 STAGE1_BASE_LR = 1.2e-4                 # Base learning rate (max_lr / div_factor = 3e-3/25) 
 STAGE1_DIV_FACTOR = 25                  # Standard div_factor for stability
 STAGE1_FINAL_DIV_FACTOR = 100           # Aggressive final decay (final LR ≈ 3e-05)

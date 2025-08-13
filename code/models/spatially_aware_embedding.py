@@ -7,7 +7,7 @@ processes measurement and position information separately, then combines them wi
 measurement-specific tissue context for enhanced spatial modeling.
 
 Key Features:
-- Spatially-aware embedding for measurement/position processing
+- Robin's spatially-aware embedding for measurement/position processing
 - Measurement-specific tissue patch integration (our innovation)
 - Learned fusion of measurement and tissue information
 - Maintains 1:1 correspondence between measurements and tissue context
@@ -18,7 +18,7 @@ Architecture Flow:
 3. Learned Fusion: hi_tokens + tissue_features → enhanced_tokens [256D]
 
 Classes:
-    SpatiallyAwareEmbedding: Measurement/position embedding
+    SpatiallyAwareEmbedding: Robin's measurement/position embedding
     TissueFeatureExtractor: CNN encoder for tissue patches with learned fusion
     SpatiallyAwareEncoderBlock: Complete encoder combining both components
 
@@ -47,8 +47,8 @@ MEASUREMENT_DIM = 2                     # [log_amplitude, phase] - xi
 POSITION_DIM = 6                        # [src_x, src_y, src_z, det_x, det_y, det_z] - pi
 NIR_INPUT_DIM = 8                       # Total: xi + pi
 
-# Embedding dimensions - Standard transformer architecture
-EMBED_DIM = 256                         # Target embedding dimension
+# Embedding dimensions - Following Robin's thesis architecture
+EMBED_DIM = 256                         # Target embedding dimension (d_embed in Robin's notation)
 INTERMEDIATE_DIM = 128                  # Intermediate dimension for initial measurement processing
 
 # Tissue processing
@@ -72,36 +72,37 @@ logger = get_model_logger(__name__)
 
 class SpatiallyAwareEmbedding(nn.Module):
     """
-    Spatially-Aware Embedding Block for NIR-DOT measurements.
+    Spatially-Aware Embedding Block following Robin's thesis architecture.
     
-    This implements a proven approach for processing measurement and position data:
+    This implements Robin's exact approach from Figure 5.4:
     1. Measurement vector Xi → FC layer with d_embed nodes
     2. Output concatenated with position vector Pi  
     3. Concatenated result → Another FC layer with d_embed nodes
     4. Result: Single token of d_embed dimensions
     
-    This maintains d_embed throughout, providing consistent embedding dimensions.
+    This maintains d_embed throughout, unlike my previous incorrect approach
+    that doubled dimensions through concatenation.
     
     Args:
-        embed_dim (int): Target embedding dimension
+        embed_dim (int): Target embedding dimension (d_embed in Robin's notation)
         dropout (float): Dropout probability for regularization
     """
     
     def __init__(self, embed_dim: int = EMBED_DIM, dropout: float = 0.1):
         super().__init__()
         
-        logger.info(f"🏗️  Initializing SpatiallyAwareEmbedding: embed_dim={embed_dim}")
+        logger.info(f"🏗️  Initializing SpatiallyAwareEmbedding: embed_dim={embed_dim} (Robin's approach)")
         
         self.embed_dim = embed_dim
         
-        # Step 1: Measurement vector Xi → FC layer with d_embed nodes (first FC)
+        # Step 1: Measurement vector Xi → FC layer with d_embed nodes (Robin's first FC)
         self.measurement_embedding = nn.Sequential(
-            nn.Linear(MEASUREMENT_DIM, embed_dim),  # 2D → embed_dim
+            nn.Linear(MEASUREMENT_DIM, embed_dim),  # 2D → embed_dim (Robin's approach)
             nn.ReLU(),
             nn.Dropout(dropout)
         )
         
-        # Step 2: Concatenated [measurement_embed + position] → FC layer with d_embed nodes (second FC)
+        # Step 2: Concatenated [measurement_embed + position] → FC layer with d_embed nodes (Robin's second FC)
         concat_dim = embed_dim + POSITION_DIM  # embed_dim + 6D positions
         self.combined_projection = nn.Sequential(
             nn.Linear(concat_dim, embed_dim),       # (embed_dim + 6) → embed_dim
@@ -122,7 +123,7 @@ class SpatiallyAwareEmbedding(nn.Module):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
     
     def _init_weights(self):
-        """Initialize weights following standard practices."""
+        """Initialize weights following Robin's approach."""
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 nn.init.normal_(m.weight, std=WEIGHT_INIT_STD)
@@ -131,19 +132,19 @@ class SpatiallyAwareEmbedding(nn.Module):
     
     def forward(self, nir_measurements: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass through spatially-aware embedding.
+        Forward pass through spatially-aware embedding following Robin's architecture.
         
-        Architecture flow:
-        1. Xi (measurements) → embedding layer → hi'
-        2. Concatenate [hi', Pi] → combined vector  
-        3. Combined vector → final FC layer → hi (d_embed)
+        Robin's approach:
+        1. Measurement vector Xi → FC layer with d_embed nodes
+        2. Output concatenated with position vector Pi  
+        3. Concatenated result → Another FC layer with d_embed nodes
         
         Args:
-            nir_measurements (torch.Tensor): Shape [batch_size, seq_len, 8]
-                Contains [log_amp, phase, src_x, src_y, src_z, det_x, det_y, det_z]
+            nir_measurements (torch.Tensor): Shape [batch_size, n_measurements, 8]
+                Where 8D = [log_amp, phase, src_x, src_y, src_z, det_x, det_y, det_z]
         
         Returns:
-            torch.Tensor: Embedded tokens of shape [batch_size, seq_len, embed_dim]
+            torch.Tensor: hi tokens of shape [batch_size, n_measurements, embed_dim]
         """
         logger.debug(f"🏃 SpatiallyAwareEmbedding forward: input {nir_measurements.shape}")
         
@@ -157,16 +158,16 @@ class SpatiallyAwareEmbedding(nn.Module):
         logger.debug(f"📦 Measurements (xi): {measurements.shape}")
         logger.debug(f"📦 Positions (pi): {positions.shape}")
         
-                # Step 1: Process measurements through first FC layer
-        measurement_features = self.measurement_embedding(measurements)  # [batch, seq, embed_dim]
-        logger.debug(f"Measurement embedding output: {measurement_features.shape}")
+        # Step 1: Process measurements through first FC layer (Robin's approach)
+        measurement_embedded = self.measurement_embedding(measurements)  # [batch, n_meas, embed_dim]
+        logger.debug(f"📦 Measurement embedded: {measurement_embedded.shape}")
         
-        # Step 2: Concatenate embedded measurements with raw positions
-        measurement_position_concat = torch.cat([measurement_features, positions], dim=-1)  # [batch, seq, embed_dim + 6]
-        logger.debug(f"Concatenated features: {measurement_position_concat.shape}")
+        # Step 2: Concatenate embedded measurements with raw positions (Robin's approach)
+        concatenated = torch.cat([measurement_embedded, positions], dim=-1)  # [batch, n_meas, embed_dim + 6]
+        logger.debug(f"📦 Concatenated: {concatenated.shape}")
         
-        # Step 3: Pass through final FC layer to get d_embed output
-        hi_tokens = self.combined_projection(measurement_position_concat)  # [batch, n_meas, embed_dim]
+        # Step 3: Pass through final FC layer to get d_embed output (Robin's approach)
+        hi_tokens = self.combined_projection(concatenated)  # [batch, n_meas, embed_dim]
         
         # Apply layer normalization for stability
         hi_tokens = self.layer_norm(hi_tokens)
@@ -373,7 +374,7 @@ class SpatiallyAwareEncoderBlock(nn.Module):
     Complete spatially-aware encoder block with measurement-specific tissue fusion.
     
     This is the full embedding block that creates transformer-ready tokens from:
-    - NIR measurement data (amplitude, phase) → hi_tokens via spatially-aware approach
+    - NIR measurement data (amplitude, phase) → hi_tokens via Robin's approach
     - Spatial coordinates (source/detector positions) → embedded in hi_tokens
     - Tissue patch information → fused with hi_tokens for enhanced mode
     
@@ -390,7 +391,7 @@ class SpatiallyAwareEncoderBlock(nn.Module):
         
         logger.info("🏗️  Initializing SpatiallyAwareEncoderBlock")
         
-        # Spatially-aware embedding for measurements and positions
+        # Spatially-aware embedding for measurements and positions (Robin's approach)
         self.spatially_aware_embedding = SpatiallyAwareEmbedding(embed_dim=embed_dim, dropout=dropout)
         
         # Tissue feature extractor for enhanced mode  
@@ -422,7 +423,7 @@ class SpatiallyAwareEncoderBlock(nn.Module):
         """
         logger.debug(f"🏃 SpatiallyAwareEncoderBlock forward: nir_measurements {nir_measurements.shape}")
         
-        # Always create hi tokens from measurements and positions
+        # Always create hi tokens from measurements and positions (Robin's approach)
         hi_tokens = self.spatially_aware_embedding(nir_measurements)  # [batch, n_meas, embed_dim]
         
         if use_tissue_patches and tissue_patches is not None:
