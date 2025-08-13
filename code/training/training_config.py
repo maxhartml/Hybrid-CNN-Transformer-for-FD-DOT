@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Training Control - Set which stage to run
-CURRENT_TRAINING_STAGE = "stage1"       # Set to "stage1" or "stage2" to control which stage runs
+CURRENT_TRAINING_STAGE = "stage2"       # Set to "stage1" or "stage2" to control which stage runs
 STAGE1_CHECKPOINT_PATH = "checkpoints/stage1_best.pth"  # Path to Stage 1 checkpoint for Stage 2
 
 # W&B Control
@@ -56,7 +56,7 @@ CHANNEL_WEIGHTS = [0.8, 0.2]           # FIXED: 80/20 weighting [absorption, sca
 
 # Training Duration
 EPOCHS_STAGE1 = 100                     # Extended to 50 - let early stopping decide when to stop
-EPOCHS_STAGE2 = 50                      # Default epochs for Stage 2
+EPOCHS_STAGE2 = 100                      # Default epochs for Stage 2
 
 # Batch Sizes - CONSISTENT ACROSS BOTH STAGES & AUTO-DETECTED
 def get_optimized_batch_size():
@@ -95,7 +95,7 @@ DROPOUT_NIR_PROCESSOR = 0.15            # Dropout for NIR processor (more aggres
 
 # Gradient Clipping Configuration (CRITICAL for stable training)
 GRADIENT_CLIP_MAX_NORM = 0.5            # More aggressive clipping for medical imaging stability
-GRADIENT_MONITOR_THRESHOLD = 5.0        # Earlier warning threshold for gradient monitoring
+GRADIENT_MONITOR_THRESHOLD = 2.0        # FIXED: Lower threshold for earlier gradient explosion detection
 
 # =============================================================================
 # STAGE 1 ONECYCLELR SCHEDULER CONFIGURATION
@@ -121,9 +121,9 @@ ADAMW_EPS_STAGE1 = 1e-8                # Numerical stability epsilon
 # FIXED: Addresses learning rate starvation causing "safe prediction syndrome"
 
 # Stage 2 Learning Rate Schedule (Linear Warmup + Cosine Decay)
-STAGE2_BASE_LR = 5e-3                   # FIXED: Increased to 5e-3 for meaningful transformer learning (prevents LR starvation)
-STAGE2_WARMUP_PCT = 0.05                # FIXED: Shortened to 5% warmup (2.5 epochs) - faster convergence start
-STAGE2_ETA_MIN_PCT = 0.01               # FIXED: Reduced to 1% final LR for stronger decay pressure
+STAGE2_BASE_LR = 1e-4                   # FIXED: Reduced from 5e-3 to prevent gradient explosion in transformer fine-tuning
+STAGE2_WARMUP_PCT = 0.1                 # FIXED: Increased to 10% warmup for more stable transformer training
+STAGE2_ETA_MIN_PCT = 0.1                # FIXED: Increased to 10% final LR for gentler decay
 
 # Stage 2 AdamW Optimizer Parameters  
 ADAMW_BETAS_STAGE2 = (0.9, 0.98)       # Transformer-standard betas (BERT/ViT)

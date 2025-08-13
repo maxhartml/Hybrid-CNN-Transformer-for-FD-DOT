@@ -51,7 +51,7 @@ from code.utils.logging_config import get_model_logger
 # =============================================================================
 
 # Model Architecture Parameters (OPTIMIZED)
-EMBED_DIM = 256                         # Transformer embedding dimension (reduced from 768)
+EMBED_DIM = 256                         # Transformer embedding dimension (matches Robin's d_embed)
 NUM_LAYERS = 4                          # Number of transformer layers (reduced from 6)
 NUM_HEADS = 8                           # Number of attention heads (reduced from 12)
 MLP_RATIO = 3                           # MLP expansion ratio (reduced from 4)
@@ -172,39 +172,31 @@ class MultiHeadAttention(nn.Module):
             torch.Tensor: Attention output of shape (batch_size, seq_len, embed_dim)
         """
         batch_size, seq_len, _ = query.shape
-        logger.debug(f"🏃 MultiHeadAttention forward: query {query.shape}, key {key.shape}, value {value.shape}")
         
         # Project and reshape for multi-head attention
         q = self.q_proj(query).view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
         k = self.k_proj(key).view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
         v = self.v_proj(value).view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
-        logger.debug(f"📦 After projection and reshaping: q {q.shape}, k {k.shape}, v {v.shape}")
         
         # Compute scaled dot-product attention scores
         scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
-        logger.debug(f"📦 Attention scores shape: {scores.shape}")
         
         # Apply mask if provided
         if mask is not None:
             scores = scores.masked_fill(mask == 0, -1e9)
-            logger.debug("🎭 Applied attention mask")
         
         # Compute attention probabilities and apply dropout
         attention_weights = F.softmax(scores, dim=-1)
         attention_weights = self.dropout(attention_weights)
-        logger.debug(f"📦 Attention weights shape: {attention_weights.shape}")
         
         # Apply attention to values
         attended = torch.matmul(attention_weights, v)
-        logger.debug(f"📦 Attended values shape: {attended.shape}")
         
         # Reshape and project to output dimensions
         attended = attended.transpose(1, 2).contiguous().view(
             batch_size, seq_len, self.embed_dim)
-        logger.debug(f"📦 Reshaped attended shape: {attended.shape}")
         
         output = self.out_proj(attended)
-        logger.debug(f"📦 MultiHeadAttention output shape: {output.shape}")
         
         return output, attention_weights
 
@@ -264,20 +256,15 @@ class TransformerLayer(nn.Module):
                 - Output tensor of shape (batch_size, seq_len, embed_dim)
                 - Attention weights of shape (batch_size, num_heads, seq_len, seq_len)
         """
-        logger.debug(f"🏃 TransformerLayer forward: input shape {x.shape}")
-        
         # Self-attention with residual connection and pre-norm
         attn_out, attn_weights = self.attention(x, x, x, mask)
-        logger.debug(f"📦 After attention: {attn_out.shape}")
-        
         x = self.norm1(x + attn_out)
-        logger.debug(f"📦 After norm1 + residual: {x.shape}")
         
         # Feed-forward network with residual connection and pre-norm
         mlp_out = self.mlp(x)
-        logger.debug(f"📦 After MLP: {mlp_out.shape}")
-        
         x = self.norm2(x + mlp_out)
+        
+        return x, attn_weights
         logger.debug(f"📦 TransformerLayer output: {x.shape}")
         
         return x, attn_weights
@@ -568,38 +555,24 @@ class TransformerEncoder(nn.Module):
         x = token_sequence
         
         for i, layer in enumerate(self.layers):
-            logger.debug(f"🔄 Processing layer {i+1}/{len(self.layers)}...")
             x, attn_weights = layer(x)
             attention_weights_list.append(attn_weights)
-            logger.debug(f"📦 Layer {i+1} output: {x.shape}")
         
         # Apply final layer normalization
-        logger.debug("🧼 Applying final layer normalization...")
         x = self.layer_norm(x)
-        logger.debug(f"📦 After final layer norm: {x.shape}")
         
-        # Aggregate enhanced features across all measurement tokens
-        # Use attention-based aggregation instead of simple mean
-        enhanced_token_features = x[:, :n_measurements, :]  # [B, N, embed_dim] - exclude tissue if present
-        
-        # Simple mean aggregation for now (can be enhanced with learned attention later)
-        aggregated_features = enhanced_token_features.mean(dim=1)  # [B, embed_dim]
-        logger.debug(f"📦 Aggregated features: {aggregated_features.shape}")
-        
-        # Project back to original CNN feature space
-        enhanced_features = self.output_projection(aggregated_features)  # [B, cnn_feature_dim]
-        logger.debug(f"📦 Final enhanced features: {enhanced_features.shape}")
+        # Return the raw transformer output for global pooling encoder
+        # The global pooling encoder will handle the aggregation
+        logger.debug(f"📦 Raw transformer output: {x.shape}")
         
         # Combine attention weights from all layers for analysis
         if attention_weights_list:
             attention_weights = torch.stack(attention_weights_list, dim=1)  # [B, L, H, S, S]
-            logger.debug(f"📊 Stacked attention weights shape: {attention_weights.shape}")
         else:
             attention_weights = None
-            logger.debug("⚠️ No attention weights collected")
         
         logger.debug(f"✅ Transformer Encoder sequence forward pass completed")
-        return enhanced_features, attention_weights
+        return x, attention_weights
     
     def get_attention_maps(self, cnn_features: torch.Tensor,
                           tissue_context: Optional[torch.Tensor] = None,

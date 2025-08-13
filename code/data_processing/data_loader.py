@@ -92,16 +92,15 @@ def extract_tissue_patches_from_measurements(ground_truth: np.ndarray,
         patch_size (int): Size of cubic patch to extract (default 16)
         
     Returns:
-        np.ndarray: Tissue patches of shape (n_selected_measurements, 2, patch_size^3 * 2)
+        np.ndarray: Tissue patches of shape (n_selected_measurements, 2_patches, 2_channels, 16, 16, 16)
                    Each measurement gets 2 patches (source + detector) × 2 tissue properties
-                   Non-interleaved format: [μ_a_patch_flat + μ_s_patch_flat] for each location
+                   Preserves spatial structure for efficient CNN processing
     """
     n_selected = len(measurement_indices)
     channels, vol_d, vol_h, vol_w = ground_truth.shape  # (2, 64, 64, 64)
     
-    # Initialize output tensor: [n_measurements, 2_patches, patch_volume * 2_channels]
-    patch_volume = patch_size ** 3
-    tissue_patches = np.zeros((n_selected, 2, patch_volume * 2), dtype=np.float32)
+    # Initialize output tensor: [n_measurements, 2_patches, 2_channels, 16, 16, 16]
+    tissue_patches = np.zeros((n_selected, 2, 2, patch_size, patch_size, patch_size), dtype=np.float32)
     
     # Volume dimensions and coordinate system
     # CRITICAL: Determine coordinate system from actual data
@@ -198,23 +197,20 @@ def extract_tissue_patches_from_measurements(ground_truth: np.ndarray,
                 patch_absorption = padded_absorption
                 patch_scattering = padded_scattering
             
-            # Flatten both channels separately
-            absorption_flat = patch_absorption.flatten()  # 16^3 values
-            scattering_flat = patch_scattering.flatten()   # 16^3 values
-            
-            # Create concatenated format: [μ_a_flat + μ_s_flat] (NOT interleaved)
-            # This matches what NIR processor expects for view() operations
-            concatenated_patch = np.concatenate([absorption_flat, scattering_flat], axis=0)
+            # Keep spatial structure instead of flattening!
+            # Store as [2_channels, 16, 16, 16] for each patch
+            tissue_patches[i, patch_idx, 0] = patch_absorption  # Shape: [16, 16, 16]
+            tissue_patches[i, patch_idx, 1] = patch_scattering  # Shape: [16, 16, 16]
             
             # Quality monitoring and validation warnings
             total_patches += 1
-            absorption_nonzero = np.count_nonzero(absorption_flat)
-            scattering_nonzero = np.count_nonzero(scattering_flat)
-            total_voxels = len(absorption_flat)
+            absorption_nonzero = np.count_nonzero(patch_absorption)
+            scattering_nonzero = np.count_nonzero(patch_scattering)
+            total_voxels = patch_absorption.size
             
-            # Calculate zero percentage for concatenated patch (both channels)
-            patch_zeros = np.sum(concatenated_patch == 0)
-            patch_zero_percentage = (patch_zeros / len(concatenated_patch)) * 100
+            # Calculate zero percentage for this patch (both channels)
+            total_zeros = np.sum(patch_absorption == 0) + np.sum(patch_scattering == 0)
+            patch_zero_percentage = (total_zeros / (total_voxels * 2)) * 100
             
             # VALIDATION WARNINGS: Alert if patch has unusual zero content (extreme cases only)
             # For surface-centered patches, expect ~40-70% zeros (30-60% tissue)
@@ -235,9 +231,7 @@ def extract_tissue_patches_from_measurements(ground_truth: np.ndarray,
             else:
                 if i < 3:  # Log first few good patches
                     logger.debug(f"  ✅ Good patch: {pos_name} abs={absorption_nonzero}/{total_voxels}, scat={scattering_nonzero}/{total_voxels}")
-                    logger.debug(f"     Value ranges: abs[{absorption_flat.min():.4f}, {absorption_flat.max():.4f}], scat[{scattering_flat.min():.4f}, {scattering_flat.max():.4f}]")
-            
-            tissue_patches[i, patch_idx] = concatenated_patch
+                    logger.debug(f"     Value ranges: abs[{patch_absorption.min():.4f}, {patch_absorption.max():.4f}], scat[{patch_scattering.min():.4f}, {patch_scattering.max():.4f}]")
     
     # Final quality report
     zero_ratio = zero_patches / total_patches if total_patches > 0 else 0

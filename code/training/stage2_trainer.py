@@ -162,7 +162,7 @@ class Stage2Trainer:
         # Load Stage 1 checkpoint
         self.load_stage1_checkpoint(stage1_checkpoint_path)
         
-        # Freeze CNN decoder (Robin Dale's approach)
+        # Freeze CNN decoder (ECBO 2025 approach)
         self.freeze_cnn_decoder()
         
         # Loss function - Choose between standard RMSE and channel-weighted RMSE (same as Stage 1)
@@ -296,6 +296,12 @@ class Stage2Trainer:
         
         # Load state dict with compatibility for missing tissue encoder parameters
         model_state = checkpoint['model_state_dict']
+        
+        # Handle compiled model state dict (remove _orig_mod. prefix)
+        if any(key.startswith('_orig_mod.') for key in model_state.keys()):
+            logger.info("🔧 Removing compilation prefixes from Stage 1 checkpoint...")
+            model_state = {k.replace('_orig_mod.', ''): v for k, v in model_state.items()}
+        
         current_state = self.model.state_dict()
         
         # Only load compatible parameters (skip tissue encoder if not present in checkpoint)
@@ -550,8 +556,9 @@ class Stage2Trainer:
                 tissue_patches = batch['tissue_patches'].to(self.device)
                 logger.debug(f"🧬 Using tissue patches: {tissue_patches.shape}")
                 logger.debug(f"🧬 Tissue patch format: (batch_size={tissue_patches.shape[0]}, "
-                           f"patches_per_measurement={tissue_patches.shape[1]}, "
-                           f"patch_data={tissue_patches.shape[2]}) = 16³×2 channels flattened")
+                           f"n_measurements={tissue_patches.shape[1]}, "
+                           f"patches={tissue_patches.shape[2]}, channels={tissue_patches.shape[3]}, "
+                           f"spatial={tissue_patches.shape[4]}×{tissue_patches.shape[5]}×{tissue_patches.shape[6]})")
             else:
                 logger.debug("🧬 No tissue patches used (baseline mode)")
                 
@@ -571,9 +578,23 @@ class Stage2Trainer:
                 outputs = self.model(nir_measurements, tissue_patches)
                 logger.debug(f"📤 Stage 2 model output shape: {outputs['reconstructed'].shape}")
                 
+                # SAFETY: Check for NaN values immediately after forward pass
+                if torch.isnan(outputs['reconstructed']).any():
+                    logger.error(f"🚨 NaN detected in model output at batch {batch_idx}")
+                    logger.error(f"🔍 NIR measurements stats: min={nir_measurements.min():.6f}, max={nir_measurements.max():.6f}, mean={nir_measurements.mean():.6f}")
+                    logger.error(f"🔍 Output stats: min={outputs['reconstructed'].min():.6f}, max={outputs['reconstructed'].max():.6f}")
+                    raise ValueError(f"NaN detected in model output - stopping training at batch {batch_idx}")
+                
                 # Compute loss
                 logger.debug("📏 Computing Stage 2 RMSE loss...")
                 loss = self.criterion(outputs['reconstructed'], targets)
+                
+                # SAFETY: Check for NaN loss immediately
+                if torch.isnan(loss):
+                    logger.error(f"🚨 NaN loss detected at batch {batch_idx}")
+                    logger.error(f"🔍 Loss value: {loss}")
+                    raise ValueError(f"NaN loss detected - stopping training at batch {batch_idx}")
+                    
                 logger.debug(f"💰 Stage 2 batch loss: {loss.item():.6f}")
             
             # Backward pass with mixed precision scaling
@@ -585,9 +606,21 @@ class Stage2Trainer:
                 self.scaler.unscale_(self.optimizer)
                 grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=GRADIENT_CLIP_MAX_NORM)
                 
-                # Monitor gradient norm for training health
+                # ENHANCED: Monitor gradient norm for training health with more aggressive thresholds
                 if grad_norm > GRADIENT_MONITOR_THRESHOLD:
                     logger.warning(f"⚠️ High gradient norm detected: {grad_norm:.4f} > {GRADIENT_MONITOR_THRESHOLD}")
+                    
+                # SAFETY: Check for extremely high gradients that indicate instability
+                if grad_norm > 10.0:
+                    logger.error(f"🚨 Extremely high gradient norm: {grad_norm:.4f} - potential training instability")
+                    logger.error(f"🔍 Current learning rate: {self.optimizer.param_groups[0]['lr']:.2e}")
+                    logger.error(f"🔍 Current loss: {loss.item():.6f}")
+                
+                # SAFETY: Check for NaN gradients
+                for name, param in self.model.named_parameters():
+                    if param.grad is not None and torch.isnan(param.grad).any():
+                        logger.error(f"🚨 NaN gradient detected in parameter: {name}")
+                        raise ValueError(f"NaN gradient in {name} - stopping training")
                 
                 self.scaler.step(self.optimizer)
                 self.scaler.update()

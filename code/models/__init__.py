@@ -12,13 +12,16 @@ Two-stage training approach:
 
 from .cnn_autoencoder import CNNAutoEncoder
 from .transformer_encoder import TransformerEncoder
-from .nir_processor import SimplifiedNIRProcessor, PerMeasurementTissueEncoder
+from .spatially_aware_embedding import SpatiallyAwareEmbedding, TissueFeatureExtractor, SpatiallyAwareEncoderBlock
+from .global_pooling_encoder import GlobalPoolingEncoder
 from .hybrid_model import HybridCNNTransformer
 
 __all__ = [
     'CNNAutoEncoder',
     'TransformerEncoder',
-    'SimplifiedNIRProcessor',
-    'PerMeasurementTissueEncoder',
+    'SpatiallyAwareEmbedding',
+    'TissueFeatureExtractor',
+    'SpatiallyAwareEncoderBlock',
+    'GlobalPoolingEncoder',
     'HybridCNNTransformer'
 ]
