@@ -260,12 +260,14 @@ class NIRPhantomDataset(Dataset):
     
     def __init__(self, data_dir: str = "../data", split: str = "train", 
                  random_seed: int = DEFAULT_RANDOM_SEED, 
-                 extract_tissue_patches: bool = True):
-        """Initialize dataset with phantom files."""
+                 extract_tissue_patches: bool = True,
+                 stage: str = "stage2"):  # NEW: Add stage parameter
+        """Initialize dataset with phantom files for different training stages."""
         self.data_dir = Path(data_dir)
         self.split = split
         self.random_seed = random_seed
         self.extract_tissue_patches = extract_tissue_patches
+        self.stage = stage  # NEW: Store stage for optimized loading
         
         # Set up random state for reproducible splits
         self.rng = np.random.RandomState(random_seed)
@@ -306,6 +308,60 @@ class NIRPhantomDataset(Dataset):
         return len(self.phantom_files)
 
     def __getitem__(self, phantom_idx: int) -> Dict[str, torch.Tensor]:
+        """
+        Load phantom data optimized for different training stages.
+        
+        STAGE 1 (CNN Autoencoder): Only loads ground truth - 97% memory reduction!
+        STAGE 2 (Transformer): Loads full data including NIR measurements and tissue patches
+        
+        Args:
+            phantom_idx: Index of phantom to load
+            
+        Returns:
+            Dict containing stage-appropriate data
+        """
+        if self.stage == "stage1":
+            return self._load_stage1_data(phantom_idx)
+        else:
+            return self._load_stage2_data(phantom_idx)
+    
+    def _load_stage1_data(self, phantom_idx: int) -> Dict[str, torch.Tensor]:
+        """
+        OPTIMIZED Stage 1 loading: Ground truth only for CNN autoencoder training.
+        
+        Memory savings: ~97% reduction (2.1MB vs 67.6MB per phantom)
+        - Skips NIR measurements (not used in Stage 1)
+        - Skips tissue patches (not used in Stage 1)
+        - Only loads ground truth volumes for reconstruction training
+        
+        Returns:
+            Dict with ground_truth and phantom_id only
+        """
+        if phantom_idx >= len(self.phantom_files):
+            raise IndexError(f"Phantom index {phantom_idx} out of range (0-{len(self.phantom_files)-1})")
+        
+        phantom_file = self.phantom_files[phantom_idx]
+        
+        try:
+            with h5py.File(phantom_file, 'r') as f:
+                # Stage 1: ONLY load ground truth (2.1MB per phantom vs 67.6MB)
+                ground_truth = f[H5_KEYS['ground_truth']][:]  # Shape: (2, 64, 64, 64)
+                phantom_id = int(phantom_file.stem.split('_')[1])
+                
+        except Exception as e:
+            logger.error(f"Error loading Stage 1 phantom {phantom_idx}: {e}")
+            return {
+                'ground_truth': torch.zeros(2, 64, 64, 64, dtype=torch.float32),
+                'phantom_id': torch.tensor(0, dtype=torch.long)
+            }
+        
+        return {
+            'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),
+            'phantom_id': torch.tensor(phantom_id, dtype=torch.long)
+            # NO nir_measurements, NO tissue_patches for Stage 1 speed!
+        }
+    
+    def _load_stage2_data(self, phantom_idx: int) -> Dict[str, torch.Tensor]:
         """
         Load complete phantom data with subsampled measurements for training.
         
@@ -429,13 +485,14 @@ def create_phantom_dataloaders(data_dir: str = "../data",
                               pin_memory: bool = True,
                               persistent_workers: bool = True,
                               random_seed: int = DEFAULT_RANDOM_SEED,
-                              extract_tissue_patches: bool = True) -> Dict[str, DataLoader]:
+                              extract_tissue_patches: bool = True,
+                              stage: str = "stage2") -> Dict[str, DataLoader]:
     """
     Create DataLoaders for complete phantom batching (batches of complete phantoms).
     
-    This creates a custom DataLoader that returns batches of complete phantoms,
-    where each phantom contains 256 subsampled measurements from the generated 1000.
-    Enables data augmentation through different random subsets each epoch.
+    OPTIMIZED for different training stages:
+    - Stage 1: Only loads ground truth (97% memory reduction!)
+    - Stage 2: Loads full data including NIR measurements and tissue patches
     
     Args:
         data_dir (str): Path to phantom data directory
@@ -445,7 +502,8 @@ def create_phantom_dataloaders(data_dir: str = "../data",
         pin_memory (bool): Enable pin memory for GPU efficiency
         persistent_workers (bool): Keep workers alive between epochs
         random_seed (int): Random seed for splits
-        extract_tissue_patches (bool): Whether to extract tissue patches (Stage 2 only)
+        extract_tissue_patches (bool): Whether to extract tissue patches (Stage 2 Enhanced only)
+        stage (str): Training stage ('stage1' for ground truth only, 'stage2' for full data)
         
     Returns:
         Dict[str, DataLoader]: Dictionary with 'train', 'val', 'test' DataLoaders
@@ -459,7 +517,7 @@ def create_phantom_dataloaders(data_dir: str = "../data",
     dataloaders = {}
     
     for split in ['train', 'val', 'test']:
-        dataset = NIRPhantomDataset(data_dir, split, random_seed, extract_tissue_patches)
+        dataset = NIRPhantomDataset(data_dir, split, random_seed, extract_tissue_patches, stage)
         
         shuffle = (split == 'train') 
         

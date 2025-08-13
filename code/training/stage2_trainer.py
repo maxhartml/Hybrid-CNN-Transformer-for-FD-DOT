@@ -120,7 +120,7 @@ class Stage2Trainer:
                                  Typically lower than Stage 1. Default from constants
             device (str): Training device ('cpu' or 'cuda'). Default from constants
             use_wandb (bool): Whether to use Weights & Biases logging. Default: True
-            early_stopping_patience (int): Early stopping patience in epochs. Default: 8
+            early_stopping_patience (int): Early stopping patience in epochs. Default: 25
         """
         self.device = torch.device(device)
         self.learning_rate = learning_rate
@@ -868,13 +868,10 @@ class Stage2Trainer:
             # Log enhanced metrics to W&B
             if self.use_wandb:
                 mode = "Enhanced" if self.use_tissue_patches else "Baseline"
-                # Use consistent step value throughout this epoch (epoch + 1)
-                # Use high epoch-based step value to avoid conflict with batch-level LR logging
-                # Batch LR logging goes up to ~3100, so use 10000+ for epochs
-                epoch_step = (epoch + 1) * 10000
-                
-                # Log comprehensive metrics in organized format
+                # Log comprehensive metrics in organized format with clean epoch x-axis
                 wandb.log({
+                    "epoch": epoch + 1,  # Custom x-axis for epoch metrics (consistent with Stage1)
+                    
                     # === PRIMARY METRICS (most important) ===
                     "Metrics/RMSE_Overall_Train": train_loss,
                     "Metrics/RMSE_Overall_Valid": val_loss,
@@ -883,27 +880,23 @@ class Stage2Trainer:
                     "Metrics/ContrastRatio_Train": train_metrics['contrast_ratio'],
                     "Metrics/ContrastRatio_Valid": val_metrics['contrast_ratio'],
                     
-                    # === TRANSFORMER SPECIFIC METRICS ===
-                    "Transformer/Feature_Enhancement_Train": train_metrics['feature_enhancement_ratio'],
-                    "Transformer/Feature_Enhancement_Valid": val_metrics['feature_enhancement_ratio'],
-                    "Transformer/Attention_Entropy_Train": train_metrics['attention_entropy'],
-                    "Transformer/Attention_Entropy_Valid": val_metrics['attention_entropy'],
-                    
                     # === DETAILED RMSE BREAKDOWN ===
                     "RMSE_Details/Absorption_Train": train_metrics['rmse_absorption'],
                     "RMSE_Details/Absorption_Valid": val_metrics['rmse_absorption'],
                     "RMSE_Details/Scattering_Train": train_metrics['rmse_scattering'],
                     "RMSE_Details/Scattering_Valid": val_metrics['rmse_scattering'],
                     
-                    # === TRAINING SYSTEM ===
-                    "System/Epoch": epoch + 1,
-                    "System/Mode": mode,
+                    # === TRANSFORMER SPECIFIC METRICS ===
+                    "Transformer/Feature_Enhancement_Train": train_metrics['feature_enhancement_ratio'],
+                    "Transformer/Feature_Enhancement_Valid": val_metrics['feature_enhancement_ratio'],
+                    "Transformer/Attention_Entropy_Train": train_metrics['attention_entropy'],
+                    "Transformer/Attention_Entropy_Valid": val_metrics['attention_entropy'],
                     
-                    # === ANALYSIS METRICS ===
-                    "Analysis/Train_Valid_RMSE_Ratio": train_loss / val_loss if val_loss > 0 else 0,
-                    "Analysis/Dice_Improvement": val_metrics['dice'] - train_metrics['dice'],
-                    "Analysis/ContrastRatio_Improvement": val_metrics['contrast_ratio'] - train_metrics['contrast_ratio'],
-                    "epoch": epoch + 1
+                    # === ENHANCED OVERFITTING ANALYSIS ===
+                    "Analysis/Overfitting_Ratio": train_loss / val_loss if val_loss > 0 else 1.0,
+                    "Analysis/Dice_Gap_Train_Val": train_metrics['dice'] - val_metrics['dice'],
+                    "Analysis/Contrast_Gap_Train_Val": train_metrics['contrast_ratio'] - val_metrics['contrast_ratio'],
+                    "Analysis/Overfitting_Risk": "High" if (train_loss / val_loss < 0.85 if val_loss > 0 else False) else "Low",
                 })
                 
                 # Log reconstruction images periodically (and always on first/last epoch)
@@ -925,16 +918,17 @@ class Stage2Trainer:
                     except Exception as e:
                         logger.warning(f"⚠️ Failed to log Stage 2 images at epoch {epoch + 1}: {e}")
             
-            # Print epoch summary every epoch (always log progress)
-            logger.info(f"")
-            logger.info(f"{'='*80}")
-            logger.info(f"🚀 EPOCH {epoch+1:3d}/{epochs} SUMMARY")
-            logger.info(f"{'='*80}")
-            logger.info(f"📈 Train RMSE: {train_loss:.4f} | Valid RMSE: {val_loss:.4f} | LR: {self.optimizer.param_groups[0]['lr']:.2e}")
-            logger.info(f"📊 Train Dice: {train_metrics['dice']:.4f} | Valid Dice: {val_metrics['dice']:.4f}")
-            logger.info(f"📊 Train Contrast: {train_metrics['contrast_ratio']:.4f} | Valid Contrast: {val_metrics['contrast_ratio']:.4f}")
-            logger.info(f"🔮 Feature Enhancement: {val_metrics['feature_enhancement_ratio']:.4f} | Attention: {val_metrics['attention_entropy']:.4f} | Mode: {mode}")
-            logger.info(f"{'='*80}")
+            # Print epoch summary with clear visual formatting
+            if epoch % PROGRESS_LOG_INTERVAL == 0 or epoch == epochs - FINAL_EPOCH_OFFSET:
+                logger.info(f"")
+                logger.info(f"{'='*80}")
+                logger.info(f"🚀 EPOCH {epoch+1:3d}/{epochs} SUMMARY")
+                logger.info(f"{'='*80}")
+                logger.info(f"📈 Train RMSE: {train_loss:.4f} | Valid RMSE: {val_loss:.4f} | LR: {self.optimizer.param_groups[0]['lr']:.2e}")
+                logger.info(f"📊 Train Dice: {train_metrics['dice']:.4f} | Valid Dice: {val_metrics['dice']:.4f}")
+                logger.info(f"📊 Train Contrast: {train_metrics['contrast_ratio']:.4f} | Valid Contrast: {val_metrics['contrast_ratio']:.4f}")
+                logger.info(f"🔮 Feature Enhancement: {val_metrics['feature_enhancement_ratio']:.4f} | Attention: {val_metrics['attention_entropy']:.4f} | Mode: {mode}")
+                logger.info(f"{'='*80}")
             
             # Log GPU stats every 5 epochs
             if epoch % 5 == 0 and torch.cuda.is_available():
@@ -962,13 +956,13 @@ class Stage2Trainer:
         logger.info(f"📊 Total Epochs: {epochs}")
         logger.info(f"{'='*80}")
         
-        logger.debug(f"🏁 Stage 2 training summary: Total epochs: {epochs}, Final best loss: {best_val_loss:.6f}")
+        logger.debug(f"🏁 Training summary: Completed epochs: {epochs}, Final best loss: {best_val_loss:.6f}")
         
         # Finish W&B run
         if self.use_wandb:
-            wandb.log({f"System/final_best_val_loss": best_val_loss, f"System/final_mode": mode, "epoch": epochs})
+            wandb.log({"System/final_best_val_loss": best_val_loss, "System/final_mode": mode}, commit=False)
             wandb.finish()
-            logger.info("🔬 W&B Stage 2 experiment finished")
+            logger.info("🔬 W&B experiment finished")
         
         return {'best_val_loss': best_val_loss}
     

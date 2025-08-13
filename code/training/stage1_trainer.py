@@ -95,8 +95,8 @@ class Stage1Trainer:
             learning_rate (float): Learning rate for Adam optimizer. Default from constants
             device (str): Training device ('cpu' or 'cuda'). Default from constants
             use_wandb (bool): Whether to use Weights & Biases logging. Default: True
-            weight_decay (float): L2 regularization strength. Default: 1e-4
-            early_stopping_patience (int): Early stopping patience in epochs. Default: 8
+            weight_decay (float): L2 regularization strength. Default: 7e-4
+            early_stopping_patience (int): Early stopping patience in epochs. Default: 25
         """
         self.device = torch.device(device)
         self.learning_rate = learning_rate
@@ -632,13 +632,11 @@ class Stage1Trainer:
                     "RMSE_Details/Scattering_Train": train_metrics['rmse_scattering'],
                     "RMSE_Details/Scattering_Valid": val_metrics['rmse_scattering'],
                     
-                    # === TRAINING SYSTEM ===
-                    "System/Epoch": epoch + 1,
-                    
-                    # === ANALYSIS METRICS ===
-                    "Analysis/Train_Valid_RMSE_Ratio": train_loss / val_loss if val_loss > 0 else 0,
-                    "Analysis/Dice_Improvement": val_metrics['dice'] - train_metrics['dice'],
-                    "Analysis/ContrastRatio_Improvement": val_metrics['contrast_ratio'] - train_metrics['contrast_ratio'],
+                    # === ENHANCED OVERFITTING ANALYSIS ===
+                    "Analysis/Overfitting_Ratio": train_loss / val_loss if val_loss > 0 else 1.0,
+                    "Analysis/Dice_Gap_Train_Val": train_metrics['dice'] - val_metrics['dice'],
+                    "Analysis/Contrast_Gap_Train_Val": train_metrics['contrast_ratio'] - val_metrics['contrast_ratio'],
+                    "Analysis/Overfitting_Risk": "High" if (train_loss / val_loss < 0.85 if val_loss > 0 else False) else "Low",
                 })
                 
                 # Log reconstruction images periodically (and always on first/last epoch)
@@ -659,12 +657,12 @@ class Stage1Trainer:
             if epoch % PROGRESS_LOG_INTERVAL == 0 or epoch == epochs - FINAL_EPOCH_OFFSET:
                 logger.info(f"")
                 logger.info(f"{'='*80}")
-                logger.info(f"� EPOCH {epoch+1:3d}/{epochs} SUMMARY")
+                logger.info(f"🚀 EPOCH {epoch+1:3d}/{epochs} SUMMARY")
                 logger.info(f"{'='*80}")
                 logger.info(f"📈 Train RMSE: {train_loss:.4f} | Valid RMSE: {val_loss:.4f} | LR: {self.optimizer.param_groups[0]['lr']:.2e}")
                 logger.info(f"📊 Train Dice: {train_metrics['dice']:.4f} | Valid Dice: {val_metrics['dice']:.4f}")
                 logger.info(f"📊 Train Contrast: {train_metrics['contrast_ratio']:.4f} | Valid Contrast: {val_metrics['contrast_ratio']:.4f}")
-            logger.info(f"{'='*80}")
+                logger.info(f"{'='*80}")
             
             # Log GPU stats every 5 epochs
             if epoch % 5 == 0 and torch.cuda.is_available():

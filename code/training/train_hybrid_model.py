@@ -77,9 +77,10 @@ def get_best_device():
 
 DEVICE = get_best_device()
 
-def create_dataloaders_with_fallback(data_dir, batch_size, extract_tissue_patches, stage_name):
+def create_dataloaders(data_dir, batch_size, extract_tissue_patches, stage_name):
     """
-    Create DataLoaders with automatic fallback to conservative settings on memory errors.
+    Create DataLoaders using training_config.py settings as the single source of truth.
+    Uses optimized Stage 1 loader (ground truth only) or full Stage 2 loader.
     
     Args:
         data_dir: Data directory path
@@ -90,45 +91,20 @@ def create_dataloaders_with_fallback(data_dir, batch_size, extract_tissue_patche
     Returns:
         DataLoaders dictionary
     """
-    try:
-        logger.info(f"📊 Creating {stage_name} data loaders with training config settings...")
-        data_loaders = create_phantom_dataloaders(
-            data_dir=data_dir,
-            batch_size=batch_size,
-            num_workers=NUM_WORKERS,
-            prefetch_factor=PREFETCH_FACTOR,
-            pin_memory=PIN_MEMORY,
-            persistent_workers=PERSISTENT_WORKERS,
-            extract_tissue_patches=extract_tissue_patches
-        )
-        logger.info(f"✅ {stage_name} data loaders created successfully with training config settings")
-        return data_loaders
-        
-    except (RuntimeError, OSError, ConnectionResetError) as e:
-        if "shared memory" in str(e).lower() or "bus error" in str(e).lower() or "connection reset" in str(e).lower():
-            logger.warning(f"⚠️  Memory issue detected: {e}")
-            logger.warning(f"🛡️  Falling back to conservative DataLoader settings...")
-            
-            # Use hardcoded conservative settings
-            data_loaders = create_phantom_dataloaders(
-                data_dir=data_dir,
-                batch_size=batch_size,
-                num_workers=2,  # Conservative worker count
-                prefetch_factor=1,  # Minimal prefetch
-                pin_memory=True,  # Keep pin memory for GPU efficiency
-                persistent_workers=True,  # Still keep workers alive
-                extract_tissue_patches=extract_tissue_patches
-            )
-            logger.info(f"✅ {stage_name} data loaders created with conservative settings")
-            logger.info("🛡️  CONSERVATIVE DATALOADER CONFIGURATION:")
-            logger.info("   ├─ Workers: 2")
-            logger.info("   ├─ Pin Memory: True")  
-            logger.info("   ├─ Prefetch Factor: 1")
-            logger.info("   └─ Persistent Workers: True")
-            return data_loaders
-        else:
-            # Re-raise if it's not a memory-related error
-            raise
+    logger.info(f"📊 Creating {stage_name} data loaders with training config settings...")
+    
+    data_loaders = create_phantom_dataloaders(
+        data_dir=data_dir,
+        batch_size=batch_size,
+        num_workers=NUM_WORKERS,
+        prefetch_factor=PREFETCH_FACTOR,
+        pin_memory=PIN_MEMORY,
+        persistent_workers=PERSISTENT_WORKERS,
+        extract_tissue_patches=extract_tissue_patches,
+        stage="stage1" if stage_name == "Stage 1" else "stage2"  # NEW: Pass stage
+    )
+    logger.info(f"✅ {stage_name} data loaders created successfully with training config settings")
+    return data_loaders
 
 # =============================================================================
 # MAIN TRAINING PIPELINE
@@ -218,7 +194,7 @@ def main():
     if current_stage == TRAINING_STAGE1:
         logger.debug("🏗️  Creating Stage 1 data loaders (ground truth only)...")
         # Stage 1: Use phantom DataLoader for ground truth batching (CNN autoencoder training)
-        data_loaders = create_dataloaders_with_fallback(
+        data_loaders = create_dataloaders(
             data_dir=DATA_DIRECTORY,
             batch_size=batch_size,
             extract_tissue_patches=False,  # Skip tissue patches for Stage 1
@@ -228,7 +204,7 @@ def main():
     else:  # stage2
         logger.debug("🏗️  Creating Stage 2 data loaders (NIR measurements + ground truth)...")
         # Stage 2: Use phantom DataLoader for NIR measurement + ground truth batching
-        data_loaders = create_dataloaders_with_fallback(
+        data_loaders = create_dataloaders(
             data_dir=DATA_DIRECTORY,
             batch_size=batch_size,
             extract_tissue_patches=use_tissue_patches,  # Extract tissue patches based on config
