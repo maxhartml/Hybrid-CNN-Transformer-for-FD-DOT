@@ -361,10 +361,10 @@ class TransformerEncoder(nn.Module):
     
     def _init_weights(self):
         """
-        Initialize network weights using Xavier uniform initialization.
+        Initialize network weights using transformer-optimized initialization.
         
-        Applies Xavier uniform initialization to linear layers and standard
-        initialization to layer normalization and embedding layers.
+        Uses scaled initialization for large transformers to prevent gradient explosion
+        and ensure stable initial training. Based on GPT-2 and modern transformer practices.
         """
         linear_count = 0
         norm_count = 0
@@ -372,7 +372,13 @@ class TransformerEncoder(nn.Module):
         
         for name, m in self.named_modules():
             if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
+                # Use smaller initialization for output projections to prevent gradient explosion
+                if 'out_proj' in name or 'output_projection' in name:
+                    # Output projections: smaller std for stability
+                    nn.init.normal_(m.weight, 0, 0.02 / (2 * self.num_layers) ** 0.5)
+                else:
+                    # Regular linear layers: standard transformer initialization
+                    nn.init.normal_(m.weight, 0, 0.02)
                 linear_count += 1
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
@@ -383,6 +389,8 @@ class TransformerEncoder(nn.Module):
             elif isinstance(m, nn.Embedding):
                 nn.init.normal_(m.weight, 0, WEIGHT_INIT_STD)
                 embed_count += 1
+        
+        logger.debug(f"🔧 Initialized transformer weights: {linear_count} linear, {norm_count} norm, {embed_count} embed layers")
         
     
     def forward(self, cnn_features: torch.Tensor, 

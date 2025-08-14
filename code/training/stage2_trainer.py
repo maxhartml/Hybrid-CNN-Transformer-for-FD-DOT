@@ -627,14 +627,14 @@ class Stage2Trainer:
                 outputs = self.model(nir_measurements, tissue_patches)
                 logger.debug(f"📤 Stage 2 model output shape: {outputs['reconstructed'].shape}")
                 
-                # DEBUGGING: Log transformer activity details
-                if 'attention_weights' in outputs and outputs['attention_weights'] is not None:
+                # DEBUGGING: Log transformer activity details only at the final batch of epoch
+                if (batch_idx + 1) == len(data_loader):
                     attn_weights = outputs['attention_weights']
                     logger.info(f"🧠 Transformer attention stats: shape={attn_weights.shape}, "
                               f"min={attn_weights.min():.4f}, max={attn_weights.max():.4f}, "
                               f"mean={attn_weights.mean():.4f}")
                 
-                if 'enhanced_features' in outputs and outputs['enhanced_features'] is not None:
+                if (batch_idx + 1) == len(data_loader) and 'enhanced_features' in outputs and outputs['enhanced_features'] is not None:
                     features = outputs['enhanced_features']
                     logger.info(f"✨ Enhanced features stats: shape={features.shape}, "
                               f"min={features.min():.4f}, max={features.max():.4f}, "
@@ -668,8 +668,8 @@ class Stage2Trainer:
                 self.scaler.unscale_(self.optimizer)
                 grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=GRADIENT_CLIP_MAX_NORM)
                 
-                # DEBUGGING: Log transformer activity details
-                if batch_idx % 40 == 0:  # Every 40 batches to reduce noise
+                # DEBUGGING: Log transformer parameter statistics only at final batch of epoch
+                if (batch_idx + 1) == len(data_loader):
                     transformer_grad_norm = 0.0
                     transformer_param_count = 0
                     for name, param in self.model.transformer_encoder.named_parameters():
@@ -695,30 +695,35 @@ class Stage2Trainer:
                     logger.warning(f"⚠️ High gradient norm detected: {grad_norm:.4f} > {GRADIENT_MONITOR_THRESHOLD}")
                     
                 # SAFETY: Check for extremely high gradients that indicate instability
-                if grad_norm > 10.0:
+                if grad_norm > 3.0:
                     logger.error(f"🚨 Extremely high gradient norm: {grad_norm:.4f} - potential training instability")
                     logger.error(f"🔍 Current learning rate: {self.optimizer.param_groups[0]['lr']:.2e}")
                     logger.error(f"🔍 Current loss: {loss.item():.6f}")
+                    
+                    # EMERGENCY: Skip this step if gradients are extremely high
+                    if grad_norm > 5.0:
+                        logger.warning("⚡ Skipping optimizer step due to extremely high gradients")
+                        self.optimizer.zero_grad()  # Clear gradients
+                        continue  # Skip to next batch
                 
-                # SAFETY: Check for NaN gradients
+                # SAFETY: Check for NaN gradients before optimizer step
+                nan_detected = False
                 for name, param in self.model.named_parameters():
                     if param.grad is not None and torch.isnan(param.grad).any():
                         logger.error(f"🚨 NaN gradient detected in parameter: {name}")
-                        raise ValueError(f"NaN gradient in {name} - stopping training")
+                        nan_detected = True
+                        break
+                
+                if nan_detected:
+                    logger.error("🚨 Training stopped due to NaN gradients")
+                    raise ValueError("NaN gradients detected - training cannot continue")
                 
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
                 logger.debug("✅ Stage 2 mixed precision optimizer step completed")
                 
                 # Linear Warmup + Cosine Decay updates per-batch (essential for smooth scheduling)
-                prev_lr = self.optimizer.param_groups[0]['lr']
                 self.scheduler.step()
-                new_lr = self.optimizer.param_groups[0]['lr']
-                
-                # DEBUGGING: Log learning rate changes
-                if batch_idx % 40 == 0:  # Every 40 batches to reduce noise
-                    logger.info(f"📊 LR update: {prev_lr:.2e} → {new_lr:.2e} "
-                              f"(step {batch_idx + epoch * len(data_loader)})")
                 
                 # Log learning rate every 5 batches to avoid W&B buffer warnings
                 if batch_idx % LOG_LR_EVERY_N_BATCHES == 0:

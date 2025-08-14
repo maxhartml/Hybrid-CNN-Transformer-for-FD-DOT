@@ -71,8 +71,8 @@ DROPOUT_TRANSFORMER = 0.12      # Transformer attention/MLP dropout - higher (�
 DROPOUT_NIR_PROCESSOR = 0.18    # NIR measurement dropout - prevents over-reliance on specific measurements
 
 # Gradient Clipping (training stability)
-GRADIENT_CLIP_MAX_NORM = 2.0      # Max gradient norm - increased from 0.3 to handle gradient explosion for stage2 training
-GRADIENT_MONITOR_THRESHOLD = 5.0  # Gradient warning threshold - detects training instability early
+GRADIENT_CLIP_MAX_NORM = 0.5      # Much tighter clipping - prevent any gradient explosion
+GRADIENT_MONITOR_THRESHOLD = 1.0  # Very low threshold - detect issues immediately
 
 # =============================================================================
 # STAGE 1: CNN AUTOENCODER TRAINING (OneCycleLR)
@@ -101,9 +101,9 @@ MAX_MOMENTUM = 0.95   # Maximum momentum value - cycles between base and max dur
 # Based on "Attention Is All You Need", BERT, and ViT papers for transformer training
 
 # Learning Rate Schedule
-STAGE2_BASE_LR = 5e-4       # Increased from 2e-4 - transformer needs higher LR for 5M params
-STAGE2_WARMUP_PCT = 0.15     # Keep warmup percentage - more (↑) = stable transformer training, less (↓) = faster start  
-STAGE2_ETA_MIN_PCT = 0.02    # Reduced final LR to 2% for more aggressive decay
+STAGE2_BASE_LR = 1e-4       # Further reduced from 2e-4 - very conservative for stability
+STAGE2_WARMUP_PCT = 0.3     # Extended warmup - 30% = ~45 epochs gentle ramp-up
+STAGE2_ETA_MIN_PCT = 0.01    # Final LR as 1% of base LR
 
 # Optimizer Parameters
 ADAMW_BETAS_STAGE2 = (0.9, 0.98)  # Transformer-optimized momentum - beta2=0.98 reduces noise in attention gradients
