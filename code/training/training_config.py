@@ -52,9 +52,9 @@ EARLY_STOPPING_PATIENCE = 25  # Epochs to wait without improvement - higher (↑
 # Data Loading Configuration
 # Optimized for large 3D medical imaging data (64x64x64 phantoms)
 
-NUM_WORKERS = 6          # Parallel data loading workers - more (↑) = faster loading but more CPU/memory
+NUM_WORKERS = 8          # Increased for Stage 2 - more parallel loading to feed transformer
 PIN_MEMORY = True        # Pin memory for faster GPU transfer - True = faster but uses more system memory
-PREFETCH_FACTOR = 4      # Batches to prefetch per worker - higher (↑) = smoother training but more memory
+PREFETCH_FACTOR = 2      # Reduced to save memory - 8 workers × 2 = 16 batches prefetched
 PERSISTENT_WORKERS = True # Keep workers alive between epochs - True = faster epoch transitions
 
 # =============================================================================
@@ -101,8 +101,8 @@ MAX_MOMENTUM = 0.95   # Maximum momentum value - cycles between base and max dur
 # Based on "Attention Is All You Need", BERT, and ViT papers for transformer training
 
 # Learning Rate Schedule
-STAGE2_BASE_LR = 1e-4       # Further reduced from 2e-4 - very conservative for stability
-STAGE2_WARMUP_PCT = 0.3     # Extended warmup - 30% = ~45 epochs gentle ramp-up
+STAGE2_BASE_LR = 1e-4     # Optimized from 1e-4 for better training efficiency
+STAGE2_WARMUP_PCT = 0.1     # Reduced warmup - 10% = ~15 epochs faster ramp-up
 STAGE2_ETA_MIN_PCT = 0.01    # Final LR as 1% of base LR
 
 # Optimizer Parameters
