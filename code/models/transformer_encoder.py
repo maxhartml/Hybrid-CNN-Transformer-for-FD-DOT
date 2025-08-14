@@ -157,6 +157,9 @@ class MultiHeadAttention(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.scale = ATTENTION_SCALE_BASE / math.sqrt(self.head_dim)  # Scaling factor for dot-product attention
         
+        # Store attention weights for entropy calculation (ChatGPT diagnostic)
+        self.last_attention_weights = None
+        
     
     def forward(self, query, key, value, mask=None):
         """
@@ -187,6 +190,10 @@ class MultiHeadAttention(nn.Module):
         
         # Compute attention probabilities and apply dropout
         attention_weights = F.softmax(scores, dim=-1)
+        
+        # Store attention weights for entropy calculation (ChatGPT diagnostic)
+        self.last_attention_weights = attention_weights.detach()
+        
         attention_weights = self.dropout(attention_weights)
         
         # Apply attention to values

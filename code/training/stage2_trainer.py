@@ -177,8 +177,16 @@ class Stage2Trainer:
         self.optimizer = None
         self.scheduler = None
         
-        # Mixed precision training for A100 optimization (2x speedup + memory savings)
-        self.scaler = GradScaler() if self.device.type == 'cuda' else None
+        # Mixed precision training with conservative scaler settings (prevents crashes)
+        if self.device.type == 'cuda':
+            self.scaler = GradScaler(
+                init_scale=GRADSCALER_INIT_SCALE,
+                growth_factor=GRADSCALER_GROWTH_FACTOR, 
+                backoff_factor=GRADSCALER_BACKOFF_FACTOR,
+                growth_interval=GRADSCALER_GROWTH_INTERVAL
+            )
+        else:
+            self.scaler = None
         
         mode = "enhanced" if use_tissue_patches else "baseline"
         logger.info(f"")
@@ -191,7 +199,10 @@ class Stage2Trainer:
         logger.info(f"⏰ Early Stopping Patience: {early_stopping_patience}")
         logger.info(f"🧬 Tissue Patches: {use_tissue_patches}")
         if self.scaler:
-            logger.info(f"🚀 Mixed Precision: Enabled (A100 Optimized)")
+            # Check AMP dtype for ChatGPT's gradient underflow fix
+            bf16_supported = torch.cuda.is_bf16_supported() if torch.cuda.is_available() else False
+            amp_dtype = "bfloat16" if bf16_supported else "float16"
+            logger.info(f"🚀 Mixed Precision: Enabled ({amp_dtype}) - ChatGPT underflow fix")
         logger.info(f"📅 Scheduler: Will be created during training initialization")
         
         # Log GPU info if available
@@ -207,6 +218,35 @@ class Stage2Trainer:
         # Initialize Weights & Biases (deferred until training starts)
         # Note: W&B initialization happens in train() method when epochs and data_loader are available
         self._wandb_initialized = False
+    
+    def _calculate_attention_entropy(self) -> Dict[str, float]:
+        """
+        Calculate attention entropy for each transformer layer to track learning progress.
+        
+        Key diagnostic from ChatGPT: Attention should move from uniform (~ln(256)=5.545) 
+        to focused patterns within first few epochs. Staying at 5.545 indicates frozen attention.
+        
+        Returns:
+            Dict[str, float]: Attention entropy per layer
+        """
+        entropies = {}
+        
+        # Access transformer layers through the model
+        if hasattr(self.model, 'transformer_encoder') and hasattr(self.model.transformer_encoder, 'layers'):
+            for i, layer in enumerate(self.model.transformer_encoder.layers):
+                if hasattr(layer, 'attention') and hasattr(layer.attention, 'last_attention_weights'):
+                    # Get the last computed attention weights [batch, heads, seq, seq]
+                    attn_weights = layer.attention.last_attention_weights
+                    if attn_weights is not None:
+                        # Calculate entropy: -sum(p * log(p)) where p is attention probability
+                        # Average over batch and heads, compute entropy over sequence dimension
+                        attn_probs = attn_weights.mean(dim=(0, 1))  # [seq, seq]
+                        # Focus on diagonal-ish attention patterns
+                        attn_probs = attn_probs + 1e-12  # Numerical stability
+                        entropy = -(attn_probs * torch.log(attn_probs)).sum().item()
+                        entropies[f'layer_{i}_entropy'] = entropy
+        
+        return entropies
     
     def _init_wandb(self, epochs: int, steps_per_epoch: int):
         """Initialize Weights & Biases experiment tracking for Stage 2."""
@@ -374,12 +414,11 @@ class Stage2Trainer:
         """
         Create parameter groups for transformer training with differential weight decay.
         
-        This method implements the standard transformer training approach where
-        different parameter types receive different weight decay values:
-        - Layer norms and biases: No weight decay (prevents regularization of scale/shift)
-        - All other parameters: Standard weight decay for regularization
+        This method implements the critical transformer training approach where
+        LayerNorm weights, biases, and embeddings receive NO weight decay to prevent
+        gradient flow issues and "frozen attention" problems.
         
-        Based on BERT, GPT, and ViT training procedures.
+        Based on BERT, GPT, and ViT training procedures + ChatGPT recommendations.
         
         Returns:
             list: Parameter groups for AdamW optimizer
@@ -389,18 +428,22 @@ class Stage2Trainer:
         
         for name, param in self.model.named_parameters():
             if param.requires_grad:
-                # No weight decay for layer norms, biases, and position embeddings
-                if ('bias' in name or 
-                    'LayerNorm' in name or 
-                    'norm' in name or 
-                    'pos_embed' in name):
+                # NO weight decay for: biases, norms, and embeddings (critical for gradient flow)
+                if (name.endswith(".bias") or 
+                    "norm" in name.lower() or 
+                    "ln" in name.lower() or
+                    "layer_norm" in name.lower() or 
+                    "embedding" in name.lower() or
+                    "pos_embed" in name.lower()):
                     no_decay_params.append(param)
+                    logger.debug(f"🚫 No decay: {name}")
                 else:
                     decay_params.append(param)
+                    logger.debug(f"✅ With decay: {name}")
         
-        logger.info(f"📊 Parameter Groups:")
+        logger.info(f"📊 Parameter Groups (CRITICAL for transformer training):")
         logger.info(f"   ├─ With weight decay: {len(decay_params)} groups")
-        logger.info(f"   └─ No weight decay: {len(no_decay_params)} groups")
+        logger.info(f"   └─ No weight decay: {len(no_decay_params)} groups (norms/biases/embeddings)")
         
         return [
             {'params': decay_params, 'weight_decay': WEIGHT_DECAY_TRANSFORMER},
@@ -617,11 +660,13 @@ class Stage2Trainer:
                            f"max={tissue_patches.max():.4f}, mean={tissue_patches.mean():.4f}")
             
             
-            # Forward pass through hybrid model with mixed precision
+            # Forward pass through hybrid model with mixed precision (bfloat16 if available)
             logger.debug("⚡ Starting Stage 2 forward pass (NIR → features → reconstruction)...")
             self.optimizer.zero_grad()
             
-            with autocast():
+            # Use bfloat16 if available to avoid gradient underflow issues (ChatGPT recommendation)
+            dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+            with autocast(dtype=dtype):
                 # The hybrid model handles: NIR measurements (batch, 256_subsampled, 8) → transformer → CNN decoder → reconstruction
                 # Note: 256 measurements are subsampled from 1000 generated measurements for data augmentation
                 outputs = self.model(nir_measurements, tissue_patches)
@@ -659,14 +704,59 @@ class Stage2Trainer:
                     
                 logger.debug(f"💰 Stage 2 batch loss: {loss.item():.6f}")
             
-            # Backward pass with mixed precision scaling
+            # Backward pass with safe AMP pattern (prevents unscale_() crashes)
             logger.debug("🔙 Starting Stage 2 backward pass (only transformer gradients)...")
             try:
+                # Zero gradients
+                self.optimizer.zero_grad(set_to_none=True)
+                
+                # Backward pass with scaling
                 self.scaler.scale(loss).backward()
                 
-                # Apply gradient clipping before optimizer step
+                # CRITICAL: Unscale ONCE per step → then clip → decide to step/skip
                 self.scaler.unscale_(self.optimizer)
-                grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=GRADIENT_CLIP_MAX_NORM)
+                
+                # Apply adaptive gradient clipping (ChatGPT recommendation)
+                # Tighter clipping for first 5 epochs, then relax
+                clip_norm = 0.5 if epoch < 5 else 1.0
+                grad_norm = torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(), 
+                    max_norm=clip_norm, 
+                    norm_type=2.0
+                )
+                
+                # Log adaptive clipping info
+                if batch_idx == 0:  # Log once per epoch
+                    logger.info(f"🎯 Adaptive clipping: epoch {epoch} using max_norm={clip_norm}")
+                
+                # SAFETY: Check for extremely high gradients or non-finite values
+                skip_step = False
+                if not torch.isfinite(grad_norm) or grad_norm > 10.0:
+                    logger.warning(f"⚡ Skipping optimizer step - grad_norm: {grad_norm:.4f}")
+                    skip_step = True
+                elif grad_norm > GRADIENT_MONITOR_THRESHOLD:
+                    logger.warning(f"⚠️ High gradient norm detected: {grad_norm:.4f} > {GRADIENT_MONITOR_THRESHOLD}")
+                
+                # SAFETY: Check for NaN gradients before optimizer step
+                if not skip_step:
+                    for name, param in self.model.named_parameters():
+                        if param.grad is not None and torch.isnan(param.grad).any():
+                            logger.warning(f"⚡ NaN gradient detected in {name} - skipping step")
+                            skip_step = True
+                            break
+                
+                # Execute or skip optimizer step
+                if skip_step:
+                    # Clear gradients and update scaler (important for scale backoff)
+                    self.optimizer.zero_grad(set_to_none=True)
+                    self.scaler.update()  # Update scaler so it backs off scale
+                else:
+                    # Normal optimizer step
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                    
+                    # Linear Warmup + Cosine Decay updates per-batch
+                    self.scheduler.step()
                 
                 # DEBUGGING: Log transformer parameter statistics only at final batch of epoch
                 if (batch_idx + 1) == len(data_loader):
@@ -679,7 +769,7 @@ class Stage2Trainer:
                     
                     if transformer_param_count > 0:
                         transformer_grad_norm = (transformer_grad_norm ** 0.5)
-                        logger.info(f"🔧 Transformer gradients: norm={transformer_grad_norm:.4f}, "
+                        logger.info(f"� Transformer gradients: norm={transformer_grad_norm:.4f}, "
                                   f"params_updated={transformer_param_count}")
                     
                     # Log parameter statistics for transformer
@@ -689,44 +779,22 @@ class Stage2Trainer:
                             logger.info(f"🎛️ {name}: mean={param.data.mean().item():.6f}, "
                                       f"std={param.data.std().item():.6f}, "
                                       f"grad_norm={grad_norm_val:.6f}")
-                
-                # ENHANCED: Monitor gradient norm for training health with more aggressive thresholds
-                if grad_norm > GRADIENT_MONITOR_THRESHOLD:
-                    logger.warning(f"⚠️ High gradient norm detected: {grad_norm:.4f} > {GRADIENT_MONITOR_THRESHOLD}")
                     
-                # SAFETY: Check for extremely high gradients that indicate instability
-                if grad_norm > 3.0:
-                    logger.error(f"🚨 Extremely high gradient norm: {grad_norm:.4f} - potential training instability")
-                    logger.error(f"🔍 Current learning rate: {self.optimizer.param_groups[0]['lr']:.2e}")
-                    logger.error(f"🔍 Current loss: {loss.item():.6f}")
+                    # ChatGPT diagnostic: Check for zero gradients (key problem indicator)
+                    zero_grad_count = 0
+                    total_params = 0
+                    for name, param in self.model.transformer_encoder.named_parameters():
+                        if param.requires_grad and param.grad is not None:
+                            total_params += 1
+                            if param.grad.norm().item() < 1e-8:
+                                zero_grad_count += 1
                     
-                    # EMERGENCY: Skip this step if gradients are extremely high
-                    if grad_norm > 5.0:
-                        logger.warning("⚡ Skipping optimizer step due to extremely high gradients")
-                        self.optimizer.zero_grad()  # Clear gradients
-                        continue  # Skip to next batch
-                
-                # SAFETY: Check for NaN gradients before optimizer step
-                nan_detected = False
-                for name, param in self.model.named_parameters():
-                    if param.grad is not None and torch.isnan(param.grad).any():
-                        logger.error(f"🚨 NaN gradient detected in parameter: {name}")
-                        nan_detected = True
-                        break
-                
-                if nan_detected:
-                    logger.error("🚨 Training stopped due to NaN gradients")
-                    raise ValueError("NaN gradients detected - training cannot continue")
-                
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
-                logger.debug("✅ Stage 2 mixed precision optimizer step completed")
-                
-                # Linear Warmup + Cosine Decay updates per-batch (essential for smooth scheduling)
-                self.scheduler.step()
+                    if zero_grad_count > 0:
+                        logger.warning(f"🚨 Zero gradients detected: {zero_grad_count}/{total_params} transformer params")
+                        logger.warning(f"   This indicates frozen learning - check LR, weight decay, and AMP scaling")
                 
                 # Log learning rate every 5 batches to avoid W&B buffer warnings
-                if batch_idx % LOG_LR_EVERY_N_BATCHES == 0:
+                if not skip_step and batch_idx % LOG_LR_EVERY_N_BATCHES == 0:
                     self._log_learning_rate_to_wandb(epoch, batch_idx, len(data_loader))
             except RuntimeError as e:
                 logger.error(f"🚨 Gradient error: {e}")
@@ -734,6 +802,15 @@ class Stage2Trainer:
             
             total_loss += loss.item()
             num_batches += 1
+            
+            # ChatGPT early diagnostic: Enhanced logging for first few batches
+            if epoch < 3 and batch_idx < 3:
+                logger.info(f"🔬 Early diagnostic - Epoch {epoch}, Batch {batch_idx}:")
+                logger.info(f"   ├─ Global grad norm: {grad_norm:.6f}")
+                logger.info(f"   ├─ Loss: {loss.item():.6f}")
+                logger.info(f"   ├─ Learning rate: {self.optimizer.param_groups[0]['lr']:.2e}")
+                logger.info(f"   ├─ Skip step: {skip_step}")
+                logger.info(f"   └─ Reconstruction range: [{outputs['reconstructed'].min().item():.6f}, {outputs['reconstructed'].max().item():.6f}]")
             
             # Calculate enhanced metrics for this batch
             with torch.no_grad():
@@ -769,9 +846,59 @@ class Stage2Trainer:
             epoch_metrics[key] /= num_batches
         
         logger.debug(f"✅ Stage 2 training epoch completed. Average loss: {avg_loss:.6f}")
+        
+        # ChatGPT diagnostic: Track attention entropy to detect frozen attention
+        attention_entropies = self._calculate_attention_entropy()
+        if attention_entropies:
+            entropy_str = ", ".join([f"{k}: {v:.3f}" for k, v in attention_entropies.items()])
+            logger.info(f"🧠 Attention Entropies: {entropy_str}")
+            
+            # Key diagnostic: Average entropy should be dropping from ~5.545 (uniform)
+            avg_entropy = sum(attention_entropies.values()) / len(attention_entropies)
+            uniform_entropy = math.log(256)  # ~5.545 for 256 tokens
+            entropy_drop = uniform_entropy - avg_entropy
+            
+            # ChatGPT's critical diagnostic
+            if avg_entropy > 5.5:
+                logger.warning(f"⚠️ High attention entropy ({avg_entropy:.3f}) - attention may be frozen/uniform")
+                if epoch >= 3:
+                    logger.error(f"🚨 After epoch 3, entropy should be dropping! Check LR, weight decay, gradients")
+            else:
+                logger.info(f"✅ Good attention specialization - entropy drop: {entropy_drop:.3f}")
+            
+            # Log to W&B if available
+            if self.use_wandb and self._wandb_initialized:
+                wandb.log({f"attention/{k}": v for k, v in attention_entropies.items()}, step=epoch)
+                wandb.log({
+                    "attention/avg_entropy": avg_entropy,
+                    "attention/uniform_baseline": uniform_entropy,
+                    "attention/entropy_drop": entropy_drop,
+                    "attention/learning_health": "frozen" if avg_entropy > 5.5 else "learning"
+                }, step=epoch)
+        
         logger.info(f"📊 TRAIN SUMMARY | RMSE: {avg_loss:.4f} | Dice: {epoch_metrics['dice']:.4f} | "
                    f"Contrast: {epoch_metrics['contrast_ratio']:.4f} | Abs: {epoch_metrics['rmse_absorption']:.4f} | "
                    f"Scat: {epoch_metrics['rmse_scattering']:.4f}")
+        
+        # ChatGPT diagnostic summary for early epochs
+        if epoch < 10:
+            # Check for key problems ChatGPT identified
+            problems = []
+            if attention_entropies:
+                avg_entropy = sum(attention_entropies.values()) / len(attention_entropies)
+                if avg_entropy > 5.4:
+                    problems.append("frozen attention")
+            
+            # Check if RMSE is improving
+            if hasattr(self, '_last_rmse') and avg_loss >= self._last_rmse:
+                problems.append("stalled RMSE")
+            self._last_rmse = avg_loss
+            
+            if problems:
+                logger.warning(f"🚨 Training issues detected: {', '.join(problems)}")
+                logger.warning(f"   Recommended: Check gradients, LR schedule, weight decay groups")
+            else:
+                logger.info(f"✅ Training health: Good progress detected")
         
         return avg_loss, epoch_metrics
     
@@ -831,7 +958,9 @@ class Stage2Trainer:
                     logger.debug("🧬 No tissue patches in validation")
                 
                 logger.debug("⚡ Stage 2 validation forward pass (no gradients)...")
-                with autocast():
+                # Use same dtype as training for consistency
+                dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+                with autocast(dtype=dtype):
                     outputs = self.model(nir_measurements, tissue_patches)
                     loss = self.criterion(outputs['reconstructed'], targets)
                     logger.debug(f"💰 Stage 2 validation batch loss: {loss.item():.6f}")

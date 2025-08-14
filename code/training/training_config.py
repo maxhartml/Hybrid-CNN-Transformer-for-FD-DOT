@@ -43,7 +43,7 @@ EPOCHS_STAGE1 = 150  # Stage 1 CNN training epochs - more (↑) = better feature
 EPOCHS_STAGE2 = 150   # Stage 2 transformer epochs - more (↑) = better fine-tuning, less (↓) = faster completion
 
 # Batch Sizes - Hard-coded for stability
-BATCH_SIZE = 64  # Training batch size - higher (↑) = stable gradients but more memory, lower (↓) = less memory but noisier
+BATCH_SIZE = 48  # Reduced for Stage 2 stability - lower variance and AMP scale pressure
 
 # Early Stopping
 EARLY_STOPPING_PATIENCE = 25  # Epochs to wait without improvement - higher (↑) = more exploration, lower (↓) = faster stopping
@@ -67,12 +67,18 @@ WEIGHT_DECAY_TRANSFORMER = 0.01 # Transformer weight decay - prevents attention 
 
 # Dropout Rates (prevent overfitting)
 DROPOUT_CNN = 0.18              # CNN dropout rate - higher (↑) = stronger regularization, lower (↓) = more model capacity
-DROPOUT_TRANSFORMER = 0.12      # Transformer attention/MLP dropout - higher (↑) = less overfitting, lower (↓) = better attention
+DROPOUT_TRANSFORMER = 0.10      # Reduced from 0.20 - less aggressive regularization for early training
 DROPOUT_NIR_PROCESSOR = 0.18    # NIR measurement dropout - prevents over-reliance on specific measurements
 
 # Gradient Clipping (training stability)
-GRADIENT_CLIP_MAX_NORM = 0.5      # Much tighter clipping - prevent any gradient explosion
-GRADIENT_MONITOR_THRESHOLD = 1.0  # Very low threshold - detect issues immediately
+GRADIENT_CLIP_MAX_NORM = 0.5      # Tighter clipping during early training for better stability
+GRADIENT_MONITOR_THRESHOLD = 5.0  # Updated from 1.0 - less over-sensitive warnings
+
+# AMP GradScaler Configuration (prevents scaling issues and crashes)
+GRADSCALER_INIT_SCALE = 2**8            # Less conservative initial scale (256) for better gradient flow
+GRADSCALER_GROWTH_FACTOR = 2.0          # Moderate growth rate
+GRADSCALER_BACKOFF_FACTOR = 0.5         # Scale reduction when inf/nan detected
+GRADSCALER_GROWTH_INTERVAL = 200        # Shorter interval for quicker scale growth
 
 # =============================================================================
 # STAGE 1: CNN AUTOENCODER TRAINING (OneCycleLR)
@@ -101,9 +107,9 @@ MAX_MOMENTUM = 0.95   # Maximum momentum value - cycles between base and max dur
 # Based on "Attention Is All You Need", BERT, and ViT papers for transformer training
 
 # Learning Rate Schedule
-STAGE2_BASE_LR = 1e-4     # Optimized from 1e-4 for better training efficiency
-STAGE2_WARMUP_PCT = 0.1     # Reduced warmup - 10% = ~15 epochs faster ramp-up
-STAGE2_ETA_MIN_PCT = 0.01    # Final LR as 1% of base LR
+STAGE2_BASE_LR = 2.0e-4   # Higher peak LR to move transformer weights effectively  
+STAGE2_WARMUP_PCT = 0.03  # Shorter warmup (~4-5 epochs) for faster learning start
+STAGE2_ETA_MIN_PCT = 0.10 # Higher floor (10% of base = 2e-5) prevents vanishing gradients
 
 # Optimizer Parameters
 ADAMW_BETAS_STAGE2 = (0.9, 0.98)  # Transformer-optimized momentum - beta2=0.98 reduces noise in attention gradients
