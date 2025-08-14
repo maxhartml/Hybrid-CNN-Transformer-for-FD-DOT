@@ -45,6 +45,8 @@ from torch.cuda.amp import GradScaler, autocast  # Mixed precision training for 
 from code.models.hybrid_model import HybridCNNTransformer
 from code.utils.logging_config import get_training_logger
 from code.utils.metrics import NIRDOTMetrics, create_metrics_for_stage, calculate_batch_metrics, RMSELoss
+from code.utils.standardizers import PerChannelZScore, fit_standardizer_on_dataloader
+from code.utils.visualization import log_reconstruction_images_to_wandb
 from code.training.training_config import *  # Import all training config
 
 # =============================================================================
@@ -108,6 +110,10 @@ class Stage1Trainer:
         self.best_val_loss = float('inf')
         self.patience_counter = 0
         self.early_stopped = False
+        
+        # Initialize ground truth standardizer for normalized training
+        self.standardizer = PerChannelZScore(device=self.device)
+        self.standardizer_fitted = False
         
         # Initialize enhanced metrics for Stage 1
         self.metrics = create_metrics_for_stage("stage1")
@@ -211,14 +217,16 @@ class Stage1Trainer:
                 "pct_start": STAGE1_PCT_START,
                 "cycle_momentum": STAGE1_CYCLE_MOMENTUM,
                 "weight_decay": WEIGHT_DECAY,
-                "loss_function": "RMSE",
+                "loss_function": "RMSE_Standardized",
+                "ground_truth_normalization": "PerChannel_ZScore",
                 
                 # Model specifications (Stage 1: Autoencoder training)
-                "input_data": "ground_truth_volumes",
+                "input_data": "standardized_ground_truth_volumes",
                 "input_shape": "64x64x64x2_channels",
-                "target_data": "same_ground_truth_volumes", 
-                "reconstruction_task": "autoencoder_identity_mapping",
+                "target_data": "standardized_ground_truth_volumes", 
+                "reconstruction_task": "autoencoder_identity_mapping_standardized",
                 "use_tissue_patches": USE_TISSUE_PATCHES_STAGE1,
+                "validation_metrics": "raw_space_for_interpretation",
                 
                 # Architecture details
                 "total_parameters": sum(p.numel() for p in self.model.parameters()),
@@ -228,8 +236,8 @@ class Stage1Trainer:
         
         # Define custom metrics with proper x-axes for clean dissertation graphs
         wandb.define_metric("LR_Scheduler/*", step_metric="training_step")
-        wandb.define_metric("Metrics/*", step_metric="epoch")
-        wandb.define_metric("RMSE_Details/*", step_metric="epoch") 
+        wandb.define_metric("train/*", step_metric="training_step")  # Training logs use training_step
+        wandb.define_metric("val/*", step_metric="epoch")           # Validation logs use epoch
         wandb.define_metric("System/*", step_metric="epoch")
         wandb.define_metric("Analysis/*", step_metric="epoch")
         wandb.define_metric("Reconstructions/*", step_metric="epoch")
@@ -303,6 +311,55 @@ class Stage1Trainer:
         
         return self.optimizer, self.scheduler
     
+    def _fit_standardizer_on_train_data(self, train_loader):
+        """
+        Fit the ground truth standardizer on training data only.
+        
+        This method computes per-channel mean and std from the training dataset
+        and stores them for consistent normalization across train/val splits.
+        The standardizer ensures stable training by normalizing μₐ and μ′ₛ
+        channels independently using z-score normalization.
+        
+        Args:
+            train_loader: Training DataLoader containing ground truth volumes
+        """
+        if self.standardizer_fitted:
+            logger.info("📊 Standardizer already fitted - skipping")
+            return
+        
+        logger.info("")
+        logger.info("="*60)
+        logger.info("📊 FITTING GROUND TRUTH STANDARDIZER")
+        logger.info("="*60)
+        logger.info("🔧 Computing per-channel z-score statistics from training data...")
+        
+        # Collect all training ground truth volumes
+        all_volumes = []
+        self.model.eval()  # Ensure model is in eval mode during data collection
+        
+        logger.info(f"📦 Processing {len(train_loader)} training batches...")
+        with torch.no_grad():
+            for batch_idx, batch in enumerate(train_loader):
+                ground_truth = batch['ground_truth'].cpu()  # Keep on CPU for memory efficiency
+                all_volumes.append(ground_truth)
+                
+                if (batch_idx + 1) % 20 == 0:
+                    logger.info(f"   Processed {batch_idx + 1}/{len(train_loader)} batches...")
+        
+        # Concatenate all volumes and fit standardizer
+        all_volumes = torch.cat(all_volumes, dim=0)
+        logger.info(f"📊 Fitting standardizer on {all_volumes.shape[0]} training volumes...")
+        logger.info(f"📐 Volume shape: {all_volumes.shape[1:]} (channels, depth, height, width)")
+        
+        # Fit standardizer and move to correct device
+        self.standardizer.fit(all_volumes)
+        self.standardizer.to(self.device)
+        self.standardizer_fitted = True
+        
+        logger.info("✅ Ground truth standardizer fitted successfully!")
+        logger.info("="*60)
+        logger.info("")
+    
     def _log_learning_rate_to_wandb(self, epoch: int, batch_idx: int, total_batches: int):
         """
         Log current learning rate to W&B for OneCycleLR visualization.
@@ -342,40 +399,44 @@ class Stage1Trainer:
     
     def train_epoch(self, data_loader, epoch=0):
         """
-        Execute one complete training epoch over the dataset with enhanced metrics.
+        Execute one complete training epoch with standardized ground truth.
         
-        This method performs forward propagation, loss computation, and
-        backpropagation for all batches in the training dataset. The model
-        parameters are updated using the Adam optimizer.
+        This method trains the CNN autoencoder on z-score normalized ground truth
+        volumes (μₐ, μ′ₛ) for stable optimization. Only standardized RMSE and
+        learning rate are logged during training to keep console output clean.
+        
+        Key Changes for Stage 1 with Standardization:
+        - Ground truth is standardized before forward pass
+        - Loss computed in normalized space (standardized RMSE) 
+        - Training logs show only standardized RMSE and LR
+        - No Dice/Contrast during training (validation only)
         
         Args:
-            data_loader: DataLoader containing training batches with
-                        'ground_truth' key from phantom DataLoader
+            data_loader: DataLoader containing training batches with 'ground_truth' key
             epoch (int): Current epoch number for W&B logging
         
         Returns:
-            tuple: (average_loss, epoch_metrics) for training monitoring
+            float: Average standardized RMSE loss for epoch monitoring
         """
-        logger.debug("🔄 Starting training epoch...")
-        self.model.train()
-        total_loss = 0
-        num_batches = 0
+        if not self.standardizer_fitted:
+            raise RuntimeError("Standardizer must be fitted before training. Call _fit_standardizer_on_train_data() first.")
         
-        # Initialize metrics tracking
-        epoch_metrics = {
-            'dice': 0.0, 'contrast_ratio': 0.0, 'rmse_overall': 0.0,
-            'rmse_absorption': 0.0, 'rmse_scattering': 0.0
-        }
+        logger.debug("🔄 Starting training epoch with standardized targets...")
+        self.model.train()
+        total_standardized_loss = 0
+        num_batches = 0
         
         logger.debug(f"📊 Processing {len(data_loader)} batches in training epoch")
         
         for batch_idx, batch in enumerate(data_loader):
             logger.debug(f"🔍 Processing batch {batch_idx + 1}/{len(data_loader)}")
             
-            # Stage 1: Only use ground truth volumes (no NIR measurements)
-            ground_truth = batch['ground_truth'].to(self.device)  # Shape: (batch_size, 2, 64, 64, 64)
-            logger.debug(f"📦 Ground truth batch shape: {ground_truth.shape}")
-            logger.debug(f"🖥️  Ground truth moved to device: {ground_truth.device}")
+            # Get raw ground truth and standardize it
+            raw_ground_truth = batch['ground_truth'].to(self.device)  # Shape: (batch_size, 2, 64, 64, 64)
+            standardized_ground_truth = self.standardizer.transform(raw_ground_truth)
+            
+            logger.debug(f"📦 Ground truth batch shape: {raw_ground_truth.shape}")
+            logger.debug(f"� Standardized ground truth range: [{standardized_ground_truth.min():.3f}, {standardized_ground_truth.max():.3f}]")
             
             # Forward pass with mixed precision for A100 optimization
             logger.debug("⚡ Starting forward pass...")
@@ -383,12 +444,12 @@ class Stage1Trainer:
             
             if self.scaler:  # Mixed precision training
                 with autocast():
-                    outputs = self.model(ground_truth, tissue_patches=None)
+                    outputs = self.model(standardized_ground_truth, tissue_patches=None)
                     logger.debug(f"📤 Model output shape: {outputs['reconstructed'].shape}")
                     
-                    # Compute loss - reconstruction vs original
-                    logger.debug("📏 Computing RMSE loss...")
-                    loss = self.criterion(outputs['reconstructed'], ground_truth)
+                    # Compute loss in STANDARDIZED space
+                    logger.debug("📏 Computing standardized RMSE loss...")
+                    loss = self.criterion(outputs['reconstructed'], standardized_ground_truth)
                 
                 # Backward pass with gradient scaling
                 self.scaler.scale(loss).backward()
@@ -404,12 +465,12 @@ class Stage1Trainer:
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:  # Standard precision training (CPU fallback)
-                outputs = self.model(ground_truth, tissue_patches=None)
+                outputs = self.model(standardized_ground_truth, tissue_patches=None)
                 logger.debug(f"📤 Model output shape: {outputs['reconstructed'].shape}")
                 
-                # Compute loss - reconstruction vs original
-                logger.debug("📏 Computing RMSE loss...")
-                loss = self.criterion(outputs['reconstructed'], ground_truth)
+                # Compute loss in STANDARDIZED space
+                logger.debug("📏 Computing standardized RMSE loss...")
+                loss = self.criterion(outputs['reconstructed'], standardized_ground_truth)
                 
                 # Standard backward pass
                 loss.backward()
@@ -429,50 +490,43 @@ class Stage1Trainer:
             # Log learning rate every 5 batches to avoid W&B buffer warnings
             if batch_idx % LOG_LR_EVERY_N_BATCHES == 0:
                 self._log_learning_rate_to_wandb(epoch, batch_idx, len(data_loader))
+            
+            # Log to W&B during training: only standardized loss and LR
+            if self.use_wandb and wandb.run:
+                current_lr = self.optimizer.param_groups[0]['lr']
+                global_step = epoch * len(data_loader) + batch_idx + 1
                 
-            logger.debug(f"💰 Batch loss: {loss.item():.6f}")
+                wandb.log({
+                    "training_step": global_step,
+                    "train/loss_std": loss.item(),  # Standardized RMSE loss
+                    "train/lr": current_lr
+                })
+                
+            logger.debug(f"💰 Standardized batch loss: {loss.item():.6f}")
             logger.debug("✅ Optimizer step completed")
             
-            # Calculate enhanced metrics for this batch
-            with torch.no_grad():
-                batch_metrics = calculate_batch_metrics(
-                    self.metrics, outputs, ground_truth, "stage1"
-                )
-                
-                # Accumulate metrics
-                for key, value in batch_metrics.items():
-                    if key in epoch_metrics:
-                        epoch_metrics[key] += value
-            
-            total_loss += loss.item()
+            total_standardized_loss += loss.item()
             num_batches += 1
             
-            # Show batch progress with standardized metrics format (including LR for OneCycleLR monitoring)
+            # Clean training batch progress: only standardized RMSE and LR
             current_lr = self.optimizer.param_groups[0]['lr']
             logger.info(f"🏋️  TRAIN | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
-                       f"RMSE: {loss.item():.4f} | Dice: {batch_metrics.get('dice', 0):.4f} | "
-                       f"Contrast: {batch_metrics.get('contrast_ratio', 0):.4f} | LR: {current_lr:.2e}")
+                       f"Std_RMSE: {loss.item():.4f} | LR: {current_lr:.2e}")
             
             # Log gradient norm at debug level for monitoring training health
             logger.debug(f"🔧 Batch {batch_idx + 1} | Gradient Norm: {grad_norm:.3f}")
             
             # Additional detailed logging at DEBUG level
             if batch_idx % 10 == 0:  # Log every 10 batches for stability monitoring
-                logger.debug(f"🔍 Detailed: Batch {batch_idx}: Loss = {loss.item():.6f}, "
-                           f"Running Avg = {total_loss/num_batches:.6f}")
+                logger.debug(f"🔍 Detailed: Batch {batch_idx}: Std_Loss = {loss.item():.6f}, "
+                           f"Running Avg = {total_standardized_loss/num_batches:.6f}")
         
-        avg_loss = total_loss / num_batches
+        avg_standardized_loss = total_standardized_loss / num_batches
         
-        # Average metrics across epoch
-        for key in epoch_metrics:
-            epoch_metrics[key] /= num_batches
+        logger.debug(f"✅ Training epoch completed. Average standardized loss: {avg_standardized_loss:.6f}")
+        logger.info(f"📊 TRAIN SUMMARY | Std_RMSE: {avg_standardized_loss:.4f}")
         
-        logger.debug(f"✅ Training epoch completed. Average loss: {avg_loss:.6f}")
-        logger.info(f"📊 TRAIN SUMMARY | RMSE: {avg_loss:.4f} | Dice: {epoch_metrics['dice']:.4f} | "
-                   f"Contrast: {epoch_metrics['contrast_ratio']:.4f} | Abs: {epoch_metrics['rmse_absorption']:.4f} | "
-                   f"Scat: {epoch_metrics['rmse_scattering']:.4f}")
-        
-        return avg_loss, epoch_metrics
+        return avg_standardized_loss
     
     def _log_reconstruction_images(self, predictions, targets, epoch, phantom_ids=None, step=None):
         """Log 3D reconstruction slices to W&B for visualization."""
@@ -485,28 +539,36 @@ class Stage1Trainer:
     
     def validate(self, data_loader):
         """
-        Evaluate the model on the validation dataset with enhanced metrics.
+        Evaluate the model on validation data with both standardized and raw metrics.
         
-        This method performs forward propagation without gradient computation
-        to assess model performance on unseen data. Used for monitoring
-        training progress and implementing early stopping criteria.
+        This method runs the forward pass on standardized targets (like training)
+        but computes human-interpretable metrics in raw space after inverse
+        transformation. Logs both standardized loss and raw metrics for W&B.
+        
+        Key Changes for Stage 1 with Standardization:
+        - Forward pass on standardized ground truth (consistency with training)
+        - Inverse transform predictions and targets for raw metrics
+        - Log standardized loss + raw metrics (RMSE, Dice, Contrast)
+        - Console shows raw metrics for human interpretation
         
         Args:
-            data_loader: DataLoader containing validation batches with
-                        'ground_truth' key from phantom DataLoader
+            data_loader: DataLoader containing validation batches with 'ground_truth' key
         
         Returns:
-            float: Average validation loss across all validation batches
+            tuple: (standardized_loss, raw_metrics_dict) for monitoring
         """
-        logger.debug("🔍 Starting validation epoch...")
+        if not self.standardizer_fitted:
+            raise RuntimeError("Standardizer must be fitted before validation. Call _fit_standardizer_on_train_data() first.")
+        
+        logger.debug("🔍 Starting validation epoch with standardized targets...")
         self.model.eval()
-        total_loss = 0
+        total_standardized_loss = 0
         num_batches = 0
         
-        # Initialize metrics tracking
-        epoch_metrics = {
-            'dice': 0.0, 'contrast_ratio': 0.0, 'rmse_overall': 0.0,
-            'rmse_absorption': 0.0, 'rmse_scattering': 0.0
+        # Initialize RAW metrics tracking (human-interpretable)
+        raw_metrics = {
+            'raw_rmse_total': 0.0, 'raw_rmse_mu_a': 0.0, 'raw_rmse_mu_s': 0.0,
+            'raw_dice': 0.0, 'raw_contrast': 0.0
         }
         
         logger.debug(f"📊 Processing {len(data_loader)} validation batches")
@@ -515,76 +577,96 @@ class Stage1Trainer:
             for batch_idx, batch in enumerate(data_loader):
                 logger.debug(f"🔍 Validating batch {batch_idx + 1}/{len(data_loader)}")
                 
-                # Stage 1: Only use ground truth volumes (no NIR measurements)
-                ground_truth = batch['ground_truth'].to(self.device)  # Shape: (batch_size, 2, 64, 64, 64)
-                logger.debug(f"📦 Validation batch shape: {ground_truth.shape}")
+                # Get raw ground truth and standardize for forward pass
+                raw_ground_truth = batch['ground_truth'].to(self.device)  # Shape: (batch_size, 2, 64, 64, 64)
+                standardized_ground_truth = self.standardizer.transform(raw_ground_truth)
                 
-                logger.debug("⚡ Forward pass (no gradients)...")
+                logger.debug(f"📦 Validation batch shape: {raw_ground_truth.shape}")
+                
+                logger.debug("⚡ Forward pass on standardized targets (no gradients)...")
                 if self.scaler:  # Mixed precision validation
                     with autocast():
-                        outputs = self.model(ground_truth, tissue_patches=None)
-                        loss = self.criterion(outputs['reconstructed'], ground_truth)
+                        outputs = self.model(standardized_ground_truth, tissue_patches=None)
+                        # Loss computed in STANDARDIZED space (consistency with training)
+                        standardized_loss = self.criterion(outputs['reconstructed'], standardized_ground_truth)
                 else:  # Standard precision validation
-                    outputs = self.model(ground_truth, tissue_patches=None)
-                    loss = self.criterion(outputs['reconstructed'], ground_truth)
+                    outputs = self.model(standardized_ground_truth, tissue_patches=None)
+                    # Loss computed in STANDARDIZED space (consistency with training) 
+                    standardized_loss = self.criterion(outputs['reconstructed'], standardized_ground_truth)
+                
+                # Inverse transform predictions to RAW space for human-interpretable metrics
+                raw_predictions = self.standardizer.inverse_transform(outputs['reconstructed'])
+                # raw_ground_truth already in raw space (no transformation needed)
+                
+                logger.debug(f"💰 Standardized validation loss: {standardized_loss.item():.6f}")
+                
+                # Calculate RAW metrics in original μₐ/μ′ₛ space for human interpretation
+                with torch.no_grad():
+                    # Create outputs dict with raw predictions for metrics calculation
+                    raw_outputs = {'reconstructed': raw_predictions}
+                    batch_raw_metrics = calculate_batch_metrics(
+                        self.metrics, raw_outputs, raw_ground_truth, "stage1"
+                    )
                     
-                logger.debug(f"💰 Validation batch loss: {loss.item():.6f}")
+                    # Map batch metrics to our raw metrics naming
+                    raw_metrics['raw_rmse_total'] += batch_raw_metrics.get('rmse_overall', 0)
+                    raw_metrics['raw_rmse_mu_a'] += batch_raw_metrics.get('rmse_absorption', 0)
+                    raw_metrics['raw_rmse_mu_s'] += batch_raw_metrics.get('rmse_scattering', 0)
+                    raw_metrics['raw_dice'] += batch_raw_metrics.get('dice', 0)
+                    raw_metrics['raw_contrast'] += batch_raw_metrics.get('contrast_ratio', 0)
                 
-                # Calculate enhanced metrics for this batch
-                batch_metrics = calculate_batch_metrics(
-                    self.metrics, outputs, ground_truth, "stage1"
-                )
-                
-                # Accumulate metrics
-                for key, value in batch_metrics.items():
-                    if key in epoch_metrics:
-                        epoch_metrics[key] += value
-                
-                total_loss += loss.item()
+                total_standardized_loss += standardized_loss.item()
                 num_batches += 1
                 
-                # Show validation batch progress with standardized format
+                # Show validation batch progress with RAW metrics (human-interpretable)
                 logger.info(f"🔍 VALID | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
-                           f"RMSE: {loss.item():.4f} | Dice: {batch_metrics.get('dice', 0):.4f} | "
-                           f"Contrast: {batch_metrics.get('contrast_ratio', 0):.4f}")
+                           f"Raw_RMSE: {batch_raw_metrics.get('rmse_overall', 0):.4f} | "
+                           f"Dice: {batch_raw_metrics.get('dice', 0):.4f} | "
+                           f"Contrast: {batch_raw_metrics.get('contrast_ratio', 0):.4f}")
         
-        avg_loss = total_loss / num_batches
+        # Average all metrics
+        avg_standardized_loss = total_standardized_loss / num_batches
+        for key in raw_metrics:
+            raw_metrics[key] /= num_batches
         
-        # Average metrics across epoch
-        for key in epoch_metrics:
-            epoch_metrics[key] /= num_batches
+        logger.debug(f"✅ Validation completed. Average standardized loss: {avg_standardized_loss:.6f}")
+        logger.info(f"📊 VALID SUMMARY | Raw_RMSE: {raw_metrics['raw_rmse_total']:.4f} | "
+                   f"Dice: {raw_metrics['raw_dice']:.4f} | Contrast: {raw_metrics['raw_contrast']:.4f} | "
+                   f"μₐ: {raw_metrics['raw_rmse_mu_a']:.4f} | μ′ₛ: {raw_metrics['raw_rmse_mu_s']:.4f}")
         
-        logger.debug(f"✅ Validation completed. Average loss: {avg_loss:.6f}")
-        logger.info(f"📊 VALID SUMMARY | RMSE: {avg_loss:.4f} | Dice: {epoch_metrics['dice']:.4f} | "
-                   f"Contrast: {epoch_metrics['contrast_ratio']:.4f} | Abs: {epoch_metrics['rmse_absorption']:.4f} | "
-                   f"Scat: {epoch_metrics['rmse_scattering']:.4f}")
-        
-        return avg_loss, epoch_metrics
+        return avg_standardized_loss, raw_metrics
     
     def train(self, data_loaders, epochs=EPOCHS_STAGE1):
         """
-        Execute the complete Stage 1 training pipeline.
+        Execute the complete Stage 1 training pipeline with ground truth standardization.
         
-        This method orchestrates the full training process including epoch-wise
-        training and validation, progress monitoring, and automatic checkpoint
-        saving for the best performing model based on validation loss.
+        This method orchestrates the full training process including:
+        1. Standardizer fitting on training data only
+        2. Epoch-wise training on standardized targets
+        3. Validation with both standardized and raw metrics
+        4. Enhanced W&B logging and checkpoint management
+        
+        Key Changes for Standardization:
+        - Fits standardizer once on training data before training begins
+        - Trains on standardized targets, validates with raw metrics
+        - Logs both standardized loss and raw metrics to W&B
+        - Saves standardizer state in checkpoint for Stage 2 reuse
         
         Args:
             data_loaders (dict): Dictionary containing 'train' and 'val' DataLoaders
             epochs (int): Number of training epochs to execute. Default from constants
         
         Returns:
-            dict: Training results containing 'best_val_loss' for analysis
-        
-        Example:
-            >>> data_loaders = {'train': train_loader, 'val': val_loader}
-            >>> results = trainer.train(data_loaders, epochs=EPOCHS_STAGE1)
-            >>> print(f"Training completed with best loss: {results['best_val_loss']}")
+            dict: Training results containing 'best_val_loss' and standardizer info
         """
         # Initialize AdamW optimizer and OneCycleLR scheduler
         if self.optimizer is None:
             steps_per_epoch = len(data_loaders['train'])
             self._create_optimizer_and_scheduler(epochs, steps_per_epoch)
+        
+        # Fit standardizer on training data BEFORE training begins
+        if not self.standardizer_fitted:
+            self._fit_standardizer_on_train_data(data_loaders['train'])
         
         logger.info(f"")
         logger.info(f"{'='*80}")
@@ -593,6 +675,7 @@ class Stage1Trainer:
         logger.debug(f"📊 Training configuration: device={self.device}, lr={self.learning_rate}, epochs={epochs}")
         logger.debug(f"📈 Data loaders: train_batches={len(data_loaders['train'])}, val_batches={len(data_loaders['val'])}")
         logger.info(f"📅 AdamW + OneCycleLR | Steps per epoch: {len(data_loaders['train'])}")
+        logger.info(f"📊 Ground truth standardization: ENABLED (z-score per channel)")
         
         best_val_loss = float('inf')
         
@@ -601,92 +684,92 @@ class Stage1Trainer:
             logger.info(f"📅 EPOCH {epoch + 1}/{epochs}")
             logger.info(f"{'-'*40}")
             
-            # Train: Update model parameters using training data
+            # Train: Update model parameters using STANDARDIZED targets
             logger.debug(f"🏋️  Beginning training phase for epoch {epoch+1}")
-            train_loss, train_metrics = self.train_epoch(data_loaders['train'], epoch)
-            logger.info(f"🏋️  TRAIN COMPLETE | Avg RMSE: {train_loss:.4f}")
+            train_std_loss = self.train_epoch(data_loaders['train'], epoch)
+            logger.info(f"🏋️  TRAIN COMPLETE | Std_RMSE: {train_std_loss:.4f}")
             
-            # Validate: Evaluate on unseen data (no parameter updates) 
-            # We validate every epoch to: 1) Monitor overfitting, 2) Save best models, 3) Track progress
+            # Validate: Evaluate on STANDARDIZED targets, compute RAW metrics
             logger.debug(f"🔍 Beginning validation phase for epoch {epoch+1}")
-            val_loss, val_metrics = self.validate(data_loaders['val'])
-            logger.info(f"🔍 VALID COMPLETE | Avg RMSE: {val_loss:.4f}")
+            val_std_loss, val_raw_metrics = self.validate(data_loaders['val'])
+            logger.info(f"🔍 VALID COMPLETE | Std_RMSE: {val_std_loss:.4f} | Raw_RMSE: {val_raw_metrics['raw_rmse_total']:.4f}")
             
-            # Log enhanced metrics to W&B
-            if self.use_wandb:
-                # Log comprehensive metrics in organized format with clean epoch x-axis
+            # Log enhanced metrics to W&B with proper separation of standardized vs raw
+            if self.use_wandb and wandb.run:
                 wandb.log({
                     "epoch": epoch + 1,  # Custom x-axis for epoch metrics
                     
-                    # === PRIMARY METRICS (most important) ===
-                    "Metrics/RMSE_Overall_Train": train_loss,
-                    "Metrics/RMSE_Overall_Valid": val_loss,
-                    "Metrics/Dice_Train": train_metrics['dice'],
-                    "Metrics/Dice_Valid": val_metrics['dice'],
-                    "Metrics/ContrastRatio_Train": train_metrics['contrast_ratio'],
-                    "Metrics/ContrastRatio_Valid": val_metrics['contrast_ratio'],
+                    # === STANDARDIZED LOSSES (optimization space) ===
+                    "val/loss_std": val_std_loss,           # Main validation metric for early stopping
                     
-                    # === DETAILED RMSE BREAKDOWN ===
-                    "RMSE_Details/Absorption_Train": train_metrics['rmse_absorption'],
-                    "RMSE_Details/Absorption_Valid": val_metrics['rmse_absorption'],
-                    "RMSE_Details/Scattering_Train": train_metrics['rmse_scattering'],
-                    "RMSE_Details/Scattering_Valid": val_metrics['rmse_scattering'],
+                    # === RAW METRICS (human-interpretable) ===
+                    "val/raw_rmse_total": val_raw_metrics['raw_rmse_total'],
+                    "val/raw_rmse_mu_a": val_raw_metrics['raw_rmse_mu_a'],
+                    "val/raw_rmse_mu_s": val_raw_metrics['raw_rmse_mu_s'],
+                    "val/raw_dice": val_raw_metrics['raw_dice'],
+                    "val/raw_contrast": val_raw_metrics['raw_contrast'],
                     
-                    # === ENHANCED OVERFITTING ANALYSIS ===
-                    "Analysis/Overfitting_Ratio": train_loss / val_loss if val_loss > 0 else 1.0,
-                    "Analysis/Dice_Gap_Train_Val": train_metrics['dice'] - val_metrics['dice'],
-                    "Analysis/Contrast_Gap_Train_Val": train_metrics['contrast_ratio'] - val_metrics['contrast_ratio'],
-                    "Analysis/Overfitting_Risk": "High" if (train_loss / val_loss < 0.85 if val_loss > 0 else False) else "Low",
+                    # === ANALYSIS METRICS ===
+                    "Analysis/Std_Train_Val_Ratio": train_std_loss / val_std_loss if val_std_loss > 0 else 1.0,
                 })
                 
-                # Log reconstruction images periodically (and always on first/last epoch)
-                should_log_images = (epoch % LOG_IMAGES_EVERY == 0) or (epoch == 0) or (epoch == epochs - 1)
-                if should_log_images:
-                    # Get a batch for visualization
-                    try:
-                        sample_batch = next(iter(data_loaders['val']))
-                        ground_truth = sample_batch['ground_truth'].to(self.device)
-                        phantom_ids = sample_batch['phantom_id'].cpu().numpy()  # Get phantom IDs
-                        with torch.no_grad():
-                            outputs = self.model(ground_truth, tissue_patches=None)
-                        self._log_reconstruction_images(outputs['reconstructed'], ground_truth, epoch, phantom_ids)
-                    except Exception as e:
-                        logger.warning(f"⚠️ Failed to log images at epoch {epoch + 1}: {e}")
-            
-            # Print epoch summary with clear visual formatting
-            if epoch % PROGRESS_LOG_INTERVAL == 0 or epoch == epochs - FINAL_EPOCH_OFFSET:
-                logger.info(f"")
-                logger.info(f"{'='*80}")
-                logger.info(f"🚀 EPOCH {epoch+1:3d}/{epochs} SUMMARY")
-                logger.info(f"{'='*80}")
-                logger.info(f"📈 Train RMSE: {train_loss:.4f} | Valid RMSE: {val_loss:.4f} | LR: {self.optimizer.param_groups[0]['lr']:.2e}")
-                logger.info(f"📊 Train Dice: {train_metrics['dice']:.4f} | Valid Dice: {val_metrics['dice']:.4f}")
-                logger.info(f"📊 Train Contrast: {train_metrics['contrast_ratio']:.4f} | Valid Contrast: {val_metrics['contrast_ratio']:.4f}")
-                logger.info(f"{'='*80}")
+                # Log reconstruction images every epoch (always)
+                try:
+                    sample_batch = next(iter(data_loaders['val']))
+                    raw_ground_truth = sample_batch['ground_truth'].to(self.device)
+                    phantom_ids = sample_batch.get('phantom_id', torch.arange(raw_ground_truth.shape[0])).cpu().numpy()
+                    
+                    # Forward pass on standardized input
+                    standardized_ground_truth = self.standardizer.transform(raw_ground_truth)
+                    with torch.no_grad():
+                        outputs = self.model(standardized_ground_truth, tissue_patches=None)
+                    
+                    # Inverse transform predictions to raw space for visualization
+                    raw_predictions = self.standardizer.inverse_transform(outputs['reconstructed'])
+                    
+                    # Log using raw predictions and raw ground truth
+                    log_reconstruction_images_to_wandb(
+                        raw_predictions, raw_ground_truth, epoch, 
+                        prefix="Reconstructions", phantom_ids=phantom_ids
+                    )
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to log images at epoch {epoch + 1}: {e}")            # Print epoch summary every epoch for important milestones
+            logger.info(f"")
+            logger.info(f"{'='*80}")
+            logger.info(f"🚀 EPOCH {epoch+1:3d}/{epochs} SUMMARY")
+            logger.info(f"{'='*80}")
+            logger.info(f"📈 Std Loss | Train: {train_std_loss:.4f} | Valid: {val_std_loss:.4f}")
+            logger.info(f"📊 Raw RMSE | Total: {val_raw_metrics['raw_rmse_total']:.4f} | μₐ: {val_raw_metrics['raw_rmse_mu_a']:.4f} | μ′ₛ: {val_raw_metrics['raw_rmse_mu_s']:.4f}")
+            logger.info(f"📊 Raw Metrics | Dice: {val_raw_metrics['raw_dice']:.4f} | Contrast: {val_raw_metrics['raw_contrast']:.4f}")
+            logger.info(f"📈 LR: {self.optimizer.param_groups[0]['lr']:.2e}")
+            logger.info(f"{'='*80}")
             
             # Log GPU stats every 5 epochs
             if epoch % 5 == 0 and torch.cuda.is_available():
-                log_gpu_stats()            # Learning rate scheduling (OneCycleLR updates per-batch, no epoch-level action needed)
-            # OneCycleLR is updated per-batch in train_epoch, so no action needed here
+                try:
+                    gpu_memory = torch.cuda.max_memory_allocated() / 1024**3
+                    logger.debug(f"🖥️ GPU Memory: {gpu_memory:.1f}GB")
+                except:
+                    pass
             
-            # Early stopping and best model tracking
-            if val_loss < self.best_val_loss:
-                improvement = self.best_val_loss - val_loss
-                self.best_val_loss = val_loss
+            # Early stopping based on STANDARDIZED validation loss
+            if val_std_loss < self.best_val_loss:
+                improvement = self.best_val_loss - val_std_loss
+                self.best_val_loss = val_std_loss
                 self.patience_counter = 0  # Reset patience counter
                 checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_STAGE1}"
-                logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best RMSE: {self.best_val_loss:.4f}")
-                self.save_checkpoint(checkpoint_path, epoch, val_loss)
+                logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best Std_RMSE: {self.best_val_loss:.4f}")
+                self.save_checkpoint(checkpoint_path, epoch, val_std_loss, val_raw_metrics)
             else:
                 self.patience_counter += 1
-                logger.debug(f"📊 No improvement. Current: {val_loss:.6f}, Best: {self.best_val_loss:.6f}, Patience: {self.patience_counter}/{self.early_stopping_patience}")
+                logger.debug(f"📊 No improvement. Current: {val_std_loss:.6f}, Best: {self.best_val_loss:.6f}, Patience: {self.patience_counter}/{self.early_stopping_patience}")
                 
                 # Check for early stopping
                 if self.patience_counter >= self.early_stopping_patience:
                     logger.info(f"")
                     logger.info(f"🛑 EARLY STOPPING TRIGGERED")
                     logger.info(f"🔄 No improvement for {self.early_stopping_patience} epochs")
-                    logger.info(f"🏆 Best RMSE achieved: {self.best_val_loss:.4f}")
+                    logger.info(f"🏆 Best Std_RMSE achieved: {self.best_val_loss:.4f}")
                     self.early_stopped = True
                     break
         
@@ -697,37 +780,43 @@ class Stage1Trainer:
             logger.info(f"✅ STAGE 1 TRAINING COMPLETED (Early Stopped)")
         else:
             logger.info(f"✅ STAGE 1 TRAINING COMPLETED (Full {epochs} Epochs)")
-        logger.info(f"🏆 Best RMSE Loss: {self.best_val_loss:.4f}")
+        logger.info(f"🏆 Best Std_RMSE Loss: {self.best_val_loss:.4f}")
         logger.info(f"📊 Final Epoch: {epoch+1}")
         logger.info(f"{'='*80}")
         
         logger.debug(f"🏁 Training summary: Completed epochs: {epoch+1}, Final best loss: {self.best_val_loss:.6f}")
         
         # Finish W&B run
-        if self.use_wandb:
+        if self.use_wandb and wandb.run:
             wandb.log({"System/final_best_val_loss": self.best_val_loss, "System/early_stopped": self.early_stopped}, commit=False)
             wandb.finish()
             logger.info("🔬 W&B experiment finished")
         
-        return {'best_val_loss': self.best_val_loss, 'early_stopped': self.early_stopped}
+        return {
+            'best_val_loss': self.best_val_loss, 
+            'early_stopped': self.early_stopped,
+            'standardizer_fitted': self.standardizer_fitted
+        }
     
-    def save_checkpoint(self, path, epoch, val_loss):
+    def save_checkpoint(self, path, epoch, val_loss, val_raw_metrics=None):
         """
-        Save model checkpoint with training state information.
+        Save model checkpoint with training state and standardizer information.
         
         This method creates a comprehensive checkpoint containing the model state,
-        optimizer state, and training metadata for resuming training or
-        transferring to Stage 2 training.
+        optimizer state, standardizer state, and training metadata for resuming 
+        training or transferring to Stage 2 training.
         
         Args:
             path (str): File path for saving the checkpoint
             epoch (int): Current training epoch number
-            val_loss (float): Current validation loss value
+            val_loss (float): Current validation loss value (standardized space)
+            val_raw_metrics (dict, optional): Raw validation metrics for reference
         
         The checkpoint includes:
         - Model state dictionary (learned parameters)
         - Optimizer state dictionary (for training resumption)
-        - Training metadata (epoch, validation loss)
+        - Standardizer state dictionary (normalization parameters)
+        - Training metadata (epoch, validation loss, raw metrics)
         """
         logger.debug(f"💾 Saving Stage 1 checkpoint: epoch={epoch}, val_loss={val_loss:.6f}")
         
@@ -741,9 +830,17 @@ class Stage1Trainer:
             'epoch': epoch,
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
-            'val_loss': val_loss
+            'val_loss': val_loss,  # Standardized validation loss
+            'standardizer': self.standardizer.state_dict() if self.standardizer_fitted else None,
+            'standardizer_fitted': self.standardizer_fitted,
         }
         
+        # Add raw metrics if provided
+        if val_raw_metrics is not None:
+            checkpoint_data['val_raw_metrics'] = val_raw_metrics
+        
         torch.save(checkpoint_data, path)
-        logger.info(f"💾 ✅ CHECKPOINT SAVED | Path: {path} | Epoch: {epoch+1} | Val Loss: {val_loss:.6f}")
+        logger.info(f"💾 ✅ CHECKPOINT SAVED | Path: {path} | Epoch: {epoch+1} | Std_Loss: {val_loss:.6f}")
+        if val_raw_metrics:
+            logger.info(f"📊 Raw metrics saved: RMSE={val_raw_metrics.get('raw_rmse_total', 0):.4f}, Dice={val_raw_metrics.get('raw_dice', 0):.4f}")
         logger.debug(f"📊 Checkpoint data keys: {list(checkpoint_data.keys())}")

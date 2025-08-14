@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Training Stage Control - Set which stage to run
-CURRENT_TRAINING_STAGE = "stage2"  # "stage1" or "stage2"
+CURRENT_TRAINING_STAGE = "stage1"  # "stage1" or "stage2"
 
 # Weights & Biases Logging
 USE_WANDB_LOGGING = True
@@ -39,11 +39,11 @@ USE_CHANNELS_LAST_MEMORY_FORMAT = True  # Efficient memory layout for 3D convolu
 # =============================================================================
 
 # Training Duration
-EPOCHS_STAGE1 = 150  # Stage 1 CNN training epochs - more (↑) = better feature learning, less (↓) = faster training
+EPOCHS_STAGE1 = 100  # Stage 1 CNN training epochs - more (↑) = better feature learning, less (↓) = faster training
 EPOCHS_STAGE2 = 150   # Stage 2 transformer epochs - more (↑) = better fine-tuning, less (↓) = faster completion
 
 # Batch Sizes - Hard-coded for stability
-BATCH_SIZE = 48  # Reduced for Stage 2 stability - lower variance and AMP scale pressure
+BATCH_SIZE = 64  # Reduced for Stage 2 stability - lower variance and AMP scale pressure
 
 # Early Stopping
 EARLY_STOPPING_PATIENCE = 25  # Epochs to wait without improvement - higher (↑) = more exploration, lower (↓) = faster stopping
@@ -121,28 +121,22 @@ ADAMW_EPS_STAGE2 = 1e-8            # Numerical stability epsilon - prevents opti
 
 # Checkpoint Paths
 CHECKPOINT_BASE_DIR = "checkpoints"
-STAGE1_CHECKPOINT_PATH = "checkpoints/stage1_best.pth"
 CHECKPOINT_STAGE1 = "stage1_best.pth"
 CHECKPOINT_STAGE2_BASELINE = "stage2_baseline_best.pth"
 CHECKPOINT_STAGE2_ENHANCED = "stage2_enhanced_best.pth"
 
-# Progress Logging
-PROGRESS_LOG_INTERVAL = 1        # Log progress every N epochs
-FINAL_EPOCH_OFFSET = 1          # Always log final epoch
+# Logging Configuration
 LOG_LR_EVERY_N_BATCHES = 5      # Log learning rate every N batches
+FINAL_EPOCH_OFFSET = 1          # Always log final epoch
 
 # Weights & Biases Configuration
 WANDB_PROJECT = "nir-dot-reconstruction"
-LOG_IMAGES_EVERY = 1            # Log reconstruction images every N epochs
-LOG_BOTH_CHANNELS = True        # Log both absorption and scattering channels
-
-# W&B Tags for experiment organization
 WANDB_TAGS_STAGE1 = ["stage1", "cnn-autoencoder", "pretraining", "nir-dot"]
 WANDB_TAGS_STAGE2_BASELINE = ["stage2", "transformer", "baseline", "nir-dot"]
 WANDB_TAGS_STAGE2_ENHANCED = ["stage2", "transformer", "enhanced", "tissue-patches", "nir-dot"]
 
 # =============================================================================
-# SYSTEM CONFIGURATION
+# STAGE-SPECIFIC CONFIGURATION
 # =============================================================================
 
 # Data and Device Paths
@@ -150,13 +144,13 @@ DATA_DIRECTORY = "data"
 CUDA_DEVICE = "cuda"
 CPU_DEVICE = "cpu"
 
-# Training Stage Identifiers
+# Stage 1 Configuration (CNN Autoencoder Pre-training)
 TRAINING_STAGE1 = "stage1"
-TRAINING_STAGE2 = "stage2"
+USE_TISSUE_PATCHES_STAGE1 = False   # No tissue patches in Stage 1
 
-# Feature Flags
-USE_TISSUE_PATCHES_STAGE1 = False  # Stage 1 uses ground truth only (optimized loader)
-USE_TISSUE_PATCHES_STAGE2 = False  # Stage 2 baseline mode (set True for enhanced mode)
+# Stage 2 Configuration (Transformer Enhancement)
+TRAINING_STAGE2 = "stage2"
+USE_TISSUE_PATCHES_STAGE2 = False    # Enable tissue patches in Stage 2
 
 # =============================================================================
 # UTILITY FUNCTIONS
