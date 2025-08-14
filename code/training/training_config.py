@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Training Stage Control - Set which stage to run
-CURRENT_TRAINING_STAGE = "stage1"  # "stage1" or "stage2"
+CURRENT_TRAINING_STAGE = "stage2"  # "stage1" or "stage2"
 
 # Weights & Biases Logging
 USE_WANDB_LOGGING = True
@@ -71,7 +71,7 @@ DROPOUT_TRANSFORMER = 0.12      # Transformer attention/MLP dropout - higher (�
 DROPOUT_NIR_PROCESSOR = 0.18    # NIR measurement dropout - prevents over-reliance on specific measurements
 
 # Gradient Clipping (training stability)
-GRADIENT_CLIP_MAX_NORM = 0.3      # Max gradient norm - lower (↓) = more stable but slower, higher (↑) = faster but explosive risk
+GRADIENT_CLIP_MAX_NORM = 2.0      # Max gradient norm - increased from 0.3 to handle gradient explosion for stage2 training
 GRADIENT_MONITOR_THRESHOLD = 5.0  # Gradient warning threshold - detects training instability early
 
 # =============================================================================
@@ -101,9 +101,9 @@ MAX_MOMENTUM = 0.95   # Maximum momentum value - cycles between base and max dur
 # Based on "Attention Is All You Need", BERT, and ViT papers for transformer training
 
 # Learning Rate Schedule
-STAGE2_BASE_LR = 8e-4       # Base learning rate - lower (↓) = stable but slower, higher (↑) = faster but riskier
-STAGE2_WARMUP_PCT = 0.15     # Warmup percentage - more (↑) = stable transformer training, less (↓) = faster start
-STAGE2_ETA_MIN_PCT = 0.05    # Final LR percentage - higher (↑) = gentler decay, lower (↓) = stronger decay
+STAGE2_BASE_LR = 5e-4       # Increased from 2e-4 - transformer needs higher LR for 5M params
+STAGE2_WARMUP_PCT = 0.15     # Keep warmup percentage - more (↑) = stable transformer training, less (↓) = faster start  
+STAGE2_ETA_MIN_PCT = 0.02    # Reduced final LR to 2% for more aggressive decay
 
 # Optimizer Parameters
 ADAMW_BETAS_STAGE2 = (0.9, 0.98)  # Transformer-optimized momentum - beta2=0.98 reduces noise in attention gradients

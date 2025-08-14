@@ -110,12 +110,17 @@ def fixed_sequence_undersampling(nir_measurements: torch.Tensor,
     device = nir_measurements.device
     
     if not training:
-        # Inference: use first 256 measurements for consistency
-        selected_indices = torch.arange(n_measurements, device=device)
+        # Validation/Inference: use deterministic subset for consistency  
+        # Use a fixed random seed to ensure same subset across validation runs
+        torch.manual_seed(42)
+        selected_indices = torch.randperm(seq_len, device=device)[:n_measurements]
+        selected_indices = selected_indices.sort()[0]  # Sort for consistent ordering
+        logger.debug(f"🎯 Fixed undersampling (validation): deterministic subset of {n_measurements} measurements")
     else:
         # Training: random selection of 256 measurements (same for all phantoms in batch)
         selected_indices = torch.randperm(seq_len, device=device)[:n_measurements]
         selected_indices = selected_indices.sort()[0]  # Sort for consistent ordering
+        logger.debug(f"🎯 Fixed undersampling (training): random subset of {n_measurements} measurements")
     
     # Select measurements using advanced indexing
     selected_nir = nir_measurements[:, selected_indices, :]  # [batch, 256, 8]
@@ -124,8 +129,6 @@ def fixed_sequence_undersampling(nir_measurements: torch.Tensor,
     selected_tissue = None
     if tissue_patches is not None:
         selected_tissue = tissue_patches[:, selected_indices, :, :, :, :, :]  # [batch, 256, 2, 2, 16, 16, 16]
-    
-    logger.debug(f"🎯 Fixed undersampling: selected {len(selected_indices)} measurements from {seq_len}")
     
     return selected_nir, selected_tissue
 
@@ -372,16 +375,20 @@ class HybridCNNTransformer(nn.Module):
             )  # Returns: [batch, 256, embed_dim], attention_weights
             
             # Step 3: Global pooling (simple averaging - no masking needed)
-            encoded_scan = self.global_pooling_encoder(enhanced_tokens, attention_mask=None)
+            encoded_scan = self.global_pooling_encoder(enhanced_tokens)
             
             # Step 4: CNN decoder (using pre-trained weights from Stage 1)
             reconstructed = self.cnn_autoencoder.decode(encoded_scan)  # [batch, 2, 64, 64, 64]
             
+            # Prepare features for metrics (aggregate tokens to single vectors)
+            enhanced_features_for_metrics = enhanced_tokens.mean(dim=1)  # [batch, 256, embed_dim] -> [batch, embed_dim]
+            cnn_features_for_metrics = combined_tokens.mean(dim=1)       # [batch, 256, embed_dim] -> [batch, embed_dim]
+            
             outputs.update({
                 'reconstructed': reconstructed,
                 'encoded_scan': encoded_scan,
-                'enhanced_tokens': enhanced_tokens,
-                'combined_tokens': combined_tokens,
+                'enhanced_features': enhanced_features_for_metrics,   # [batch, embed_dim] for metrics
+                'cnn_features': cnn_features_for_metrics,             # [batch, embed_dim] for metrics
                 'attention_weights': attention_weights,
                 'selected_measurements': 256,  # Always 256 measurements
                 'original_measurements': dot_measurements.shape[1],  # Original number of measurements (1000)

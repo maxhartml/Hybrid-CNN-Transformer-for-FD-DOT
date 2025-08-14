@@ -594,6 +594,10 @@ def calculate_batch_metrics(metrics: NIRDOTMetrics, outputs: Dict[str, torch.Ten
         cnn_features = outputs.get('cnn_features')
         attention_weights = outputs.get('attention_weights')
         
+        logger.debug(f"🔍 Metrics input shapes - enhanced: {enhanced_features.shape if enhanced_features is not None else 'None'}, "
+                    f"cnn: {cnn_features.shape if cnn_features is not None else 'None'}, "
+                    f"attention: {attention_weights.shape if attention_weights is not None else 'None'}")
+        
         return metrics.calculate_all_metrics(
             pred, targets, enhanced_features, cnn_features, attention_weights
         )

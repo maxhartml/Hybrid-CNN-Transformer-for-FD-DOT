@@ -102,20 +102,16 @@ class GlobalPoolingEncoder(nn.Module):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
     
-    def forward(self, transformer_output: torch.Tensor, 
-                attention_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(self, transformer_output: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass through global pooling encoder with attention masking support.
+        SIMPLIFIED forward pass for fixed 256-measurement sequences (Option C).
         
-        Applies masked global pooling to only consider active (non-masked) tokens
-        during the averaging operation, ensuring proper handling of variable-length
-        sequences from dynamic undersampling.
+        Applies simple global average pooling across all 256 tokens since we eliminated
+        attention masking complexity with fixed sequence lengths.
         
         Args:
-            transformer_output (torch.Tensor): Shape [batch_size, seq_len, embed_dim]
-                Output from transformer encoder
-            attention_mask (torch.Tensor, optional): Shape [batch_size, seq_len]
-                Binary mask where True indicates active tokens, False indicates masked
+            transformer_output (torch.Tensor): Shape [batch_size, 256, embed_dim]
+                Output from transformer encoder (always 256 tokens)
         
         Returns:
             torch.Tensor: Encoded scan of shape [batch_size, encoded_scan_dim]
@@ -123,28 +119,10 @@ class GlobalPoolingEncoder(nn.Module):
         """
         batch_size, seq_len, embed_dim = transformer_output.shape
         assert embed_dim == self.embed_dim, f"Expected {self.embed_dim}D input, got {embed_dim}D"
+        assert seq_len == 256, f"Expected exactly 256 tokens, got {seq_len}"
         
-        if attention_mask is not None:
-            # Masked global average pooling
-            # Expand mask to match transformer output: [batch, seq_len] → [batch, seq_len, embed_dim]
-            mask_expanded = attention_mask.unsqueeze(-1).float()  # [batch, seq_len, 1]
-            
-            # Zero out masked positions
-            masked_output = transformer_output * mask_expanded  # [batch, seq_len, embed_dim]
-            
-            # Compute sum and count of active tokens
-            token_sum = masked_output.sum(dim=1)  # [batch, embed_dim]
-            active_count = attention_mask.sum(dim=1, keepdim=True).float()  # [batch, 1]
-            
-            # Avoid division by zero
-            active_count = torch.clamp(active_count, min=1.0)
-            
-            # Compute average over active tokens only
-            pooled = token_sum / active_count  # [batch, embed_dim]
-            
-        else:
-            # Standard global average pooling across sequence dimension
-            pooled = transformer_output.mean(dim=1)  # [batch, embed_dim]
+        # Simple global average pooling across all 256 tokens
+        pooled = transformer_output.mean(dim=1)  # [batch, embed_dim]
         
         # Project to encoded scan dimension
         encoded_scan = self.encoded_scan_projection(pooled)  # [batch, encoded_scan_dim]

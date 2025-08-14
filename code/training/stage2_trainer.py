@@ -452,13 +452,19 @@ class Stage2Trainer:
         def get_cosine_schedule_with_warmup(step):
             """Learning rate schedule function for transformer fine-tuning."""
             if step < warmup_steps:
-                # Linear warmup: 0 → peak_lr
-                return step / max(1, warmup_steps)
+                # Linear warmup: Start at 1% of base LR, grow to 100% of base LR
+                # This prevents the learning rate from being too small at the start
+                min_lr_factor = 0.01  # Start at 1% of base LR instead of 0%
+                warmup_factor = min_lr_factor + (1.0 - min_lr_factor) * (step / max(1, warmup_steps))
+                logger.debug(f"LR Schedule - Step {step}: Warmup factor = {warmup_factor:.6f}")
+                return warmup_factor
             
-            # Cosine decay: peak_lr → eta_min
+            # Cosine decay: 1.0 → eta_min
             progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
-            eta_min = STAGE2_ETA_MIN_PCT  # Final LR = 3% of peak
-            return eta_min + 0.5 * (1 - eta_min) * (1 + math.cos(math.pi * progress))
+            eta_min = STAGE2_ETA_MIN_PCT  # Final LR = 5% of peak
+            cosine_factor = eta_min + 0.5 * (1 - eta_min) * (1 + math.cos(math.pi * progress))
+            logger.debug(f"LR Schedule - Step {step}: Cosine factor = {cosine_factor:.6f}, Progress = {progress:.3f}")
+            return cosine_factor
         
         self.scheduler = torch.optim.lr_scheduler.LambdaLR(
             self.optimizer, 
@@ -474,6 +480,8 @@ class Stage2Trainer:
         logger.info(f"   ├─ Total Steps: {total_steps:,}")
         logger.info(f"   ├─ Warmup Steps: {warmup_steps:,} ({STAGE2_WARMUP_PCT*100:.0f}%)")
         logger.info(f"   ├─ Final LR: {STAGE2_ETA_MIN_PCT*100:.0f}% of peak")
+        logger.info(f"   ├─ Starting LR (step 0): {STAGE2_BASE_LR * 0.01:.2e}")
+        logger.info(f"   ├─ Peak LR (after warmup): {STAGE2_BASE_LR:.2e}")
         logger.info(f"   └─ Schedule: Linear Warmup → Cosine Decay")
         
         return self.optimizer, self.scheduler
@@ -619,6 +627,19 @@ class Stage2Trainer:
                 outputs = self.model(nir_measurements, tissue_patches)
                 logger.debug(f"📤 Stage 2 model output shape: {outputs['reconstructed'].shape}")
                 
+                # DEBUGGING: Log transformer activity details
+                if 'attention_weights' in outputs and outputs['attention_weights'] is not None:
+                    attn_weights = outputs['attention_weights']
+                    logger.info(f"🧠 Transformer attention stats: shape={attn_weights.shape}, "
+                              f"min={attn_weights.min():.4f}, max={attn_weights.max():.4f}, "
+                              f"mean={attn_weights.mean():.4f}")
+                
+                if 'enhanced_features' in outputs and outputs['enhanced_features'] is not None:
+                    features = outputs['enhanced_features']
+                    logger.info(f"✨ Enhanced features stats: shape={features.shape}, "
+                              f"min={features.min():.4f}, max={features.max():.4f}, "
+                              f"mean={features.mean():.4f}, std={features.std():.4f}")
+                
                 # SAFETY: Check for NaN values immediately after forward pass
                 if torch.isnan(outputs['reconstructed']).any():
                     logger.error(f"🚨 NaN detected in model output at batch {batch_idx}")
@@ -647,6 +668,28 @@ class Stage2Trainer:
                 self.scaler.unscale_(self.optimizer)
                 grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=GRADIENT_CLIP_MAX_NORM)
                 
+                # DEBUGGING: Log transformer activity details
+                if batch_idx % 40 == 0:  # Every 40 batches to reduce noise
+                    transformer_grad_norm = 0.0
+                    transformer_param_count = 0
+                    for name, param in self.model.transformer_encoder.named_parameters():
+                        if param.grad is not None:
+                            transformer_grad_norm += param.grad.norm().item() ** 2
+                            transformer_param_count += 1
+                    
+                    if transformer_param_count > 0:
+                        transformer_grad_norm = (transformer_grad_norm ** 0.5)
+                        logger.info(f"🔧 Transformer gradients: norm={transformer_grad_norm:.4f}, "
+                                  f"params_updated={transformer_param_count}")
+                    
+                    # Log parameter statistics for transformer
+                    for name, param in self.model.transformer_encoder.named_parameters():
+                        if param.requires_grad and 'weight' in name:
+                            grad_norm_val = param.grad.norm().item() if param.grad is not None else 0.0
+                            logger.info(f"🎛️ {name}: mean={param.data.mean().item():.6f}, "
+                                      f"std={param.data.std().item():.6f}, "
+                                      f"grad_norm={grad_norm_val:.6f}")
+                
                 # ENHANCED: Monitor gradient norm for training health with more aggressive thresholds
                 if grad_norm > GRADIENT_MONITOR_THRESHOLD:
                     logger.warning(f"⚠️ High gradient norm detected: {grad_norm:.4f} > {GRADIENT_MONITOR_THRESHOLD}")
@@ -668,7 +711,14 @@ class Stage2Trainer:
                 logger.debug("✅ Stage 2 mixed precision optimizer step completed")
                 
                 # Linear Warmup + Cosine Decay updates per-batch (essential for smooth scheduling)
+                prev_lr = self.optimizer.param_groups[0]['lr']
                 self.scheduler.step()
+                new_lr = self.optimizer.param_groups[0]['lr']
+                
+                # DEBUGGING: Log learning rate changes
+                if batch_idx % 40 == 0:  # Every 40 batches to reduce noise
+                    logger.info(f"📊 LR update: {prev_lr:.2e} → {new_lr:.2e} "
+                              f"(step {batch_idx + epoch * len(data_loader)})")
                 
                 # Log learning rate every 5 batches to avoid W&B buffer warnings
                 if batch_idx % LOG_LR_EVERY_N_BATCHES == 0:
@@ -691,11 +741,13 @@ class Stage2Trainer:
                     if key in epoch_metrics:
                         epoch_metrics[key] += value
             
-            # Show batch progress with standardized metrics format (including LR for LinearWarmupCosineDecay monitoring)
+            # Show batch progress with standardized metrics format (including transformer metrics)
             current_lr = self.optimizer.param_groups[0]['lr']
             logger.info(f"🏋️ TRAIN | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
                        f"RMSE: {loss.item():.4f} | Dice: {batch_metrics.get('dice', 0):.4f} | "
-                       f"Contrast: {batch_metrics.get('contrast_ratio', 0):.4f} | LR: {current_lr:.2e}")
+                       f"Contrast: {batch_metrics.get('contrast_ratio', 0):.4f} | "
+                       f"Enhancement: {batch_metrics.get('feature_enhancement_ratio', 0):.4f} | "
+                       f"Attention: {batch_metrics.get('attention_entropy', 0):.4f} | LR: {current_lr:.2e}")
             
             # Log gradient norm at debug level for monitoring training health (match Stage 1)
             logger.debug(f"🔧 Batch {batch_idx + 1} | Gradient Norm: {grad_norm:.3f}")
@@ -792,10 +844,12 @@ class Stage2Trainer:
                 total_loss += loss.item()
                 num_batches += 1
                 
-                # Show validation batch progress with standardized format (match Stage 1)
+                # Show validation batch progress with standardized format including transformer metrics
                 logger.info(f"🔍 VALID | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
                            f"RMSE: {loss.item():.4f} | Dice: {batch_metrics.get('dice', 0):.4f} | "
-                           f"Contrast: {batch_metrics.get('contrast_ratio', 0):.4f}")
+                           f"Contrast: {batch_metrics.get('contrast_ratio', 0):.4f} | "
+                           f"Enhancement: {batch_metrics.get('feature_enhancement_ratio', 0):.4f} | "
+                           f"Attention: {batch_metrics.get('attention_entropy', 0):.4f}")
         
         avg_loss = total_loss / num_batches
         
