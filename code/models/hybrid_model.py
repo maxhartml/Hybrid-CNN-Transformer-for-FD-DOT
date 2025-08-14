@@ -84,79 +84,51 @@ logger = get_model_logger(__name__)
 # DYNAMIC SEQUENCE UNDERSAMPLING
 # =============================================================================
 
-def dynamic_sequence_undersampling(nir_measurements: torch.Tensor, 
-                                  tissue_patches: Optional[torch.Tensor] = None,
-                                  min_measurements: int = MIN_MEASUREMENTS_TRAINING,
-                                  max_measurements: int = MAX_MEASUREMENTS_TRAINING,
-                                  training: bool = True) -> Tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor]:
+def fixed_sequence_undersampling(nir_measurements: torch.Tensor, 
+                                tissue_patches: Optional[torch.Tensor] = None,
+                                n_measurements: int = 256,
+                                training: bool = True) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
     """
-    Dynamic sequence undersampling using binary masking for massive data augmentation.
+    Fixed-length sequence undersampling with epoch-consistent indexing.
     
-    Creates random binary masks for each batch item to simulate varying scan densities.
-    This approach enables transformers to handle variable-length sequences naturally
-    while providing massive data augmentation through different measurement combinations.
+    Each epoch uses the same random subset of 256 measurements for ALL phantoms,
+    providing excellent data augmentation while maintaining tensor simplicity.
+    Eliminates all attention masking complexity and shape mismatch issues.
     
     Args:
-        nir_measurements (torch.Tensor): Full NIR measurements of shape (batch_size, seq_len, 8)
-        tissue_patches (torch.Tensor, optional): Full tissue patches of shape (batch_size, seq_len, 2, 2, 16, 16, 16)
-        min_measurements (int): Minimum measurements per batch item (default: 5)
-        max_measurements (int): Maximum measurements per batch item (default: 256) 
-        training (bool): Whether in training mode (uses random masking) or inference mode
+        nir_measurements (torch.Tensor): Full NIR measurements [batch, 1000, 8]
+        tissue_patches (torch.Tensor, optional): Full tissue patches [batch, 1000, 2, 2, 16, 16, 16]
+        n_measurements (int): Fixed number of measurements to select (default: 256)
+        training (bool): Whether in training mode
         
     Returns:
-        Tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor]: 
-            - Masked NIR measurements (same shape as input, with zeros for masked positions)
-            - Masked tissue patches (if provided, with zeros for masked positions) or None
-            - Attention mask (bool tensor indicating valid positions)
-            
-    Note:
-        Training mode: Each batch item gets different random binary mask (5-256 active measurements)
-        Validation mode: All measurements active for consistency
-        Uses binary masking instead of tensor slicing for proper transformer integration
+        Tuple containing:
+        - Selected NIR measurements [batch, 256, 8]
+        - Selected tissue patches [batch, 256, 2, 2, 16, 16, 16] (if provided)
     """
     batch_size, seq_len, feature_dim = nir_measurements.shape
     device = nir_measurements.device
     
     if not training:
-        # Inference mode: use all measurements consistently
-        attention_mask = torch.ones(batch_size, seq_len, dtype=torch.bool, device=device)
-        logger.debug(f"🎯 Inference mode: using all {seq_len} measurements")
-        return nir_measurements, tissue_patches, attention_mask
+        # Inference: use first 256 measurements for consistency
+        selected_indices = torch.arange(n_measurements, device=device)
+    else:
+        # Training: random selection of 256 measurements (same for all phantoms in batch)
+        selected_indices = torch.randperm(seq_len, device=device)[:n_measurements]
+        selected_indices = selected_indices.sort()[0]  # Sort for consistent ordering
     
-    # Training mode: generate random binary masks for each batch item
-    attention_masks = []
+    # Select measurements using advanced indexing
+    selected_nir = nir_measurements[:, selected_indices, :]  # [batch, 256, 8]
     
-    for batch_idx in range(batch_size):
-        # Random number of active measurements for this batch item
-        n_active = torch.randint(min_measurements, max_measurements + 1, (1,), device=device).item()
-        n_active = min(n_active, seq_len)  # Ensure we don't exceed available measurements
-        
-        # Create binary mask for this batch item
-        mask = torch.zeros(seq_len, dtype=torch.bool, device=device)
-        active_indices = torch.randperm(seq_len, device=device)[:n_active]
-        mask[active_indices] = True
-        
-        attention_masks.append(mask)
-    
-    # Stack masks: [batch_size, seq_len]
-    attention_mask = torch.stack(attention_masks, dim=0)
-    
-    # Apply binary masks to zero out inactive measurements
-    # Expand mask dimensions to match data shapes
-    nir_mask = attention_mask.unsqueeze(-1).float()  # [batch, seq, 1]
-    masked_nir = nir_measurements * nir_mask
-    
-    # Apply masks to tissue patches if provided
-    masked_tissue = None
+    # Select tissue patches if provided
+    selected_tissue = None
     if tissue_patches is not None:
-        # Expand mask for tissue patches: [batch, seq, 1, 1, 1, 1, 1]
-        tissue_mask = attention_mask.view(batch_size, seq_len, 1, 1, 1, 1, 1).float()
-        masked_tissue = tissue_patches * tissue_mask
+        selected_tissue = tissue_patches[:, selected_indices, :, :, :, :, :]  # [batch, 256, 2, 2, 16, 16, 16]
     
-    active_counts = attention_mask.sum(dim=1).cpu().tolist()
-    logger.debug(f"🎯 Training undersampling: active measurements per batch: {active_counts}")
+    logger.debug(f"🎯 Fixed undersampling: selected {len(selected_indices)} measurements from {seq_len}")
     
-    return masked_nir, masked_tissue, attention_mask
+    return selected_nir, selected_tissue
+
 
 # =============================================================================
 # HYBRID MODEL ARCHITECTURE
@@ -321,7 +293,6 @@ class HybridCNNTransformer(nn.Module):
         """
         # Initialize any custom projection layers or additional components
         # CNN autoencoder and transformer/tissue encoders handle their own initialization
-        logger.debug("🔧 Custom weight initialization completed for hybrid model components")
     
     def forward(self, dot_measurements: torch.Tensor,
                 tissue_patches: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
@@ -344,7 +315,6 @@ class HybridCNNTransformer(nn.Module):
         """
         batch_size = dot_measurements.shape[0]
         device = dot_measurements.device
-        logger.debug(f"🏃 Hybrid Model forward: input shape {dot_measurements.shape}, stage={self.training_stage}")
         
         outputs = {}
         
@@ -361,7 +331,6 @@ class HybridCNNTransformer(nn.Module):
                     f"Expected shape: (batch_size, 2, 64, 64, 64)"
                 )
             
-            logger.debug("📍 Stage 1: CNN autoencoder training")
             reconstructed = self.cnn_autoencoder(dot_measurements)
             outputs.update({
                 'reconstructed': reconstructed,
@@ -375,48 +344,38 @@ class HybridCNNTransformer(nn.Module):
                     f"Expected shape: (batch_size, n_measurements, 8)"
                 )
             
-            logger.debug("🎯 Stage 2: Transformer enhancement with dynamic undersampling")
-            
-            # Step 0: Dynamic Sequence Undersampling (binary masking for massive data augmentation)
-            undersampled_nir, undersampled_tissue, attention_mask = dynamic_sequence_undersampling(
+            # Step 0: Fixed Sequence Undersampling (256 measurements per phantom)
+            # Eliminates all attention masking complexity and shape mismatches
+            undersampled_nir, undersampled_tissue = fixed_sequence_undersampling(
                 nir_measurements=dot_measurements,     # [batch, 1000, 8] 
                 tissue_patches=tissue_patches,         # [batch, 1000, 2, 2, 16, 16, 16] or None
-                min_measurements=MIN_MEASUREMENTS_TRAINING,
-                max_measurements=MAX_MEASUREMENTS_TRAINING,
-                training=self.training  # Use model's training state
+                n_measurements=256,                    # Fixed: always 256 measurements
+                training=self.training
             )
             
-            active_measurements = attention_mask.sum(dim=1).cpu().tolist()
-            logger.debug(f"🎯 Dynamic undersampling: {dot_measurements.shape} → active measurements: {active_measurements}")
+            # Now all tensors have consistent shape: [batch, 256, ...]
+            # No attention masking needed - all measurements are "active"
             
-            # Step 1: Spatially-Aware Encoder Block (spatially-aware embedding + tissue fusion)
+            # Step 1: Spatially-Aware Encoder Block
             combined_tokens = self.spatially_aware_encoder(
-                nir_measurements=undersampled_nir,     # [batch, seq_len, 8] (with masked positions as zeros)
-                tissue_patches=undersampled_tissue,    # [batch, seq_len, 2, patch_volume*2] or None (with masked positions as zeros)
+                nir_measurements=undersampled_nir,     # [batch, 256, 8]
+                tissue_patches=undersampled_tissue,    # [batch, 256, 2, 2, 16, 16, 16] or None
                 use_tissue_patches=self.use_tissue_patches
-            )  # Returns: [batch, seq_len, embed_dim]
+            )  # Returns: [batch, 256, embed_dim]
             
-            logger.debug(f"📦 Spatially-aware encoder tokens: {combined_tokens.shape}")
-            
-            # Step 2: Transformer processing (self-attention + feed-forward with attention masking)
+            # Step 2: Transformer processing (NO attention masking needed!)
             enhanced_tokens, attention_weights = self.transformer_encoder.forward_sequence(
-                measurement_features=combined_tokens,  # [batch, seq_len, embed_dim]
-                attention_mask=attention_mask,         # [batch, seq_len] - masks inactive positions
-                tissue_context=None,  # Tissue context already handled in spatially-aware encoder
-                use_tissue_patches=False  # Already integrated in tokens
-            )  # Returns: [batch, seq_len, embed_dim]
+                measurement_features=combined_tokens,  # [batch, 256, embed_dim]
+                attention_mask=None,                   # No masking needed!
+                tissue_context=None,
+                use_tissue_patches=False
+            )  # Returns: [batch, 256, embed_dim], attention_weights
             
-            logger.debug(f"🔥 Transformer enhanced tokens: {enhanced_tokens.shape}")
-            
-            # Step 3: Global pooling and encoded scan generation (only pool over active tokens)
-            encoded_scan = self.global_pooling_encoder(enhanced_tokens, attention_mask=attention_mask)  # [batch, encoded_scan_dim]
-            
-            logger.debug(f"📦 Encoded scan: {encoded_scan.shape}")
+            # Step 3: Global pooling (simple averaging - no masking needed)
+            encoded_scan = self.global_pooling_encoder(enhanced_tokens, attention_mask=None)
             
             # Step 4: CNN decoder (using pre-trained weights from Stage 1)
             reconstructed = self.cnn_autoencoder.decode(encoded_scan)  # [batch, 2, 64, 64, 64]
-            
-            logger.debug(f"📦 Final reconstruction: {reconstructed.shape}")
             
             outputs.update({
                 'reconstructed': reconstructed,
@@ -424,10 +383,8 @@ class HybridCNNTransformer(nn.Module):
                 'enhanced_tokens': enhanced_tokens,
                 'combined_tokens': combined_tokens,
                 'attention_weights': attention_weights,
-                'attention_mask': attention_mask,         # Binary mask showing active measurements
-                'masked_nir': undersampled_nir,          # Masked NIR measurements (zeros for inactive)
-                'original_measurements': dot_measurements.shape[1],  # Original number of measurements
-                'active_measurements': attention_mask.sum(dim=1).cpu().tolist(),  # Number of active measurements per batch
+                'selected_measurements': 256,  # Always 256 measurements
+                'original_measurements': dot_measurements.shape[1],  # Original number of measurements (1000)
                 'stage': STAGE2
             })
         
@@ -520,7 +477,6 @@ class HybridCNNTransformer(nn.Module):
                 if param.requires_grad:
                     trainable_params[f"spatially_aware_encoder.{name}"] = param
         
-        logger.debug(f"Found {len(trainable_params)} trainable parameters for {self.training_stage}")
         return trainable_params
     
     def load_stage1_weights(self, checkpoint_path: str):

@@ -132,9 +132,9 @@ class SpatiallyAwareEmbedding(nn.Module):
     
     def forward(self, nir_measurements: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass through spatially-aware embedding following Robin's architecture.
+        Forward pass through spatially-aware embedding following transformer best practices.
         
-        Robin's approach:
+        Architecture approach:
         1. Measurement vector Xi → FC layer with d_embed nodes
         2. Output concatenated with position vector Pi  
         3. Concatenated result → Another FC layer with d_embed nodes
@@ -146,8 +146,6 @@ class SpatiallyAwareEmbedding(nn.Module):
         Returns:
             torch.Tensor: hi tokens of shape [batch_size, n_measurements, embed_dim]
         """
-        logger.debug(f"🏃 SpatiallyAwareEmbedding forward: input {nir_measurements.shape}")
-        
         batch_size, n_measurements, feature_dim = nir_measurements.shape
         assert feature_dim == NIR_INPUT_DIM, f"Expected {NIR_INPUT_DIM}D input, got {feature_dim}D"
         
@@ -155,29 +153,17 @@ class SpatiallyAwareEmbedding(nn.Module):
         measurements = nir_measurements[:, :, :MEASUREMENT_DIM]  # [batch, n_meas, 2] - xi
         positions = nir_measurements[:, :, MEASUREMENT_DIM:]     # [batch, n_meas, 6] - pi
         
-        logger.debug(f"📦 Measurements (xi): {measurements.shape}")
-        logger.debug(f"📦 Positions (pi): {positions.shape}")
-        
-        # Step 1: Process measurements through first FC layer (Robin's approach)
+        # Step 1: Process measurements through first FC layer
         measurement_embedded = self.measurement_embedding(measurements)  # [batch, n_meas, embed_dim]
-        logger.debug(f"📦 Measurement embedded: {measurement_embedded.shape}")
         
-        # Step 2: Concatenate embedded measurements with raw positions (Robin's approach)
+        # Step 2: Concatenate embedded measurements with raw positions
         concatenated = torch.cat([measurement_embedded, positions], dim=-1)  # [batch, n_meas, embed_dim + 6]
-        logger.debug(f"📦 Concatenated: {concatenated.shape}")
         
-        # Step 3: Pass through final FC layer to get d_embed output (Robin's approach)
+        # Step 3: Pass through final FC layer to get d_embed output
         hi_tokens = self.combined_projection(concatenated)  # [batch, n_meas, embed_dim]
         
         # Apply layer normalization for stability
         hi_tokens = self.layer_norm(hi_tokens)
-        
-        logger.debug(f"📦 Final hi tokens: {hi_tokens.shape}")
-        
-        # Validation: Check for NaN values
-        if torch.isnan(hi_tokens).any():
-            logger.error("🚨 NaN detected in spatially-aware embedding output")
-            raise ValueError("NaN detected in spatially-aware embedding")
         
         return hi_tokens
 
@@ -308,8 +294,6 @@ class TissueFeatureExtractor(nn.Module):
         assert n_channels == 2, f"Expected 2 channels (μ_a+μ_s), got {n_channels}"
         assert d == h == w == self.patch_size, f"Expected {self.patch_size}³ patches, got {d}×{h}×{w}"
         
-        logger.debug(f"🏃 Processing tissue patches: {tissue_patches.shape}")
-        
         # Process each measurement's patches separately to maintain correspondence
         measurement_tissue_features = []
         
@@ -332,7 +316,6 @@ class TissueFeatureExtractor(nn.Module):
         # Stack all measurement features: [batch, n_measurements, 256]
         tissue_features = torch.stack(measurement_tissue_features, dim=1)
         
-        logger.debug(f"📦 Tissue features output: {tissue_features.shape}")
         return tissue_features
     
     def fuse_with_measurements(self, hi_tokens: torch.Tensor, 
@@ -347,20 +330,11 @@ class TissueFeatureExtractor(nn.Module):
         Returns:
             torch.Tensor: Enhanced tokens of shape [batch, n_measurements, 256]
         """
-        logger.debug(f"🏃 Fusing hi_tokens {hi_tokens.shape} with tissue_features {tissue_features.shape}")
-        
         # Concatenate measurement and tissue features for each measurement
         combined_features = torch.cat([hi_tokens, tissue_features], dim=-1)  # [batch, n_meas, 512]
         
         # Apply learned fusion
         enhanced_tokens = self.fusion_layer(combined_features)  # [batch, n_meas, 256]
-        
-        logger.debug(f"📦 Enhanced tokens output: {enhanced_tokens.shape}")
-        
-        # Validation: Check for NaN values
-        if torch.isnan(enhanced_tokens).any():
-            logger.error("🚨 NaN detected in tissue fusion output")
-            raise ValueError("NaN detected in tissue fusion")
         
         return enhanced_tokens
 
@@ -374,7 +348,7 @@ class SpatiallyAwareEncoderBlock(nn.Module):
     Complete spatially-aware encoder block with measurement-specific tissue fusion.
     
     This is the full embedding block that creates transformer-ready tokens from:
-    - NIR measurement data (amplitude, phase) → hi_tokens via Robin's approach
+    - NIR measurement data (amplitude, phase) → hi_tokens via spatially-aware embedding
     - Spatial coordinates (source/detector positions) → embedded in hi_tokens
     - Tissue patch information → fused with hi_tokens for enhanced mode
     
@@ -391,7 +365,7 @@ class SpatiallyAwareEncoderBlock(nn.Module):
         
         logger.info("🏗️  Initializing SpatiallyAwareEncoderBlock")
         
-        # Spatially-aware embedding for measurements and positions (Robin's approach)
+        # Spatially-aware embedding for measurements and positions
         self.spatially_aware_embedding = SpatiallyAwareEmbedding(embed_dim=embed_dim, dropout=dropout)
         
         # Tissue feature extractor for enhanced mode  
@@ -421,14 +395,10 @@ class SpatiallyAwareEncoderBlock(nn.Module):
                 Baseline: [batch_size, n_measurements, embed_dim] - hi_tokens only
                 Enhanced: [batch_size, n_measurements, embed_dim] - tissue-enhanced tokens
         """
-        logger.debug(f"🏃 SpatiallyAwareEncoderBlock forward: nir_measurements {nir_measurements.shape}")
-        
-        # Always create hi tokens from measurements and positions (Robin's approach)
+        # Always create hi tokens from measurements and positions
         hi_tokens = self.spatially_aware_embedding(nir_measurements)  # [batch, n_meas, embed_dim]
         
         if use_tissue_patches and tissue_patches is not None:
-            logger.debug("📦 Enhanced mode: fusing tissue features with hi_tokens")
-            
             # Extract tissue features for each measurement
             tissue_features = self.tissue_feature_extractor.process_tissue_patches(tissue_patches)
             # tissue_features: [batch, n_measurements, 256]
@@ -437,14 +407,10 @@ class SpatiallyAwareEncoderBlock(nn.Module):
             enhanced_tokens = self.tissue_feature_extractor.fuse_with_measurements(hi_tokens, tissue_features)
             # enhanced_tokens: [batch, n_measurements, 256]
             
-            logger.debug(f"📦 Enhanced tokens output: {enhanced_tokens.shape}")
-            
             # Validation: Ensure output shape is correct
             assert enhanced_tokens.shape == hi_tokens.shape, \
                 f"Enhanced tokens shape {enhanced_tokens.shape} != hi_tokens shape {hi_tokens.shape}"
             
             return enhanced_tokens
         else:
-            logger.debug("📦 Baseline mode: hi_tokens only")
-            logger.debug(f"📦 Hi tokens output: {hi_tokens.shape}")
             return hi_tokens

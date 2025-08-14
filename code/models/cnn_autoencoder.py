@@ -125,7 +125,6 @@ class ResidualBlock(nn.Module):
                 nn.BatchNorm3d(out_channels)
             )
         
-        logger.debug(f"ResidualBlock initialized: {in_channels}→{out_channels}, stride={stride}")
     
     def forward(self, x):
         """
@@ -137,20 +136,15 @@ class ResidualBlock(nn.Module):
         Returns:
             torch.Tensor: Output tensor of shape (batch_size, out_channels, D', H', W')
         """
-        logger.debug(f"🏃 ResidualBlock forward: input shape {x.shape}")
         
         out = F.relu(self.bn1(self.conv1(x)))
-        logger.debug(f"📦 After conv1+bn1+relu: {out.shape}")
         
         out = self.bn2(self.conv2(out))
-        logger.debug(f"📦 After conv2+bn2: {out.shape}")
         
         shortcut = self.shortcut(x)
-        logger.debug(f"📦 Shortcut path: {shortcut.shape}")
         
         out += shortcut
         out = F.relu(out)
-        logger.debug(f"📦 ResidualBlock output: {out.shape}")
         
         return out
 
@@ -207,9 +201,6 @@ class CNNEncoder(nn.Module):
         # Configurable feature dimension with linear projection
         self.feature_dim = feature_dim
         self.feature_projection = nn.Linear(base_channels * 16, feature_dim)  # 256 → 256 for base_channels=16
-        
-        logger.debug(f"CNNEncoder initialized: {input_channels} input channels, "
-                    f"{base_channels} base channels, feature_dim={self.feature_dim}")
     
     def _make_layer(self, in_channels: int, out_channels: int, 
                     num_blocks: int, stride: int):
@@ -225,12 +216,10 @@ class CNNEncoder(nn.Module):
         Returns:
             nn.Sequential: Sequential container of residual blocks
         """
-        logger.debug(f"🔧 Creating layer: {in_channels}→{out_channels}, {num_blocks} blocks, stride={stride}")
         layers = []
         layers.append(ResidualBlock(in_channels, out_channels, stride))
         for i in range(1, num_blocks):
             layers.append(ResidualBlock(out_channels, out_channels))
-            logger.debug(f"🔧 Added residual block {i+1}/{num_blocks}")
         return nn.Sequential(*layers)
     
     def forward(self, x):
@@ -243,34 +232,24 @@ class CNNEncoder(nn.Module):
         Returns:
             torch.Tensor: Encoded features of shape (batch_size, feature_dim)
         """
-        logger.debug(f"🏃 CNNEncoder forward: input shape {x.shape}")
         
         x = self.initial_conv(x)
-        logger.debug(f"📦 After initial_conv: {x.shape}")
         
         x = self.layer1(x)
-        logger.debug(f"📦 After layer1: {x.shape}")
         
         x = self.layer2(x)
-        logger.debug(f"📦 After layer2: {x.shape}")
         
         x = self.layer3(x)
-        logger.debug(f"📦 After layer3: {x.shape}")
         
         x = self.layer4(x)
-        logger.debug(f"📦 After layer4: {x.shape}")
         
         x = self.global_avg_pool(x)
-        logger.debug(f"📦 After global_avg_pool: {x.shape}")
         
         x = x.view(x.size(0), -1)  # Flatten to [batch_size, base_channels * 16]
-        logger.debug(f"📦 After flatten: {x.shape}")
         
         x = self.dropout(x)  # Apply dropout for regularization
-        logger.debug(f"📦 After dropout: {x.shape}")
         
         x = self.feature_projection(x)  # Project to configurable feature dimension
-        logger.debug(f"📦 CNNEncoder output features: {x.shape}")
         
         return x
 
@@ -357,8 +336,8 @@ class CNNDecoder(nn.Module):
         self.final_conv = nn.Conv3d(16, INPUT_CHANNELS, 
                                    kernel_size=DECODER_FINAL_CONV_KERNEL, padding=DECODER_FINAL_CONV_PADDING)
         
-        logger.debug(f"CNNDecoder initialized: feature_dim={feature_dim}, "
-                    f"output_size={output_size}, base_channels={base_channels}")
+        logger.info(f"📊 CNNDecoder initialized: "
+                    f"feature_dim={feature_dim}, output_size={output_size}, base_channels={base_channels}")
     
     def forward(self, x):
         """
@@ -370,46 +349,32 @@ class CNNDecoder(nn.Module):
         Returns:
             torch.Tensor: Reconstructed volume of shape (batch_size, 2, D, H, W)
         """
-        logger.debug(f"🏃 CNNDecoder forward: input features shape {x.shape}")
         
         # Expand feature vector to 3D volume starting from 2x2x2 (matching encoder)
         x = self.fc(x)  # [batch, feature_dim] -> [batch, base_channels*8*8]
-        logger.debug(f"📦 After fc expansion: {x.shape}")
         
         x = x.view(x.size(0), self.base_channels * ENCODER_CHANNEL_MULTIPLIERS[4], 
                    self.init_size, self.init_size, self.init_size)  # [batch, 256, 2, 2, 2] for base_channels=16
-        logger.debug(f"📦 After reshape to 3D: {x.shape}")
         
         # Progressive upsampling through transposed convolutions
         x = self.deconv1(x)  # 2x2x2 -> 4x4x4, channels: 256->128
-        logger.debug(f"📦 After deconv1: {x.shape}")
         
         x = self.deconv2(x)  # 4x4x4 -> 8x8x8, channels: 128->64
-        logger.debug(f"📦 After deconv2: {x.shape}")
         
         x = self.deconv3(x)  # 8x8x8 -> 16x16x16, channels: 64->32
-        logger.debug(f"📦 After deconv3: {x.shape}")
         
         x = self.deconv4(x)  # 16x16x16 -> 32x32x32, channels: 32->32
-        logger.debug(f"📦 After deconv4: {x.shape}")
         
         x = self.deconv5(x)  # 32x32x32 -> 64x64x64, channels: 32->16
-        logger.debug(f"📦 After deconv5: {x.shape}")
         
         # Generate final dual-channel output (μₐ + μ′s)
         x = self.final_conv(x)  # 64x64x64 -> 64x64x64, channels: 16->2
-        logger.debug(f"📦 After final_conv: {x.shape}")
         
         # Ensure exact output dimensions match target (should be exactly 64x64x64)
         if x.shape[2:] != self.output_size:
-            logger.debug(f"🔄 Resizing from {x.shape[2:]} to {self.output_size}")
             x = F.interpolate(x, size=self.output_size, mode='trilinear', 
                               align_corners=False)
-            logger.debug(f"📦 After resize: {x.shape}")
-        else:
-            logger.debug(f"✅ Perfect size match: {x.shape[2:]} == {self.output_size}")
         
-        logger.debug(f"📦 CNNDecoder output: {x.shape}")
         return x
 
 
@@ -471,7 +436,6 @@ class CNNAutoEncoder(nn.Module):
         and standard initialization to batch normalization layers. This helps
         maintain stable gradients during training.
         """
-        logger.debug("🔧 Initializing CNN Autoencoder weights...")
         conv_count = 0
         bn_count = 0
         linear_count = 0
@@ -479,25 +443,19 @@ class CNNAutoEncoder(nn.Module):
         for name, m in self.named_modules():
             if isinstance(m, (nn.Conv3d, nn.ConvTranspose3d)):
                 nn.init.xavier_uniform_(m.weight)
-                logger.debug(f"🔧 Xavier uniform init: {name}.weight {m.weight.shape}")
                 conv_count += 1
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
-                    logger.debug(f"🔧 Zero bias init: {name}.bias {m.bias.shape}")
             elif isinstance(m, nn.BatchNorm3d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
-                logger.debug(f"🔧 BatchNorm3d init: {name} (weight=1, bias=0)")
                 bn_count += 1
             elif isinstance(m, nn.Linear):
                 nn.init.xavier_uniform_(m.weight)
-                logger.debug(f"🔧 Xavier uniform init: {name}.weight {m.weight.shape}")
                 linear_count += 1
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
-                    logger.debug(f"🔧 Zero bias init: {name}.bias {m.bias.shape}")
         
-        logger.debug(f"✅ Weight initialization completed: {conv_count} conv layers, {bn_count} BN layers, {linear_count} linear layers")
     
     def forward(self, x):
         """
@@ -509,13 +467,10 @@ class CNNAutoEncoder(nn.Module):
         Returns:
             torch.Tensor: Reconstructed volume of shape (batch_size, 2, D, H, W)
         """
-        logger.debug(f"🏃 CNN Autoencoder forward: input shape {x.shape}")
         
         encoded = self.encoder(x)
-        logger.debug(f"📦 Encoded features: {encoded.shape}")
         
         decoded = self.decoder(encoded)
-        logger.debug(f"📦 Decoded volume: {decoded.shape}")
         
         return decoded
     
@@ -529,9 +484,7 @@ class CNNAutoEncoder(nn.Module):
         Returns:
             torch.Tensor: Encoded features of shape (batch_size, feature_dim)
         """
-        logger.debug(f"🔍 CNN encoding: input shape {x.shape}")
         features = self.encoder(x)
-        logger.debug(f"🔍 CNN encoded features: {features.shape}")
         return features
     
     def decode(self, features):
@@ -544,17 +497,13 @@ class CNNAutoEncoder(nn.Module):
         Returns:
             torch.Tensor: Reconstructed volume of shape (batch_size, 2, D, H, W)
         """
-        logger.debug(f"🔍 CNN decoding: features shape {features.shape}")
         volume = self.decoder(features)
-        logger.debug(f"🔍 CNN decoded volume: {volume.shape}")
         return volume
     
     def get_encoder(self):
         """Get the encoder for use in stage 2 training"""
-        logger.debug("🔍 Returning CNN encoder component")
         return self.encoder
     
     def get_decoder(self):
         """Get the decoder for freezing in stage 2"""
-        logger.debug("🔍 Returning CNN decoder component")
         return self.decoder

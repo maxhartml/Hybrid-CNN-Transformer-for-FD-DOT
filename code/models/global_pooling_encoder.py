@@ -121,14 +121,10 @@ class GlobalPoolingEncoder(nn.Module):
             torch.Tensor: Encoded scan of shape [batch_size, encoded_scan_dim]
                 Ready for CNN decoder processing
         """
-        logger.debug(f"🏃 GlobalPoolingEncoder forward: input {transformer_output.shape}")
-        
         batch_size, seq_len, embed_dim = transformer_output.shape
         assert embed_dim == self.embed_dim, f"Expected {self.embed_dim}D input, got {embed_dim}D"
         
         if attention_mask is not None:
-            logger.debug(f"🎯 Using masked pooling with mask shape: {attention_mask.shape}")
-            
             # Masked global average pooling
             # Expand mask to match transformer output: [batch, seq_len] → [batch, seq_len, embed_dim]
             mask_expanded = attention_mask.unsqueeze(-1).float()  # [batch, seq_len, 1]
@@ -146,23 +142,11 @@ class GlobalPoolingEncoder(nn.Module):
             # Compute average over active tokens only
             pooled = token_sum / active_count  # [batch, embed_dim]
             
-            logger.debug(f"📦 After masked pooling: {pooled.shape}, avg active tokens: {active_count.mean().item():.1f}")
         else:
-            logger.debug("🎯 Using standard global pooling (no mask)")
-            
             # Standard global average pooling across sequence dimension
             pooled = transformer_output.mean(dim=1)  # [batch, embed_dim]
-            
-            logger.debug(f"📦 After global pooling: {pooled.shape}")
         
         # Project to encoded scan dimension
         encoded_scan = self.encoded_scan_projection(pooled)  # [batch, encoded_scan_dim]
-        
-        logger.debug(f"📦 Encoded scan output: {encoded_scan.shape}")
-        
-        # Validation: Check for NaN values
-        if torch.isnan(encoded_scan).any():
-            logger.error("🚨 NaN detected in global pooling encoder output")
-            raise ValueError("NaN detected in global pooling encoder")
         
         return encoded_scan

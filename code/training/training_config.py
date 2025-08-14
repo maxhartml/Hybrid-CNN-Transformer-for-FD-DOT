@@ -30,7 +30,7 @@ CURRENT_TRAINING_STAGE = "stage1"  # "stage1" or "stage2"
 USE_WANDB_LOGGING = True
 
 # Performance Optimizations
-USE_MODEL_COMPILATION = True            # PyTorch 2.0 compilation for 2x speedup
+USE_MODEL_COMPILATION = True            # PyTorch 2.0 compilation for 2x speedup (fixed compilation issues)
 COMPILATION_MODE = "default"            # "default", "reduce-overhead", or "max-autotune" 
 USE_CHANNELS_LAST_MEMORY_FORMAT = True  # Efficient memory layout for 3D convolutions
 
@@ -39,41 +39,40 @@ USE_CHANNELS_LAST_MEMORY_FORMAT = True  # Efficient memory layout for 3D convolu
 # =============================================================================
 
 # Training Duration
-EPOCHS_STAGE1 = 150  # Extended epochs - let early stopping decide when to stop
-EPOCHS_STAGE2 = 20   # Transformer fine-tuning epochs
+EPOCHS_STAGE1 = 150  # Stage 1 CNN training epochs - more (↑) = better feature learning, less (↓) = faster training
+EPOCHS_STAGE2 = 150   # Stage 2 transformer epochs - more (↑) = better fine-tuning, less (↓) = faster completion
 
 # Batch Sizes - Hard-coded for stability
-BATCH_SIZE = 64  # Consistent batch size for both stages
+BATCH_SIZE = 64  # Training batch size - higher (↑) = stable gradients but more memory, lower (↓) = less memory but noisier
 
 # Early Stopping
-EARLY_STOPPING_PATIENCE = 25  # Increased from 15 for longer exploration in 150 epochs
+EARLY_STOPPING_PATIENCE = 25  # Epochs to wait without improvement - higher (↑) = more exploration, lower (↓) = faster stopping
 
 # =============================================================================
-# DATA LOADING CONFIGURATION
-# =============================================================================
+# Data Loading Configuration
 # Optimized for large 3D medical imaging data (64x64x64 phantoms)
 
-NUM_WORKERS = 8          # Parallel data loading workers
-PIN_MEMORY = True        # Pin memory for faster GPU transfer
-PREFETCH_FACTOR = 4      # Batches to prefetch per worker
-PERSISTENT_WORKERS = True # Keep workers alive between epochs
+NUM_WORKERS = 6          # Parallel data loading workers - more (↑) = faster loading but more CPU/memory
+PIN_MEMORY = True        # Pin memory for faster GPU transfer - True = faster but uses more system memory
+PREFETCH_FACTOR = 4      # Batches to prefetch per worker - higher (↑) = smoother training but more memory
+PERSISTENT_WORKERS = True # Keep workers alive between epochs - True = faster epoch transitions
 
 # =============================================================================
 # REGULARIZATION PARAMETERS
 # =============================================================================
 
 # Weight Decay (L2 regularization)
-WEIGHT_DECAY = 7e-4             # Increased from 5e-4 for better regularization in longer training
-WEIGHT_DECAY_TRANSFORMER = 0.01 # Transformer weight decay (standard for attention models)
+WEIGHT_DECAY = 7e-4             # CNN weight decay - higher (↑) = less overfitting but may underfit, lower (↓) = more capacity but overfitting risk
+WEIGHT_DECAY_TRANSFORMER = 0.01 # Transformer weight decay - prevents attention weights from becoming too large
 
 # Dropout Rates (prevent overfitting)
-DROPOUT_CNN = 0.18              # Increased from 0.15 for stronger regularization 
-DROPOUT_TRANSFORMER = 0.12      # Increased from 0.1 for transformer attention/MLP dropout
-DROPOUT_NIR_PROCESSOR = 0.18    # NIR measurement processor dropout (separate module)
+DROPOUT_CNN = 0.18              # CNN dropout rate - higher (↑) = stronger regularization, lower (↓) = more model capacity
+DROPOUT_TRANSFORMER = 0.12      # Transformer attention/MLP dropout - higher (↑) = less overfitting, lower (↓) = better attention
+DROPOUT_NIR_PROCESSOR = 0.18    # NIR measurement dropout - prevents over-reliance on specific measurements
 
 # Gradient Clipping (training stability)
-GRADIENT_CLIP_MAX_NORM = 0.3      # Reduced from 0.5 for more conservative clipping (prevents gradient explosions)
-GRADIENT_MONITOR_THRESHOLD = 5.0  # Reduced from 6.0 for earlier gradient warnings
+GRADIENT_CLIP_MAX_NORM = 0.3      # Max gradient norm - lower (↓) = more stable but slower, higher (↑) = faster but explosive risk
+GRADIENT_MONITOR_THRESHOLD = 5.0  # Gradient warning threshold - detects training instability early
 
 # =============================================================================
 # STAGE 1: CNN AUTOENCODER TRAINING (OneCycleLR)
@@ -81,20 +80,20 @@ GRADIENT_MONITOR_THRESHOLD = 5.0  # Reduced from 6.0 for earlier gradient warnin
 # Based on "Super-Convergence" paper (Smith, 2018) for optimal CNN training
 
 # Learning Rate Schedule
-STAGE1_MAX_LR = 2.5e-3          # Reduced from 3e-3 for more stable longer training
-STAGE1_BASE_LR = 1.0e-4         # Reduced from 1.2e-4 for smoother start
-STAGE1_DIV_FACTOR = 25          # Initial LR division factor
-STAGE1_FINAL_DIV_FACTOR = 150   # Increased from 100 for gentler final decay in 150 epochs
-STAGE1_PCT_START = 0.25         # Reduced from 0.3 for longer stable training phase (25% warmup)
-STAGE1_CYCLE_MOMENTUM = True    # Enable momentum cycling for CNN
+STAGE1_MAX_LR = 3e-3          # Peak learning rate - higher values speed up training but risk instability
+STAGE1_BASE_LR = 1.0e-4         # Starting/ending learning rate - lower values provide smoother convergence
+STAGE1_DIV_FACTOR = 25          # Initial LR division factor - controls how low we start (max_lr/div_factor)
+STAGE1_FINAL_DIV_FACTOR = 100   # Final LR reduction factor - higher values give gentler final decay
+STAGE1_PCT_START = 0.30         # Warmup phase percentage - more warmup (↑) = more stable but slower start
+STAGE1_CYCLE_MOMENTUM = True    # Enable momentum cycling for CNN - helps escape local minima
 
 # Optimizer Parameters
-ADAMW_BETAS_STAGE1 = (0.9, 0.93)  # Reduced beta2 from 0.95 for better stability
-ADAMW_EPS_STAGE1 = 1e-8            # Numerical stability epsilon
+ADAMW_BETAS_STAGE1 = (0.9, 0.95)  # Adam momentum parameters - beta1 (↑) = more momentum, beta2 (↑) = smoother updates
+ADAMW_EPS_STAGE1 = 1e-8            # Numerical stability epsilon - prevents division by zero in optimizer
 
 # Momentum Cycling (OneCycleLR feature)
-BASE_MOMENTUM = 0.87  # Increased from 0.85 for more stability
-MAX_MOMENTUM = 0.94   # Reduced from 0.95 for tighter range
+BASE_MOMENTUM = 0.85  # Minimum momentum value - higher (↑) = more stability, lower (↓) = faster adaptation
+MAX_MOMENTUM = 0.95   # Maximum momentum value - cycles between base and max during training
 
 # =============================================================================
 # STAGE 2: TRANSFORMER TRAINING (Linear Warmup + Cosine Decay)
@@ -102,13 +101,13 @@ MAX_MOMENTUM = 0.94   # Reduced from 0.95 for tighter range
 # Based on "Attention Is All You Need", BERT, and ViT papers for transformer training
 
 # Learning Rate Schedule
-STAGE2_BASE_LR = 1e-4       # Base learning rate (reduced to prevent gradient explosion)
-STAGE2_WARMUP_PCT = 0.1     # Warmup percentage (10% for stable transformer training)
-STAGE2_ETA_MIN_PCT = 0.1    # Final LR percentage (10% for gentler decay)
+STAGE2_BASE_LR = 8e-4       # Base learning rate - lower (↓) = stable but slower, higher (↑) = faster but riskier
+STAGE2_WARMUP_PCT = 0.15     # Warmup percentage - more (↑) = stable transformer training, less (↓) = faster start
+STAGE2_ETA_MIN_PCT = 0.05    # Final LR percentage - higher (↑) = gentler decay, lower (↓) = stronger decay
 
 # Optimizer Parameters
-ADAMW_BETAS_STAGE2 = (0.9, 0.98)  # Transformer-standard betas (from BERT/ViT)
-ADAMW_EPS_STAGE2 = 1e-8            # Numerical stability epsilon
+ADAMW_BETAS_STAGE2 = (0.9, 0.98)  # Transformer-optimized momentum - beta2=0.98 reduces noise in attention gradients
+ADAMW_EPS_STAGE2 = 1e-8            # Numerical stability epsilon - prevents optimizer mathematical errors
 
 # =============================================================================
 # CHECKPOINT AND LOGGING CONFIGURATION
