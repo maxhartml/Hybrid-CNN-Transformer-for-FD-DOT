@@ -130,6 +130,9 @@ class Stage2Trainer:
         self.use_wandb = use_wandb
         self.early_stopping_patience = early_stopping_patience
         
+        # Initialize logger for this trainer instance
+        self.logger = get_training_logger(__name__)
+        
         # Early stopping tracking
         self.best_val_loss = float('inf')
         self.patience_counter = 0
@@ -900,6 +903,12 @@ class Stage2Trainer:
             
         try:
             from code.utils.viz_recon import prepare_raw_DHW, log_recon_slices_raw
+            
+            # Convert tensors from channels-last [B,D,H,W,2] to channel-first [B,2,D,H,W]
+            if predictions.shape[-1] == 2:  # Check if channels-last
+                predictions = predictions.permute(0, 4, 1, 2, 3).contiguous()  # [B,D,H,W,2] -> [B,2,D,H,W]
+            if targets.shape[-1] == 2:  # Check if channels-last
+                targets = targets.permute(0, 4, 1, 2, 3).contiguous()  # [B,D,H,W,2] -> [B,2,D,H,W]
             
             # Prepare raw mm^-1 volumes with strict [B,2,D,H,W] format
             pred_raw, tgt_raw = prepare_raw_DHW(

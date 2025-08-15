@@ -24,15 +24,11 @@ PHYS_MAX = {
 
 def _inv_std_chlast(x: torch.Tensor, stdzr) -> torch.Tensor:
     """
-    Apply inverse standardization with correct channel axis handling.
-    
-    The Stage 1 standardizer was trained on channels-last [B,D,H,W,2] tensors,
-    but we receive channel-first [B,2,D,H,W] tensors. This function handles
-    the layout conversion to ensure correct per-channel inverse standardization.
+    Apply inverse standardization correctly - standardizer expects channel-first format.
     
     Args:
         x: Channel-first tensor [B, 2, D, H, W] (standardized)
-        stdzr: Stage 1 ground_truth_standardizer trained on channels-last layout
+        stdzr: Stage 1 ground_truth_standardizer trained on channel-first layout
         
     Returns:
         Tensor in raw mm^-1 units, still [B, 2, D, H, W] layout
@@ -40,32 +36,38 @@ def _inv_std_chlast(x: torch.Tensor, stdzr) -> torch.Tensor:
     assert x.ndim == 5 and x.shape[1] == 2, f"Expected [B,2,D,H,W], got {tuple(x.shape)}"
     dev, dtype = x.device, x.dtype
     
-    # Convert to channels-last for inverse standardization
-    x_last = x.permute(0, 2, 3, 4, 1).contiguous()     # [B, D, H, W, 2]
-    
-    # Apply inverse standardization on correct axis
+    # Apply inverse standardization directly (standardizer expects channel-first)
     inv = getattr(stdzr, "inverse_transform", None) or getattr(stdzr, "inverse_transform_ground_truth", None)
     assert inv is not None, "Standardizer missing inverse transform method"
     
     with torch.no_grad():
-        x_last = inv(x_last)                            # Still [B, D, H, W, 2]
+        x_raw = inv(x)                                  # Direct call, no permutation needed
     
-    # Convert back to channel-first
-    x_cf = x_last.permute(0, 4, 1, 2, 3).contiguous()   # Back to [B, 2, D, H, W]
-    return x_cf.to(device=dev, dtype=dtype)
+    return x_raw.to(device=dev, dtype=dtype)
 
 def _physics_norm(arr2d: np.ndarray, vmax: float) -> np.ndarray:
     """
     Convert a 2D array in physical units to 8-bit grayscale for visualization.
+    Uses adaptive normalization based on actual data range for better contrast.
     
     Args:
         arr2d: 2D numpy array in physical units (mm^-1)
-        vmax: Maximum physical value for normalization
+        vmax: Maximum physical value for normalization (unused, kept for compatibility)
         
     Returns:
         8-bit grayscale image array [0-255]
     """
-    return np.clip((arr2d / vmax) * 255.0, 0, 255).astype(np.uint8)
+    # Use adaptive normalization based on actual data range
+    data_min = float(arr2d.min())
+    data_max = float(arr2d.max())
+    
+    if data_max - data_min < 1e-8:
+        # Handle constant arrays (avoid division by zero)
+        return np.full_like(arr2d, 128, dtype=np.uint8)
+    
+    # Normalize to [0, 255] using actual data range
+    normalized = ((arr2d - data_min) / (data_max - data_min)) * 255.0
+    return np.clip(normalized, 0, 255).astype(np.uint8)
 
 def _center_slices(vol_ch_first: np.ndarray):
     """
@@ -182,14 +184,9 @@ def log_recon_slices_raw(pred_raw: torch.Tensor,
     B = pred_raw.shape[0]
     n = min(2, B)  # Log exactly 2 phantoms (or fewer if batch smaller)
 
-    # Debug print to check value ranges before visualization
-    print(
-        "viz ranges:",
-        "pred μₐ", float(pred_raw[:,0].min()), float(pred_raw[:,0].max()),
-        "| pred μ′ₛ", float(pred_raw[:,1].min()), float(pred_raw[:,1].max()),
-        "| tgt μₐ", float(tgt_raw[:,0].min()), float(tgt_raw[:,0].max()),
-        "| tgt μ′ₛ", float(tgt_raw[:,1].min()), float(tgt_raw[:,1].max()),
-    )
+    # Debug print to check value ranges (keep minimal output)
+    print(f"viz ranges: μₐ {float(pred_raw[:,0].min()):.4f}-{float(pred_raw[:,0].max()):.4f}, "
+          f"μ′ₛ {float(pred_raw[:,1].min()):.4f}-{float(pred_raw[:,1].max()):.4f}")
     
     # Abort if any channel appears to be all zeros (indicates preprocessing bug)
     if pred_raw[:,0].max() < 1e-6 or pred_raw[:,1].max() < 1e-4:
@@ -212,23 +209,18 @@ def log_recon_slices_raw(pred_raw: torch.Tensor,
         ps = _center_slices(p)  # Prediction slices
         ts = _center_slices(t)  # Target slices
 
-        # Log all 12 images per phantom (3 planes × 2 channels × 2 types)
+        # Log images with target-prediction pairs vertically aligned
+        # Layout: target on top, prediction directly below for easy comparison
         for plane in ("xy", "xz", "yz"):
-            # μₐ (absorption coefficient) images
-            logs[f"{tag}/pred_{plane}_mu_a"] = wandb.Image(
-                _physics_norm(ps[f"{plane}_mu_a"], PHYS_MAX["mu_a"])
-            )
-            logs[f"{tag}/tgt_{plane}_mu_a"] = wandb.Image(
-                _physics_norm(ts[f"{plane}_mu_a"], PHYS_MAX["mu_a"])
-            )
-            
-            # μ′ₛ (reduced scattering coefficient) images  
-            logs[f"{tag}/pred_{plane}_mu_s"] = wandb.Image(
-                _physics_norm(ps[f"{plane}_mu_s"], PHYS_MAX["mu_s"])
-            )
-            logs[f"{tag}/tgt_{plane}_mu_s"] = wandb.Image(
-                _physics_norm(ts[f"{plane}_mu_s"], PHYS_MAX["mu_s"])
-            )
+            for channel, ch_name in [("mu_a", "μₐ"), ("mu_s", "μ′ₛ")]:
+                # Target on top
+                logs[f"{tag}/tgt_{plane}_{channel}"] = wandb.Image(
+                    _physics_norm(ts[f"{plane}_{channel}"], PHYS_MAX[channel])
+                )
+                # Prediction directly below target
+                logs[f"{tag}/pred_{plane}_{channel}"] = wandb.Image(
+                    _physics_norm(ps[f"{plane}_{channel}"], PHYS_MAX[channel])
+                )
 
     # Single atomic commit to W&B (prevents partial uploads)
     wandb.log(logs)
