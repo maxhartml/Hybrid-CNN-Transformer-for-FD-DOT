@@ -538,3 +538,80 @@ class HybridCNNTransformer(nn.Module):
             'spatially_aware_parameters': spatially_aware_params,
             'output_size': self.output_size
         }
+    
+    def encode(self, nir_measurements: torch.Tensor, 
+               tissue_patches: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """
+        Encode NIR measurements to latent representation without decoding.
+        
+        This method performs only the encoding steps of the Stage 2 forward pass:
+        spatially-aware encoding, transformer processing, and global pooling.
+        It does NOT run the CNN decoder, making it perfect for latent-only training.
+        
+        Args:
+            nir_measurements (torch.Tensor): NIR measurements of shape (batch_size, n_measurements, 8)
+            tissue_patches (torch.Tensor, optional): Tissue patches for context
+        
+        Returns:
+            torch.Tensor: Latent representation of shape (batch_size, latent_dim)
+        
+        Raises:
+            ValueError: If model is not in Stage 2 mode or input shape is invalid
+        """
+        if self.training_stage != STAGE2:
+            raise ValueError(f"encode() method only available in Stage 2, current stage: {self.training_stage}")
+        
+        # Validate input shape
+        if not (len(nir_measurements.shape) == 3 and nir_measurements.shape[2] == self.nir_input_dim):
+            raise ValueError(
+                f"encode() requires NIR measurements of shape (batch_size, n_measurements, 8), "
+                f"got shape {nir_measurements.shape}"
+            )
+        
+        # Step 0: Fixed Sequence Undersampling (256 measurements per phantom)
+        undersampled_nir, undersampled_tissue = fixed_sequence_undersampling(
+            nir_measurements=nir_measurements,     # [batch, 1000, 8] 
+            tissue_patches=tissue_patches,         # [batch, 1000, 2, 2, 16, 16, 16] or None
+            n_measurements=256,                    # Fixed: always 256 measurements
+            training=self.training
+        )
+        
+        # Step 1: Spatially-Aware Encoder Block
+        combined_tokens = self.spatially_aware_encoder(
+            nir_measurements=undersampled_nir,     # [batch, 256, 8]
+            tissue_patches=undersampled_tissue,    # [batch, 256, 2, 2, 16, 16, 16] or None
+            use_tissue_patches=self.use_tissue_patches
+        )  # Returns: [batch, 256, embed_dim]
+        
+        # Step 2: Transformer processing
+        enhanced_tokens, _ = self.transformer_encoder.forward_sequence(
+            measurement_features=combined_tokens,  # [batch, 256, embed_dim]
+            attention_mask=None,                   # No masking needed!
+            tissue_context=None,
+            use_tissue_patches=False
+        )  # Returns: [batch, 256, embed_dim], attention_weights
+        
+        # Step 3: Global pooling to get latent representation
+        encoded_scan = self.global_pooling_encoder(enhanced_tokens)  # [batch, latent_dim]
+        
+        return encoded_scan
+    
+    def forward_latent(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+        """
+        Forward pass that returns only latent representation for student training.
+        
+        This method extracts NIR measurements and optional tissue patches from
+        the batch and returns the latent representation without decoding.
+        
+        Args:
+            batch: Dictionary containing:
+                - 'nir_measurements': [batch_size, n_measurements, 8]
+                - 'tissue_patches': [batch_size, n_measurements, 2, 2, 16, 16, 16] (optional)
+        
+        Returns:
+            torch.Tensor: Student latent representation [batch_size, 256]
+        """
+        nir_measurements = batch['nir_measurements']
+        tissue_patches = batch.get('tissue_patches', None)
+        
+        return self.encode(nir_measurements, tissue_patches)

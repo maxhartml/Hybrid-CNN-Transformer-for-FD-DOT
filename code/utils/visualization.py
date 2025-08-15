@@ -53,15 +53,23 @@ def log_reconstruction_images_to_wandb(predictions: torch.Tensor,
                                      epoch: int, 
                                      prefix: str = "Reconstructions",
                                      step: Optional[int] = None,
-                                     phantom_ids: Optional[np.ndarray] = None) -> None:
+                                     phantom_ids: Optional[np.ndarray] = None,
+                                     gt_standardizer=None,   # NEW: Stage-1 ground truth standardizer
+                                     add_autocontrast_preview: bool = True) -> None:  # NEW: Debug autocontrast
     """
-    Enhanced function to log 3D reconstruction slices to W&B for visualization.
+    🎯 PHYSICS-AWARE RECONSTRUCTION VISUALIZATION WITH INVERSE-STANDARDIZATION 🎯
     
-    This function extracts middle slices from 3D volumes in all three dimensions
-    (XY, XZ, YZ) for the first TWO phantoms in the batch, and logs them to 
-    Weights & Biases with consistent global normalization to preserve relative 
-    intensity relationships. Each image includes the actual phantom ID for 
-    easy cross-reference with original data files.
+    Enhanced function to log 3D reconstruction slices to W&B for visualization.
+    This function guarantees that images show RAW PHYSICAL UNITS by applying
+    inverse standardization before rendering, ensuring W&B visualizations match
+    improving validation metrics.
+    
+    CRITICAL FIXES:
+    ✅ Inverse-standardization: Convert from z-scored to raw physics values
+    ✅ Correct slice indexing: [B, 2, D, H, W] → proper XY/XZ/YZ slices  
+    ✅ Physics range clamping: Prevent negative/out-of-range values
+    ✅ Sanity metrics: Per-channel min/max/percentiles logged to W&B
+    ✅ Autocontrast preview: Debug fallback for tiny physics values
     
     Args:
         predictions (torch.Tensor): Predicted volumes [batch, 2, D, H, W]
@@ -70,21 +78,96 @@ def log_reconstruction_images_to_wandb(predictions: torch.Tensor,
         prefix (str): Prefix for W&B logging keys. Default: "Reconstructions"
         step (Optional[int]): Optional step number for logging
         phantom_ids (Optional[np.ndarray]): Array of phantom IDs from validation batch
+        gt_standardizer: Stage-1 ground truth standardizer for inverse transform
+        add_autocontrast_preview (bool): Add debug autocontrast images
     """
     try:
+        # 0) BASIC VALIDATION
+        assert predictions.ndim == 5 and targets.ndim == 5, f"Expected [B, 2, D, H, W], got pred: {predictions.shape}, tgt: {targets.shape}"
+        assert predictions.shape[1] == 2 and targets.shape[1] == 2, "Expected 2 channels (mu_a, mu_s')"
+        
+        # 1) INVERSE-STANDARDIZE TO RAW PHYSICS UNITS (CRITICAL FIX!)
+        # This ensures W&B visualizations show actual physics values, not z-scored garbage
+        if gt_standardizer is not None and hasattr(gt_standardizer, "inverse_transform"):
+            logger.debug("🔧 Applying inverse standardization to convert to raw physics units")
+            with torch.no_grad():
+                predictions = gt_standardizer.inverse_transform(predictions)
+                targets = gt_standardizer.inverse_transform(targets)
+        elif gt_standardizer is not None and hasattr(gt_standardizer, "inverse_transform_ground_truth"):
+            logger.debug("🔧 Applying inverse_transform_ground_truth to convert to raw physics units")
+            with torch.no_grad():
+                predictions = gt_standardizer.inverse_transform_ground_truth(predictions)
+                targets = gt_standardizer.inverse_transform_ground_truth(targets)
+        else:
+            logger.warning("⚠️ No gt_standardizer provided - assuming inputs are already in raw physics units")
+        
+        # 2) CLAMP TO VALID PHYSICS RANGES (CRITICAL FOR VISUALIZATION!)
+        # Prevent negative/out-of-range optical properties that break visualization
+        mu_a_max = 0.0245   # Maximum absorption: 0.007 (tumor baseline) × 3.5 (max enhancement)
+        mu_s_max = 2.95     # Maximum scattering: 1.18 (tumor baseline) × 2.5 (max enhancement)
+        
+        predictions = predictions.clone()
+        targets = targets.clone()
+        predictions[:, 0].clamp_(0.0, mu_a_max)   # μₐ channel
+        predictions[:, 1].clamp_(0.0, mu_s_max)   # μ′ₛ channel
+        targets[:, 0].clamp_(0.0, mu_a_max)       # μₐ channel
+        targets[:, 1].clamp_(0.0, mu_s_max)       # μ′ₛ channel
+        
+        # 3) COMPUTE SANITY METRICS FOR W&B LOGGING
+        # These scalars help debug if inverse-standardization worked correctly
+        with torch.no_grad():
+            # Per-channel statistics for predictions (raw physics)
+            pred_mu_a = predictions[:, 0]  # All μₐ values in batch
+            pred_mu_s = predictions[:, 1]  # All μ′ₛ values in batch
+            tgt_mu_a = targets[:, 0]
+            tgt_mu_s = targets[:, 1]
+            
+            # Compute percentiles for robust statistics
+            sanity_metrics = {
+                "viz_stats/pred_mu_a_min": pred_mu_a.min().item(),
+                "viz_stats/pred_mu_a_max": pred_mu_a.max().item(),
+                "viz_stats/pred_mu_a_p1": torch.quantile(pred_mu_a, 0.01).item(),
+                "viz_stats/pred_mu_a_p50": torch.quantile(pred_mu_a, 0.50).item(),
+                "viz_stats/pred_mu_a_p99": torch.quantile(pred_mu_a, 0.99).item(),
+                
+                "viz_stats/pred_mu_s_min": pred_mu_s.min().item(),
+                "viz_stats/pred_mu_s_max": pred_mu_s.max().item(),
+                "viz_stats/pred_mu_s_p1": torch.quantile(pred_mu_s, 0.01).item(),
+                "viz_stats/pred_mu_s_p50": torch.quantile(pred_mu_s, 0.50).item(),
+                "viz_stats/pred_mu_s_p99": torch.quantile(pred_mu_s, 0.99).item(),
+                
+                "viz_stats/tgt_mu_a_min": tgt_mu_a.min().item(),
+                "viz_stats/tgt_mu_a_max": tgt_mu_a.max().item(),
+                "viz_stats/tgt_mu_a_p1": torch.quantile(tgt_mu_a, 0.01).item(),
+                "viz_stats/tgt_mu_a_p50": torch.quantile(tgt_mu_a, 0.50).item(),
+                "viz_stats/tgt_mu_a_p99": torch.quantile(tgt_mu_a, 0.99).item(),
+                
+                "viz_stats/tgt_mu_s_min": tgt_mu_s.min().item(),
+                "viz_stats/tgt_mu_s_max": tgt_mu_s.max().item(),
+                "viz_stats/tgt_mu_s_p1": torch.quantile(tgt_mu_s, 0.01).item(),
+                "viz_stats/tgt_mu_s_p50": torch.quantile(tgt_mu_s, 0.50).item(),
+                "viz_stats/tgt_mu_s_p99": torch.quantile(tgt_mu_s, 0.99).item(),
+            }
+            
+            # SANITY CHECK: Warn if physics values are suspiciously small
+            if sanity_metrics["viz_stats/pred_mu_a_p99"] < 1e-5:
+                logger.warning("⚠️ Suspiciously small μₐ values - check inverse standardization!")
+            if sanity_metrics["viz_stats/pred_mu_s_p99"] < 0.05:
+                logger.warning("⚠️ Suspiciously small μ′ₛ values - check inverse standardization!")
+            
+            # Log sanity metrics to W&B
+            wandb.log(sanity_metrics, commit=False)
+        
+        # 4) EXTRACT SLICES FOR VISUALIZATION (FIXED INDEXING!)
         # Extract data for first TWO phantoms in batch for variety
         num_phantoms_to_show = min(2, predictions.shape[0])
         
         logger.debug(f"Logging images for {num_phantoms_to_show} phantoms - Pred shape: {predictions.shape}, Target shape: {targets.shape}")
         
-        # Extract slices from different dimensions for BOTH channels and BOTH phantoms
-        absorption_channel = 0  # μₐ (absorption coefficient)
-        scattering_channel = 1  # μ′s (reduced scattering coefficient)
-        
         # We'll log images for each phantom separately
         for phantom_idx in range(num_phantoms_to_show):
-            pred_phantom = predictions[phantom_idx].cpu().numpy()  # Shape: [2, D, H, W]
-            target_phantom = targets[phantom_idx].cpu().numpy()
+            pred_phantom = predictions[phantom_idx].detach().cpu().numpy()  # Shape: [2, D, H, W]
+            target_phantom = targets[phantom_idx].detach().cpu().numpy()
             
             # Get actual phantom ID if available, otherwise use generic numbering
             if phantom_ids is not None and phantom_idx < len(phantom_ids):
@@ -93,27 +176,31 @@ def log_reconstruction_images_to_wandb(predictions: torch.Tensor,
             else:
                 phantom_label = f"Phantom_{phantom_idx + 1}"  # Fallback: "Phantom_1", "Phantom_2"
             
-            # Extract all slices for this phantom (all 3 orientations × 2 channels)
-            # XY plane (Z=32) - middle slice in Z dimension  
-            pred_xy_abs = pred_phantom[absorption_channel, :, :, pred_phantom.shape[-1]//2]
-            target_xy_abs = target_phantom[absorption_channel, :, :, target_phantom.shape[-1]//2]
-            pred_xy_scat = pred_phantom[scattering_channel, :, :, pred_phantom.shape[-1]//2]
-            target_xy_scat = target_phantom[scattering_channel, :, :, target_phantom.shape[-1]//2]
+            # FIXED SLICE INDEXING FOR [2, D, H, W] VOLUMES
+            C, D, H, W = pred_phantom.shape
+            z = D // 2; y = H // 2; x = W // 2  # Middle slice indices
             
-            # XZ plane (Y=32) - middle slice in Y dimension  
-            pred_xz_abs = pred_phantom[absorption_channel, :, pred_phantom.shape[-2]//2, :]
-            target_xz_abs = target_phantom[absorption_channel, :, target_phantom.shape[-2]//2, :]
-            pred_xz_scat = pred_phantom[scattering_channel, :, pred_phantom.shape[-2]//2, :]
-            target_xz_scat = target_phantom[scattering_channel, :, target_phantom.shape[-2]//2, :]
+            # μₐ channel = 0, μ′ₛ channel = 1 
+            # XY slices (slice along D dimension): vol[c, z, :, :]
+            pred_xy_abs = pred_phantom[0, z, :, :]    # [H, W]
+            tgt_xy_abs = target_phantom[0, z, :, :]
+            pred_xy_scat = pred_phantom[1, z, :, :]
+            tgt_xy_scat = target_phantom[1, z, :, :]
             
-            # YZ plane (X=32) - middle slice in X dimension
-            pred_yz_abs = pred_phantom[absorption_channel, pred_phantom.shape[-3]//2, :, :]
-            target_yz_abs = target_phantom[absorption_channel, pred_phantom.shape[-3]//2, :, :]
-            pred_yz_scat = pred_phantom[scattering_channel, pred_phantom.shape[-3]//2, :, :]
-            target_yz_scat = target_phantom[scattering_channel, pred_phantom.shape[-3]//2, :, :]
+            # XZ slices (slice along H dimension): vol[c, :, y, :]  
+            pred_xz_abs = pred_phantom[0, :, y, :]    # [D, W]
+            tgt_xz_abs = target_phantom[0, :, y, :]
+            pred_xz_scat = pred_phantom[1, :, y, :]
+            tgt_xz_scat = target_phantom[1, :, y, :]
             
-            # UNIVERSAL PHYSICS-BASED NORMALIZATION - PRESERVES CROSS-PHANTOM COMPARABILITY
-            def universal_physics_normalization(data, channel_name):
+            # YZ slices (slice along W dimension): vol[c, :, :, x]
+            pred_yz_abs = pred_phantom[0, :, :, x]    # [D, H]
+            tgt_yz_abs = target_phantom[0, :, :, x]
+            pred_yz_scat = pred_phantom[1, :, :, x]
+            tgt_yz_scat = target_phantom[1, :, :, x]
+            
+            # 5) PHYSICS-BASED NORMALIZATION (PRESERVES SCIENTIFIC MEANING)
+            def physics_norm(img2d: np.ndarray, channel: str) -> np.ndarray:
                 """
                 🎯 UNIVERSAL PHYSICS-BASED NORMALIZATION 🎯
                 
@@ -124,95 +211,110 @@ def log_reconstruction_images_to_wandb(predictions: torch.Tensor,
                 • Cross-phantom comparison becomes meaningful
                 • Scientific accuracy preserved
                 
-                BENEFITS:
-                ✅ Physics-preserving: Colors have absolute meaning
-                ✅ Cross-phantom comparable: Compare different phantoms directly  
-                ✅ Scientifically accurate: No misleading visualizations
-                ✅ Model debugging: Spot reconstruction errors easily
-                ✅ Training insights: See if model learns physics correctly
-                
                 Args:
-                    data: 2D slice of optical properties (any phantom)
-                    channel_name: "absorption" or "scattering" to determine physical ranges
+                    img2d: 2D slice of optical properties (any phantom)
+                    channel: "absorption" or "scattering" to determine physical ranges
                 
                 Returns:
                     Normalized intensities [0-255] preserving universal physics relationships
                 """
-                data_np = data.cpu().numpy() if hasattr(data, 'cpu') else data
-                
-                # UNIVERSAL PHYSICS RANGES: Air (0) to Maximum Possible Values
-                if "absorption" in channel_name.lower():
+                if "absorption" in channel.lower():
                     # Full absorption range: 0 (air) to 0.0245 (strongest tumor: 0.007 × 3.5)
-                    max_value = 0.0245
+                    vmax = 0.0245
                 else:
                     # Full scattering range: 0 (air) to 2.95 (strongest tumor: 1.18 × 2.5)  
-                    max_value = 2.95
+                    vmax = 2.95
                 
                 # Universal linear mapping: physics_value → grayscale_intensity
                 # Air (0) → Black (0), Max_possible → White (255)
-                normalized = np.clip((data_np / max_value) * 255, 0, 255).astype(np.uint8)
-                
+                normalized = np.clip((img2d / vmax) * 255, 0, 255).astype(np.uint8)
                 return normalized
             
-            # Apply UNIVERSAL physics-based normalization to all slices
-            # Both targets and predictions now use the same universal normalization approach
-            # TARGETS: Ground truth with discrete values - same universal normalization
-            target_xy_abs_norm = universal_physics_normalization(target_xy_abs, "absorption")
-            target_xy_scat_norm = universal_physics_normalization(target_xy_scat, "scattering")
-            target_xz_abs_norm = universal_physics_normalization(target_xz_abs, "absorption")
-            target_xz_scat_norm = universal_physics_normalization(target_xz_scat, "scattering")
-            target_yz_abs_norm = universal_physics_normalization(target_yz_abs, "absorption")
-            target_yz_scat_norm = universal_physics_normalization(target_yz_scat, "scattering")
+            # 6) AUTOCONTRAST PREVIEW (DEBUG FAILSAFE)
+            def autocontrast(img2d: np.ndarray) -> np.ndarray:
+                """Autocontrast normalization for debugging tiny physics values."""
+                p1, p99 = np.percentile(img2d, [1, 99])
+                scaled = (img2d - p1) / (max(p99 - p1, 1e-8))
+                return np.clip(scaled * 255.0, 0, 255).astype(np.uint8)
             
-            # PREDICTIONS: Continuous values - same universal normalization (consistency!)
-            pred_xy_abs_norm = universal_physics_normalization(pred_xy_abs, "absorption")
-            pred_xy_scat_norm = universal_physics_normalization(pred_xy_scat, "scattering")
-            pred_xz_abs_norm = universal_physics_normalization(pred_xz_abs, "absorption")
-            pred_xz_scat_norm = universal_physics_normalization(pred_xz_scat, "scattering")
-            pred_yz_abs_norm = universal_physics_normalization(pred_yz_abs, "absorption")
-            pred_yz_scat_norm = universal_physics_normalization(pred_yz_scat, "scattering")
+            # Apply PHYSICS-BASED normalization to all slices
+            # TARGETS: Ground truth with discrete values
+            tgt_xy_abs_norm = physics_norm(tgt_xy_abs, "absorption")
+            tgt_xy_scat_norm = physics_norm(tgt_xy_scat, "scattering")
+            tgt_xz_abs_norm = physics_norm(tgt_xz_abs, "absorption")
+            tgt_xz_scat_norm = physics_norm(tgt_xz_scat, "scattering")
+            tgt_yz_abs_norm = physics_norm(tgt_yz_abs, "absorption")
+            tgt_yz_scat_norm = physics_norm(tgt_yz_scat, "scattering")
+            
+            # PREDICTIONS: Continuous values - same physics normalization
+            pred_xy_abs_norm = physics_norm(pred_xy_abs, "absorption")
+            pred_xy_scat_norm = physics_norm(pred_xy_scat, "scattering")
+            pred_xz_abs_norm = physics_norm(pred_xz_abs, "absorption")
+            pred_xz_scat_norm = physics_norm(pred_xz_scat, "scattering")
+            pred_yz_abs_norm = physics_norm(pred_yz_abs, "absorption")
+            pred_yz_scat_norm = physics_norm(pred_yz_scat, "scattering")
+            
+            # AUTOCONTRAST PREVIEWS (for debugging tiny values)
+            if add_autocontrast_preview:
+                # Generate autocontrast versions
+                pred_xy_abs_auto = autocontrast(pred_xy_abs)
+                tgt_xy_abs_auto = autocontrast(tgt_xy_abs)
+                pred_xy_scat_auto = autocontrast(pred_xy_scat)
+                tgt_xy_scat_auto = autocontrast(tgt_xy_scat)
             
             # Calculate value ranges for informative captions
             pred_xy_abs_range = f"[{pred_xy_abs.min():.5f}, {pred_xy_abs.max():.5f}]"
-            target_xy_abs_range = f"[{target_xy_abs.min():.5f}, {target_xy_abs.max():.5f}]"
+            tgt_xy_abs_range = f"[{tgt_xy_abs.min():.5f}, {tgt_xy_abs.max():.5f}]"
             pred_xy_scat_range = f"[{pred_xy_scat.min():.5f}, {pred_xy_scat.max():.5f}]"
-            target_xy_scat_range = f"[{target_xy_scat.min():.5f}, {target_xy_scat.max():.5f}]"
+            tgt_xy_scat_range = f"[{tgt_xy_scat.min():.5f}, {tgt_xy_scat.max():.5f}]"
             
-            # Log to W&B with phantom-specific naming and universal physics normalization info
+                        
+            # 7) LOG TO W&B WITH BOTH PHYSICS AND AUTOCONTRAST VERSIONS
             phantom_logs = {
-                # Absorption channel (μₐ) - All 3 slices for this phantom
-                f"{prefix}/Absorption/{phantom_label}/predicted_xy_slice": wandb.Image(pred_xy_abs_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μₐ XY (z=32) | Range: {pred_xy_abs_range} | 🎯 Universal Physics Norm [0→0.0245]"),
-                f"{prefix}/Absorption/{phantom_label}/target_xy_slice": wandb.Image(target_xy_abs_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μₐ XY (z=32) | Range: {target_xy_abs_range} | 🎯 Universal Physics Norm [0→0.0245]"),
-                f"{prefix}/Absorption/{phantom_label}/predicted_xz_slice": wandb.Image(pred_xz_abs_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μₐ XZ (y=32) | Range: [{pred_xz_abs.min():.5f}, {pred_xz_abs.max():.5f}] | 🎯 Universal Physics Norm [0→0.0245]"),
-                f"{prefix}/Absorption/{phantom_label}/target_xz_slice": wandb.Image(target_xz_abs_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μₐ XZ (y=32) | Range: [{target_xz_abs.min():.5f}, {target_xz_abs.max():.5f}] | 🎯 Universal Physics Norm [0→0.0245]"),
-                f"{prefix}/Absorption/{phantom_label}/predicted_yz_slice": wandb.Image(pred_yz_abs_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μₐ YZ (x=32) | Range: [{pred_yz_abs.min():.5f}, {pred_yz_abs.max():.5f}] | 🎯 Universal Physics Norm [0→0.0245]"),
-                f"{prefix}/Absorption/{phantom_label}/target_yz_slice": wandb.Image(target_yz_abs_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μₐ YZ (x=32) | Range: [{target_yz_abs.min():.5f}, {target_yz_abs.max():.5f}] | 🎯 Universal Physics Norm [0→0.0245]"),
+                # ===== ABSORPTION CHANNEL (μₐ) - PHYSICS NORMALIZATION =====
+                f"{prefix}/Absorption/{phantom_label}/predicted_xy_physics": wandb.Image(pred_xy_abs_norm, 
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μₐ XY (z={z}) | Range: {pred_xy_abs_range} | 🎯 Physics Norm [0→0.0245]"),
+                f"{prefix}/Absorption/{phantom_label}/target_xy_physics": wandb.Image(tgt_xy_abs_norm, 
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μₐ XY (z={z}) | Range: {tgt_xy_abs_range} | 🎯 Physics Norm [0→0.0245]"),
+                f"{prefix}/Absorption/{phantom_label}/predicted_xz_physics": wandb.Image(pred_xz_abs_norm, 
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μₐ XZ (y={y}) | Range: [{pred_xz_abs.min():.5f}, {pred_xz_abs.max():.5f}] | 🎯 Physics Norm [0→0.0245]"),
+                f"{prefix}/Absorption/{phantom_label}/target_xz_physics": wandb.Image(tgt_xz_abs_norm, 
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μₐ XZ (y={y}) | Range: [{tgt_xz_abs.min():.5f}, {tgt_xz_abs.max():.5f}] | 🎯 Physics Norm [0→0.0245]"),
+                f"{prefix}/Absorption/{phantom_label}/predicted_yz_physics": wandb.Image(pred_yz_abs_norm, 
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μₐ YZ (x={x}) | Range: [{pred_yz_abs.min():.5f}, {pred_yz_abs.max():.5f}] | 🎯 Physics Norm [0→0.0245]"),
+                f"{prefix}/Absorption/{phantom_label}/target_yz_physics": wandb.Image(tgt_yz_abs_norm, 
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μₐ YZ (x={x}) | Range: [{tgt_yz_abs.min():.5f}, {tgt_yz_abs.max():.5f}] | 🎯 Physics Norm [0→0.0245]"),
                 
-                # Scattering channel (μ′s) - All 3 slices for this phantom
-                f"{prefix}/Scattering/{phantom_label}/predicted_xy_slice": wandb.Image(pred_xy_scat_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μ′s XY (z=32) | Range: {pred_xy_scat_range} | 🎯 Universal Physics Norm [0→2.95]"),
-                f"{prefix}/Scattering/{phantom_label}/target_xy_slice": wandb.Image(target_xy_scat_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μ′s XY (z=32) | Range: {target_xy_scat_range} | 🎯 Universal Physics Norm [0→2.95]"),
-                f"{prefix}/Scattering/{phantom_label}/predicted_xz_slice": wandb.Image(pred_xz_scat_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μ′s XZ (y=32) | Range: [{pred_xz_scat.min():.5f}, {pred_xz_scat.max():.5f}] | 🎯 Universal Physics Norm [0→2.95]"),
-                f"{prefix}/Scattering/{phantom_label}/target_xz_slice": wandb.Image(target_xz_scat_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μ′s XZ (y=32) | Range: [{target_xz_scat.min():.5f}, {target_xz_scat.max():.5f}] | 🎯 Universal Physics Norm [0→2.95]"),
-                f"{prefix}/Scattering/{phantom_label}/predicted_yz_slice": wandb.Image(pred_yz_scat_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μ′s YZ (x=32) | Range: [{pred_yz_scat.min():.5f}, {pred_yz_scat.max():.5f}] | 🎯 Universal Physics Norm [0→2.95]"),
-                f"{prefix}/Scattering/{phantom_label}/target_yz_slice": wandb.Image(target_yz_scat_norm, 
-                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μ′s YZ (x=32) | Range: [{target_yz_scat.min():.5f}, {target_yz_scat.max():.5f}] | 🎯 Universal Physics Norm [0→2.95]"),
+                # ===== SCATTERING CHANNEL (μ′ₛ) - PHYSICS NORMALIZATION =====
+                f"{prefix}/Scattering/{phantom_label}/predicted_xy_physics": wandb.Image(pred_xy_scat_norm, 
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μ′ₛ XY (z={z}) | Range: {pred_xy_scat_range} | 🎯 Physics Norm [0→2.95]"),
+                f"{prefix}/Scattering/{phantom_label}/target_xy_physics": wandb.Image(tgt_xy_scat_norm, 
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μ′ₛ XY (z={z}) | Range: {tgt_xy_scat_range} | 🎯 Physics Norm [0→2.95]"),
+                f"{prefix}/Scattering/{phantom_label}/predicted_xz_physics": wandb.Image(pred_xz_scat_norm, 
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μ′ₛ XZ (y={y}) | Range: [{pred_xz_scat.min():.5f}, {pred_xz_scat.max():.5f}] | 🎯 Physics Norm [0→2.95]"),
+                f"{prefix}/Scattering/{phantom_label}/target_xz_physics": wandb.Image(tgt_xz_scat_norm, 
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μ′ₛ XZ (y={y}) | Range: [{tgt_xz_scat.min():.5f}, {tgt_xz_scat.max():.5f}] | 🎯 Physics Norm [0→2.95]"),
+                f"{prefix}/Scattering/{phantom_label}/predicted_yz_physics": wandb.Image(pred_yz_scat_norm, 
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Predicted μ′ₛ YZ (x={x}) | Range: [{pred_yz_scat.min():.5f}, {pred_yz_scat.max():.5f}] | 🎯 Physics Norm [0→2.95]"),
+                f"{prefix}/Scattering/{phantom_label}/target_yz_physics": wandb.Image(tgt_yz_scat_norm, 
+                    caption=f"Epoch {epoch + 1} - {phantom_label} Ground Truth μ′ₛ YZ (x={x}) | Range: [{tgt_yz_scat.min():.5f}, {tgt_yz_scat.max():.5f}] | 🎯 Physics Norm [0→2.95]"),
             }
             
-            # Log this phantom's images without step parameter (consistent with main metrics)
-            # Include epoch info in the logged data for proper x-axis alignment
-            phantom_logs["epoch"] = epoch + 1
-            wandb.log(phantom_logs)
+            # ===== AUTOCONTRAST PREVIEWS (DEBUG ONLY) =====
+            if add_autocontrast_preview:
+                phantom_logs.update({
+                    f"{prefix}/Debug_Autocontrast/{phantom_label}/predicted_xy_autocontrast": wandb.Image(pred_xy_abs_auto, 
+                        caption=f"Epoch {epoch + 1} - {phantom_label} DEBUG: Predicted μₐ XY (Autocontrast) | Range: {pred_xy_abs_range}"),
+                    f"{prefix}/Debug_Autocontrast/{phantom_label}/target_xy_autocontrast": wandb.Image(tgt_xy_abs_auto, 
+                        caption=f"Epoch {epoch + 1} - {phantom_label} DEBUG: Ground Truth μₐ XY (Autocontrast) | Range: {tgt_xy_abs_range}"),
+                    f"{prefix}/Debug_Autocontrast/{phantom_label}/predicted_xy_scat_autocontrast": wandb.Image(pred_xy_scat_auto, 
+                        caption=f"Epoch {epoch + 1} - {phantom_label} DEBUG: Predicted μ′ₛ XY (Autocontrast) | Range: {pred_xy_scat_range}"),
+                    f"{prefix}/Debug_Autocontrast/{phantom_label}/target_xy_scat_autocontrast": wandb.Image(tgt_xy_scat_auto, 
+                        caption=f"Epoch {epoch + 1} - {phantom_label} DEBUG: Ground Truth μ′ₛ XY (Autocontrast) | Range: {tgt_xy_scat_range}"),
+                })
+            
+            # Log this phantom's images - use commit=False to batch with other metrics
+            wandb.log(phantom_logs, commit=False)
         
         logger.debug(f"✅ Successfully logged reconstruction images for {num_phantoms_to_show} phantoms at epoch {epoch}")
         

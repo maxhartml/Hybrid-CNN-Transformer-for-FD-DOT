@@ -46,10 +46,10 @@ torch._dynamo.config.suppress_errors = True
 
 # Project imports
 from code.data_processing.data_loader import create_phantom_dataloaders
-from code.training.stage1_trainer import Stage1Trainer
-from code.training.stage2_trainer import Stage2Trainer
+from .stage1_trainer import Stage1Trainer
+from .stage2_trainer import Stage2Trainer
 from code.utils.logging_config import get_training_logger, NIRDOTLogger
-from code.training.training_config import *  # Import all training config
+from .training_config import *  # Import all training config
 
 # =============================================================================
 # MAIN CONFIGURATION

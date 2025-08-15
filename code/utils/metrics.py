@@ -554,6 +554,78 @@ class NIRDOTMetrics:
 
 
 # =============================================================================
+# PER-CHANNEL VALIDATION METRICS
+# =============================================================================
+
+def _tumor_mask_from_gt(gt_ch: torch.Tensor) -> torch.Tensor:
+    """
+    Create a tumor mask from GT for a single channel tensor shaped [B, D, H, W].
+    Uses a robust percentile threshold (85th) per-sample to separate tumor vs background.
+    
+    Args:
+        gt_ch: Ground truth channel tensor [B, D, H, W]
+        
+    Returns:
+        torch.Tensor: Binary tumor mask [B, D, H, W]
+    """
+    B = gt_ch.shape[0]
+    flat = gt_ch.reshape(B, -1)
+    thr = torch.quantile(flat, 0.85, dim=1, keepdim=True)  # [B,1]
+    mask = (flat > thr).float().reshape_as(gt_ch)          # [B,D,H,W]
+    return mask
+
+
+def dice_per_channel(pred_raw: torch.Tensor, gt_raw: torch.Tensor, channel: int) -> torch.Tensor:
+    """
+    Compute Dice coefficient for a single channel in raw physical units.
+    
+    Args:
+        pred_raw: Predicted volumes [B, 2, D, H, W] in physical units
+        gt_raw: Ground truth volumes [B, 2, D, H, W] in physical units  
+        channel: Channel index (0 for μₐ, 1 for μ′ₛ)
+        
+    Returns:
+        torch.Tensor: Mean Dice coefficient over batch for the selected channel
+    """
+    gt_ch   = gt_raw[:, channel]   # [B,D,H,W]
+    pred_ch = pred_raw[:, channel] # [B,D,H,W]
+    gt_mask = _tumor_mask_from_gt(gt_ch)
+    
+    # Threshold pred using the SAME GT-derived thresholding scheme for fairness:
+    B = gt_ch.shape[0]
+    gt_flat   = gt_ch.reshape(B, -1)
+    thr       = torch.quantile(gt_flat, 0.85, dim=1, keepdim=True)     # [B,1]
+    pred_mask = (pred_ch.reshape(B, -1) > thr).float().reshape_as(gt_ch)
+
+    inter = (pred_mask * gt_mask).sum(dim=[1,2,3])
+    denom = pred_mask.sum(dim=[1,2,3]) + gt_mask.sum(dim=[1,2,3]) + 1e-6
+    dice  = (2.0 * inter / denom).mean()
+    return dice
+
+
+def contrast_ratio_per_channel(pred_raw: torch.Tensor, gt_raw: torch.Tensor, channel: int) -> torch.Tensor:
+    """
+    Compute contrast ratio for a single channel in raw physical units.
+    CR = mean(pred in tumor) / mean(pred in background), mask from GT.
+    
+    Args:
+        pred_raw: Predicted volumes [B, 2, D, H, W] in physical units
+        gt_raw: Ground truth volumes [B, 2, D, H, W] in physical units
+        channel: Channel index (0 for μₐ, 1 for μ′ₛ)
+        
+    Returns:
+        torch.Tensor: Mean contrast ratio over batch for the selected channel
+    """
+    pred_ch = pred_raw[:, channel]  # [B,D,H,W]
+    gt_ch   = gt_raw[:, channel]
+    mask    = _tumor_mask_from_gt(gt_ch)
+    inv     = 1.0 - mask
+    tumor   = (pred_ch * mask).sum(dim=[1,2,3]) / (mask.sum(dim=[1,2,3]) + 1e-6)
+    backg   = (pred_ch * inv ).sum(dim=[1,2,3]) / (inv.sum(dim=[1,2,3]) + 1e-6)
+    return (tumor / (backg + 1e-6)).mean()
+
+
+# =============================================================================
 # UTILITY FUNCTIONS
 # =============================================================================
 

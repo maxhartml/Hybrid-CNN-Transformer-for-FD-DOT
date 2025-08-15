@@ -44,10 +44,10 @@ from torch.cuda.amp import GradScaler, autocast  # Mixed precision training for 
 # Project imports
 from code.models.hybrid_model import HybridCNNTransformer
 from code.utils.logging_config import get_training_logger
-from code.utils.metrics import NIRDOTMetrics, create_metrics_for_stage, calculate_batch_metrics, RMSELoss
+from code.utils.metrics import NIRDOTMetrics, create_metrics_for_stage, calculate_batch_metrics, RMSELoss, dice_per_channel, contrast_ratio_per_channel
 from code.utils.standardizers import Stage2StandardizerCollection
 from code.data_processing.data_loader import create_phantom_dataloaders  # For standardizer fitting
-from code.training.training_config import *  # Import all training config
+from .training_config import *  # Import all training config
 
 # =============================================================================
 # PERFORMANCE OPTIMIZATIONS
@@ -223,6 +223,35 @@ class Stage2Trainer:
         # Initialize Weights & Biases (deferred until training starts)
         # Note: W&B initialization happens in train() method when epochs and data_loader are available
         self._wandb_initialized = False
+        
+        # =============================================================================
+        # LATENT-ONLY TRAINING SETUP
+        # =============================================================================
+        
+        if TRAIN_STAGE2_LATENT_ONLY:
+            logger.info("🎯 LATENT-ONLY TRAINING MODE ENABLED")
+            logger.info(f"   ├─ Latent dimension: {LATENT_DIM}")
+            logger.info(f"   ├─ E2E validation every: {VAL_E2E_EVERY_K_EPOCHS} epochs")
+            logger.info(f"   └─ Training on latent RMSE only (no decoder)")
+            
+            # Import latent-only training components
+            from .teacher_stage1 import load_teacher_stage1
+            from .latent_stats import LatentStats, compute_latent_rmse
+            
+            # Initialize teacher model for latent targets
+            self.teacher = load_teacher_stage1(checkpoint_path=stage1_checkpoint_path, device=self.device)
+            logger.info("✅ Stage 1 teacher model loaded for latent targets")
+            
+            # Initialize latent statistics tracker
+            self.latent_stats = LatentStats()
+            
+            # Override loss function to latent RMSE
+            self.criterion = compute_latent_rmse
+            logger.info("📊 Stage 2 using latent RMSE loss (teacher-student)")
+        else:
+            logger.info("🔄 STANDARD TRAINING MODE (end-to-end reconstruction)")
+            self.teacher = None
+            self.latent_stats = None
     
     def _create_lightweight_dataloader_for_standardizer_fitting(self):
         """
@@ -665,9 +694,16 @@ class Stage2Trainer:
         """
         if DEBUG_VERBOSE:
             logger.debug("🔄 Starting Stage 2 training epoch...")
+        
+        # Ensure model is in correct stage mode
+        self.model.set_training_stage("stage2")
         self.model.train()
-        total_standardized_loss = 0
+        total_loss = 0
         num_batches = 0
+        
+        # Reset latent statistics for this epoch
+        if TRAIN_STAGE2_LATENT_ONLY:
+            self.latent_stats.reset()
         
         if DEBUG_VERBOSE:
             logger.debug(f"📊 Processing {len(data_loader)} batches in Stage 2 training epoch")
@@ -715,41 +751,68 @@ class Stage2Trainer:
             # Use bfloat16 if available to avoid gradient underflow issues (ChatGPT recommendation)
             dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
             with autocast(dtype=dtype):
-                # The hybrid model handles: NIR measurements (batch, 256_subsampled, 8) → transformer → CNN decoder → reconstruction
-                # Note: 256 measurements are subsampled from 1000 generated measurements for data augmentation
-                outputs = self.model(nir_measurements, tissue_patches)
-                logger.debug(f"📤 Stage 2 model output shape: {outputs['reconstructed'].shape}")
-                
-                # DEBUGGING: Log transformer activity details only at the final batch of epoch
-                if (batch_idx + 1) == len(data_loader):
-                    attn_weights = outputs['attention_weights']
-                    logger.info(f"🧠 Transformer attention stats: shape={attn_weights.shape}, "
-                              f"min={attn_weights.min():.4f}, max={attn_weights.max():.4f}, "
-                              f"mean={attn_weights.mean():.4f}")
-                
-                if (batch_idx + 1) == len(data_loader) and 'enhanced_features' in outputs and outputs['enhanced_features'] is not None:
-                    features = outputs['enhanced_features']
-                    logger.info(f"✨ Enhanced features stats: shape={features.shape}, "
-                              f"min={features.min():.4f}, max={features.max():.4f}, "
-                              f"mean={features.mean():.4f}, std={features.std():.4f}")
-                
-                # SAFETY: Check for NaN values immediately after forward pass
-                if torch.isnan(outputs['reconstructed']).any():
-                    logger.error(f"🚨 NaN detected in model output at batch {batch_idx}")
-                    logger.error(f"🔍 NIR measurements stats: min={nir_measurements.min():.6f}, max={nir_measurements.max():.6f}, mean={nir_measurements.mean():.6f}")
-                    logger.error(f"🔍 Output stats: min={outputs['reconstructed'].min():.6f}, max={outputs['reconstructed'].max():.6f}")
-                    raise ValueError(f"NaN detected in model output - stopping training at batch {batch_idx}")
-                
-                # Compute standardized RMSE loss (matches Stage 1)
-                std_rmse = self.criterion(outputs['reconstructed'], targets)
+                if TRAIN_STAGE2_LATENT_ONLY:
+                    # LATENT-ONLY TRAINING MODE
+                    # Forward pass only through encoder to get student latent
+                    student_latent = self.model.encode(nir_measurements, tissue_patches)
+                    
+                    # Get teacher latent from standardized ground truth (NOT NIR measurements)
+                    with torch.no_grad():
+                        teacher_latent = self.teacher.encode_from_gt_std(targets)
+                    
+                    # Compute latent RMSE loss
+                    loss = self.criterion(student_latent, teacher_latent)
+                    
+                    # Update latent statistics
+                    batch_latent_stats = self.latent_stats.update(teacher_latent, student_latent)
+                    
+                    # Debug: Assert correct shapes and no NaNs
+                    assert teacher_latent.shape == student_latent.shape == (targets.shape[0], LATENT_DIM), \
+                        f"Latent shape mismatch: teacher={teacher_latent.shape}, student={student_latent.shape}, expected=({targets.shape[0]}, {LATENT_DIM})"
+                    assert not torch.isnan(student_latent).any(), "Student latent contains NaNs"
+                    assert not torch.isnan(teacher_latent).any(), "Teacher latent contains NaNs"
+                    
+                    # Log latent stats at debug level
+                    if DEBUG_VERBOSE:
+                        logger.debug(f"🎯 Latent RMSE: {batch_latent_stats['latent_rmse']:.4f}, "
+                                   f"Cosine Sim: {batch_latent_stats['latent_cosine_sim']:.4f}")
+                        logger.debug(f"📊 Teacher latent: mean={teacher_latent.mean():.4f}, std={teacher_latent.std():.4f}, "
+                                   f"min={teacher_latent.min():.4f}, max={teacher_latent.max():.4f}, norm={teacher_latent.norm():.4f}")
+                        logger.debug(f"📊 Student latent: mean={student_latent.mean():.4f}, std={student_latent.std():.4f}, "
+                                   f"min={student_latent.min():.4f}, max={student_latent.max():.4f}, norm={student_latent.norm():.4f}")
+                else:
+                    # STANDARD END-TO-END TRAINING MODE
+                    outputs = self.model(nir_measurements, tissue_patches)
+                    logger.debug(f"📤 Stage 2 model output shape: {outputs['reconstructed'].shape}")
+                    
+                    # DEBUGGING: Log transformer activity details only at the final batch of epoch
+                    if (batch_idx + 1) == len(data_loader):
+                        attn_weights = outputs['attention_weights']
+                        logger.info(f"🧠 Transformer attention stats: shape={attn_weights.shape}, "
+                                  f"min={attn_weights.min():.4f}, max={attn_weights.max():.4f}, "
+                                  f"mean={attn_weights.mean():.4f}")
+                    
+                    if (batch_idx + 1) == len(data_loader) and 'enhanced_features' in outputs and outputs['enhanced_features'] is not None:
+                        features = outputs['enhanced_features']
+                        logger.info(f"✨ Enhanced features stats: shape={features.shape}, "
+                                  f"min={features.min():.4f}, max={features.max():.4f}, "
+                                  f"mean={features.mean():.4f}, std={features.std():.4f}")
+                    
+                    # SAFETY: Check for NaN values immediately after forward pass
+                    if torch.isnan(outputs['reconstructed']).any():
+                        logger.error(f"🚨 NaN detected in model output at batch {batch_idx}")
+                        raise ValueError(f"NaN detected in model output - stopping training at batch {batch_idx}")
+                    
+                    # Compute standardized RMSE loss (matches Stage 1)
+                    loss = self.criterion(outputs['reconstructed'], targets)
                 
                 # SAFETY: Check for NaN loss immediately
-                if torch.isnan(std_rmse):
+                if torch.isnan(loss):
                     logger.error(f"🚨 NaN loss detected at batch {batch_idx}")
                     raise ValueError(f"NaN loss detected - stopping training at batch {batch_idx}")
             
             # Backward pass and optimization (Mixed Precision enabled)
-            self.scaler.scale(std_rmse).backward()
+            self.scaler.scale(loss).backward()
             
             # Gradient clipping (prevents exploding gradients in transformer training)
             self.scaler.unscale_(self.optimizer)
@@ -770,74 +833,210 @@ class Stage2Trainer:
                 current_lr = self.optimizer.param_groups[0]['lr']
                 global_step = epoch * len(data_loader) + batch_idx + 1
                 
-                wandb.log({
+                log_data = {
                     "training_step": global_step,
-                    "train/loss_std": std_rmse.item(),  # Standardized RMSE loss (matches Stage 1 key)
+                    "train/latent_rmse": loss.item(),  # Use latent_rmse as primary training metric
                     "train/lr": current_lr
-                })
+                }
+                
+                # Add latent-specific metrics if in latent-only mode
+                if TRAIN_STAGE2_LATENT_ONLY:
+                    log_data.update({
+                        "train/latent_rmse": batch_latent_stats['latent_rmse'],
+                        "train/latent_cosine_sim": batch_latent_stats['latent_cosine_sim'],
+                        "train/teacher_magnitude": batch_latent_stats['teacher_magnitude'],
+                        "train/student_magnitude": batch_latent_stats['student_magnitude']
+                    })
+                
+                wandb.log(log_data)
             
-            total_standardized_loss += std_rmse.item()
+            total_loss += loss.item()
             num_batches += 1
             
-            # Clean training batch progress: only standardized RMSE and LR (matches Stage 1)
+            # Clean training batch progress: only loss and LR (matches Stage 1)
             current_lr = self.optimizer.param_groups[0]['lr']
+            loss_name = "Latent_RMSE" if TRAIN_STAGE2_LATENT_ONLY else "Std_RMSE"
             logger.info(f"🏋️  TRAIN | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
-                       f"Std_RMSE: {std_rmse.item():.4f} | LR: {current_lr:.2e}")
+                       f"{loss_name}: {loss.item():.4f} | LR: {current_lr:.2e}")
             
             # Log gradient norm at debug level for monitoring training health
             if DEBUG_VERBOSE:
                 logger.debug(f"🔧 Batch {batch_idx + 1} | Gradient Norm: {grad_norm:.3f}")
             
             # Additional detailed logging at DEBUG level
-            if DEBUG_VERBOSE and batch_idx % 10 == 0:  # Log every 10 batches for stability monitoring
-                logger.debug(f"🔍 Detailed: Batch {batch_idx}: Std_Loss = {std_rmse.item():.6f}, "
-                           f"Running Avg = {total_standardized_loss/num_batches:.6f}")
+            if DEBUG_VERBOSE and batch_idx % 10 == 0:
+                logger.debug(f"🔍 Detailed: Batch {batch_idx}: Loss = {loss.item():.6f}, "
+                           f"Running Avg = {total_loss/num_batches:.6f}")
         
-        avg_standardized_loss = total_standardized_loss / num_batches
+        avg_loss = total_loss / num_batches
+        
+        # Log epoch summary
+        if TRAIN_STAGE2_LATENT_ONLY:
+            epoch_latent_stats = self.latent_stats.compute_epoch_stats()
+            logger.info(f"📊 TRAIN SUMMARY | Latent_RMSE: {avg_loss:.4f} | "
+                       f"Cosine_Sim: {epoch_latent_stats.get('latent_cosine_sim', 0):.4f}")
+            
+            # Log latent statistics to wandb
+            if self.use_wandb and wandb.run:
+                wandb.log({
+                    "epoch": epoch,
+                    "train/epoch_latent_rmse": epoch_latent_stats.get('latent_rmse', 0),
+                    "train/epoch_cosine_sim": epoch_latent_stats.get('latent_cosine_sim', 0),
+                    "train/epoch_teacher_mag": epoch_latent_stats.get('teacher_magnitude', 0),
+                    "train/epoch_student_mag": epoch_latent_stats.get('student_magnitude', 0),
+                })
+        else:
+            logger.info(f"📊 TRAIN SUMMARY | Std_RMSE: {avg_loss:.4f}")
         
         if DEBUG_VERBOSE:
-            logger.debug(f"✅ Training epoch completed. Average standardized loss: {avg_standardized_loss:.6f}")
-        logger.info(f"📊 TRAIN SUMMARY | Std_RMSE: {avg_standardized_loss:.4f}")
+            logger.debug(f"✅ Training epoch completed. Average loss: {avg_loss:.6f}")
         
-        return avg_standardized_loss
+        return avg_loss
     
     def _log_reconstruction_images(self, predictions, targets, nir_measurements, epoch, step=None, phantom_ids=None):
         """Log 3D reconstruction slices to W&B for visualization (using shared function)."""
         if not self.use_wandb:
             return
             
-        # Use shared visualization function to avoid code duplication
+        # Use shared visualization function with proper inverse standardization
         from code.utils.visualization import log_reconstruction_images_to_wandb
-        log_reconstruction_images_to_wandb(predictions, targets, epoch, "Reconstructions", step, phantom_ids=phantom_ids)
+        log_reconstruction_images_to_wandb(
+            predictions=predictions, 
+            targets=targets, 
+            epoch=epoch, 
+            prefix="Reconstructions", 
+            step=step, 
+            phantom_ids=phantom_ids,
+            gt_standardizer=self.standardizers.ground_truth_standardizer,  # CRITICAL: Pass standardizer for inverse transform
+            add_autocontrast_preview=True
+        )
     
-    def validate(self, data_loader):
+    def _log_teacher_student_comparison(self, student_recon, teacher_recon, targets, epoch, phantom_ids=None):
+        """Log teacher vs student reconstruction comparison for E2E validation."""
+        if not self.use_wandb:
+            return
+            
+        try:
+            import wandb
+            
+            # Apply inverse standardization for visualization using standardizers
+            student_raw = self.standardizers.ground_truth_standardizer.inverse_transform(student_recon)
+            teacher_raw = self.standardizers.ground_truth_standardizer.inverse_transform(teacher_recon) 
+            targets_raw = self.standardizers.ground_truth_standardizer.inverse_transform(targets)
+            
+            # Physical range clamping for proper visualization
+            def clamp_to_physical_range(tensor):
+                # mu_a: [0.01, 0.1] mm^-1, mu_s: [5, 25] mm^-1 (typical values)
+                mu_a_min, mu_a_max = 0.001, 0.2   # Conservative bounds
+                mu_s_min, mu_s_max = 1.0, 50.0
+                
+                clamped = tensor.clone()
+                clamped[:, 0] = torch.clamp(clamped[:, 0], mu_a_min, mu_a_max)  # mu_a
+                clamped[:, 1] = torch.clamp(clamped[:, 1], mu_s_min, mu_s_max)  # mu_s
+                return clamped
+            
+            student_raw = clamp_to_physical_range(student_raw)
+            teacher_raw = clamp_to_physical_range(teacher_raw)
+            targets_raw = clamp_to_physical_range(targets_raw)
+            
+            # Log comparison images (first sample in batch)
+            images = []
+            
+            # Extract middle slice for visualization (Z//2)
+            z_mid = student_raw.shape[-1] // 2
+            
+            # Student reconstruction
+            student_slice = student_raw[0, :, :, :, z_mid].cpu().numpy()  # [2, H, W]
+            # Teacher reconstruction  
+            teacher_slice = teacher_raw[0, :, :, :, z_mid].cpu().numpy()  # [2, H, W]
+            # Ground truth
+            target_slice = targets_raw[0, :, :, :, z_mid].cpu().numpy()   # [2, H, W]
+            
+            phantom_id = phantom_ids[0] if phantom_ids is not None else "unknown"
+            
+            # Log mu_a comparison
+            images.append(wandb.Image(
+                student_slice[0], 
+                caption=f"Student μa (Phantom {phantom_id})"
+            ))
+            images.append(wandb.Image(
+                teacher_slice[0], 
+                caption=f"Teacher μa (Phantom {phantom_id})"
+            ))
+            images.append(wandb.Image(
+                target_slice[0], 
+                caption=f"GT μa (Phantom {phantom_id})"
+            ))
+            
+            # Log mu_s comparison
+            images.append(wandb.Image(
+                student_slice[1], 
+                caption=f"Student μs (Phantom {phantom_id})"
+            ))
+            images.append(wandb.Image(
+                teacher_slice[1], 
+                caption=f"Teacher μs (Phantom {phantom_id})"
+            ))
+            images.append(wandb.Image(
+                target_slice[1], 
+                caption=f"GT μs (Phantom {phantom_id})"
+            ))
+            
+            wandb.log({
+                f"Teacher_vs_Student_E2E_Epoch_{epoch}": images
+            })  # Remove step parameter to use global step
+            
+            if DEBUG_VERBOSE:
+                logger.debug(f"✅ Logged teacher vs student comparison for epoch {epoch}")
+                
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to log teacher vs student comparison: {e}")
+    
+    def validate(self, data_loader, epoch=0):
         """
-        Evaluate the hybrid model on validation data with both standardized and raw metrics.
+        Evaluate the hybrid model on validation data.
         
-        This method runs the forward pass on standardized inputs but computes
-        human-interpretable metrics in raw space after inverse transformation.
-        Matches Stage 1 validation pattern exactly for logging consistency.
+        Supports two validation modes:
+        1. Latent-only validation: Compute latent space metrics only
+        2. End-to-end validation: Full reconstruction validation (every K epochs or standard mode)
         
         Args:
-            data_loader: DataLoader containing validation batches with
-                        'nir_measurements', 'ground_truth', and optionally 'tissue_patches'
+            data_loader: DataLoader containing validation batches
+            epoch: Current epoch number for determining validation type
         
         Returns:
-            tuple: (standardized_loss, raw_metrics_dict) for monitoring
+            tuple: (loss, metrics_dict) for monitoring
         """
         if not self.standardizers.fitted:
             raise RuntimeError("Standardizers must be fitted before validation.")
         
-        logger.debug("🔍 Starting validation epoch with standardized inputs...")
+        logger.debug("🔍 Starting validation epoch...")
         self.model.eval()
-        total_standardized_loss = 0
+        total_loss = 0
         num_batches = 0
         
-        # Initialize RAW metrics tracking (human-interpretable) - match Stage 1 exactly
+        # Determine validation mode
+        if TRAIN_STAGE2_LATENT_ONLY:
+            do_e2e_validation = (epoch % VAL_E2E_EVERY_K_EPOCHS == 0)
+            if do_e2e_validation:
+                logger.info(f"🎯 E2E validation epoch {epoch} (every {VAL_E2E_EVERY_K_EPOCHS} epochs)")
+            else:
+                logger.debug(f"🎯 Latent-only validation epoch {epoch}")
+        else:
+            do_e2e_validation = True  # Always do E2E in standard mode
+        
+        # Initialize metrics tracking (always initialize, but only use in E2E mode)
         raw_metrics = {
             'raw_rmse_total': 0.0, 'raw_rmse_mu_a': 0.0, 'raw_rmse_mu_s': 0.0,
-            'raw_dice': 0.0, 'raw_contrast': 0.0
+            'raw_dice': 0.0, 'raw_contrast': 0.0,
+            'raw_dice_mu_a': 0.0, 'raw_dice_mu_s': 0.0,  # New per-channel Dice
+            'raw_contrast_mu_a': 0.0, 'raw_contrast_mu_s': 0.0  # New per-channel Contrast Ratio
         }
+        
+        # Initialize latent statistics if in latent mode
+        if TRAIN_STAGE2_LATENT_ONLY:
+            from .latent_stats import LatentStats
+            val_latent_stats = LatentStats()
         
         # Add transformer metrics for Stage 2
         transformer_metrics = {
@@ -866,71 +1065,158 @@ class Stage2Trainer:
                 
                 logger.debug(f"📦 Validation batch shape: {raw_ground_truth.shape}")
                 
-                logger.debug("⚡ Forward pass on standardized inputs (no gradients)...")
                 # Use same dtype as training for consistency
                 dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+                logger.debug("⚡ Validation forward pass...")
                 with autocast(dtype=dtype):
-                    outputs = self.model(nir_measurements, tissue_patches)
-                    # Loss computed in STANDARDIZED space (consistency with training)
-                    standardized_loss = self.criterion(outputs['reconstructed'], standardized_ground_truth)
+                    if TRAIN_STAGE2_LATENT_ONLY and not do_e2e_validation:
+                        # LATENT-ONLY VALIDATION
+                        student_latent = self.model.encode(nir_measurements, tissue_patches)
+                        
+                        # Get teacher latent from standardized ground truth (NOT NIR measurements)
+                        with torch.no_grad():
+                            teacher_latent = self.teacher.encode_from_gt_std(standardized_ground_truth)
+                        
+                        # Compute latent loss
+                        loss = self.criterion(student_latent, teacher_latent)
+                        
+                        # Update latent statistics
+                        batch_latent_stats = val_latent_stats.update(teacher_latent, student_latent)
+                        
+                        logger.info(f"🔍 VALID | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
+                                   f"Latent_RMSE: {batch_latent_stats['latent_rmse']:.4f} | "
+                                   f"Cosine_Sim: {batch_latent_stats['latent_cosine_sim']:.4f}")
+                    else:
+                        # END-TO-END VALIDATION - Use teacher decoder for both teacher and student
+                        # 1. Get teacher baseline (ground truth → teacher encode → teacher decode)
+                        with torch.no_grad():
+                            teacher_latent = self.teacher.encode_from_gt_std(standardized_ground_truth)
+                            teacher_reconstruction_std = self.teacher.decode_from_latent(teacher_latent)
+                        
+                        # 2. Get student reconstruction via full forward pass to get transformer features
+                        student_outputs = self.model(nir_measurements, tissue_patches)
+                        student_latent = student_outputs['encoded_scan']  # Get latent from full forward pass
+                        with torch.no_grad():
+                            student_reconstruction_std = self.teacher.decode_from_latent(student_latent)
+                        
+                        # 3. Use student reconstruction for loss (comparison against ground truth)
+                        loss = self.criterion(student_reconstruction_std, standardized_ground_truth)
+                        
+                        # 4. Set outputs for metrics calculation with transformer features
+                        outputs = {
+                            'reconstructed': student_reconstruction_std,
+                            'enhanced_features': student_outputs.get('enhanced_features'),
+                            'cnn_features': student_outputs.get('cnn_features'),
+                            'attention_weights': student_outputs.get('attention_weights')
+                        }
+                        
+                        # 5. Debug assertions and logging
+                        assert teacher_latent.shape == student_latent.shape, f"Latent shape mismatch: teacher={teacher_latent.shape}, student={student_latent.shape}"
+                        assert student_reconstruction_std.shape == standardized_ground_truth.shape, f"Reconstruction shape mismatch: {student_reconstruction_std.shape} vs {standardized_ground_truth.shape}"
+                        assert not torch.isnan(student_reconstruction_std).any(), "Student reconstruction contains NaNs"
+                        
+                        if DEBUG_VERBOSE:
+                            logger.debug(f"📊 Teacher reconstruction (std): mean={teacher_reconstruction_std.mean():.4f}, std={teacher_reconstruction_std.std():.4f}")
+                            logger.debug(f"📊 Student reconstruction (std): mean={student_reconstruction_std.mean():.4f}, std={student_reconstruction_std.std():.4f}")
+                        
+                        # 6. Log teacher vs student comparison for first batch of epoch
+                        if batch_idx == 0 and epoch % VAL_E2E_EVERY_K_EPOCHS == 0:
+                            phantom_ids = batch.get('phantom_id', [f"batch_{batch_idx}_sample_{i}" for i in range(raw_ground_truth.size(0))])
+                            if hasattr(phantom_ids, 'cpu'):
+                                phantom_ids = phantom_ids.cpu().numpy()
+                            self._log_teacher_student_comparison(
+                                student_reconstruction_std, 
+                                teacher_reconstruction_std, 
+                                standardized_ground_truth, 
+                                epoch, 
+                                phantom_ids=phantom_ids
+                            )
                 
-                # Inverse transform predictions to RAW space for human-interpretable metrics
-                raw_predictions = self.standardizers.inverse_transform_ground_truth(outputs['reconstructed'])
-                # raw_ground_truth already in raw space (no transformation needed)
+                # Inverse transform predictions to RAW space for human-interpretable metrics (only for E2E)
+                if 'outputs' in locals() and outputs is not None:
+                    raw_predictions = self.standardizers.inverse_transform_ground_truth(outputs['reconstructed'])
+                    # raw_ground_truth already in raw space (no transformation needed)
+                else:
+                    raw_predictions = None
                 
-                logger.debug(f"� Standardized validation loss: {standardized_loss.item():.6f}")
+                logger.debug(f"� Standardized validation loss: {loss.item():.6f}")
                 
-                # Calculate RAW metrics in original μₐ/μ′ₛ space for human interpretation
-                with torch.no_grad():
-                    # Create outputs dict with raw predictions for metrics calculation (include transformer outputs)
-                    raw_outputs = {
-                        'reconstructed': raw_predictions,
-                        'attention_weights': outputs.get('attention_weights'),
-                        'enhanced_features': outputs.get('enhanced_features'),
-                        'cnn_features': outputs.get('cnn_features')  # Add this too
-                    }
-                    batch_raw_metrics = calculate_batch_metrics(
-                        self.metrics, raw_outputs, raw_ground_truth, "stage2"
-                    )
-                    
-                    # Map batch metrics to our raw metrics naming
-                    raw_metrics['raw_rmse_total'] += batch_raw_metrics.get('rmse_overall', 0)
-                    raw_metrics['raw_rmse_mu_a'] += batch_raw_metrics.get('rmse_absorption', 0)
-                    raw_metrics['raw_rmse_mu_s'] += batch_raw_metrics.get('rmse_scattering', 0)
-                    raw_metrics['raw_dice'] += batch_raw_metrics.get('dice', 0)
-                    raw_metrics['raw_contrast'] += batch_raw_metrics.get('contrast_ratio', 0)
-                    
-                    # Collect transformer metrics
-                    transformer_metrics['feature_enhancement_ratio'] += batch_raw_metrics.get('feature_enhancement_ratio', 0)
-                    transformer_metrics['attention_entropy'] += batch_raw_metrics.get('attention_entropy', 0)
+                # Calculate RAW metrics in original μₐ/μ′ₛ space for human interpretation (only for E2E)
+                if raw_predictions is not None and 'outputs' in locals() and outputs is not None:
+                    with torch.no_grad():
+                        # Create outputs dict with raw predictions for metrics calculation (include transformer outputs)
+                        raw_outputs = {
+                            'reconstructed': raw_predictions,
+                            'attention_weights': outputs.get('attention_weights'),
+                            'enhanced_features': outputs.get('enhanced_features'),
+                            'cnn_features': outputs.get('cnn_features')  # Add this too
+                        }
+                        batch_raw_metrics = calculate_batch_metrics(
+                            self.metrics, raw_outputs, raw_ground_truth, "stage2"
+                        )
+                        
+                        # Map batch metrics to our raw metrics naming
+                        raw_metrics['raw_rmse_total'] += batch_raw_metrics.get('rmse_overall', 0)
+                        raw_metrics['raw_rmse_mu_a'] += batch_raw_metrics.get('rmse_absorption', 0)
+                        raw_metrics['raw_rmse_mu_s'] += batch_raw_metrics.get('rmse_scattering', 0)
+                        raw_metrics['raw_dice'] += batch_raw_metrics.get('dice', 0)
+                        raw_metrics['raw_contrast'] += batch_raw_metrics.get('contrast_ratio', 0)
+                        
+                        # Compute per-channel metrics in raw physical space
+                        dice_mu_a = dice_per_channel(raw_predictions, raw_ground_truth, channel=0)
+                        dice_mu_s = dice_per_channel(raw_predictions, raw_ground_truth, channel=1)
+                        cr_mu_a = contrast_ratio_per_channel(raw_predictions, raw_ground_truth, channel=0)
+                        cr_mu_s = contrast_ratio_per_channel(raw_predictions, raw_ground_truth, channel=1)
+                        
+                        # Accumulate per-channel metrics
+                        raw_metrics['raw_dice_mu_a'] += dice_mu_a.item()
+                        raw_metrics['raw_dice_mu_s'] += dice_mu_s.item()
+                        raw_metrics['raw_contrast_mu_a'] += cr_mu_a.item()
+                        raw_metrics['raw_contrast_mu_s'] += cr_mu_s.item()
+                        
+                        # Collect transformer metrics
+                        transformer_metrics['feature_enhancement_ratio'] += batch_raw_metrics.get('feature_enhancement_ratio', 0)
+                        transformer_metrics['attention_entropy'] += batch_raw_metrics.get('attention_entropy', 0)
+                        
+                        # Show validation batch progress with RAW metrics (human-interpretable) - match Stage 1
+                        logger.info(f"🔍 VALID | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
+                                   f"Raw_RMSE: {batch_raw_metrics.get('rmse_overall', 0):.4f} | "
+                                   f"Dice: {batch_raw_metrics.get('dice', 0):.4f} | "
+                                   f"Contrast: {batch_raw_metrics.get('contrast_ratio', 0):.4f}")
+                else:
+                    # For latent-only validation, set default values for batch_raw_metrics
+                    batch_raw_metrics = {'rmse_overall': 0.0, 'dice': 0.0, 'contrast_ratio': 0.0}
                 
-                total_standardized_loss += standardized_loss.item()
+                total_loss += loss.item()
                 num_batches += 1
-                
-                # Show validation batch progress with RAW metrics (human-interpretable) - match Stage 1
-                logger.info(f"🔍 VALID | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
-                           f"Raw_RMSE: {batch_raw_metrics.get('rmse_overall', 0):.4f} | "
-                           f"Dice: {batch_raw_metrics.get('dice', 0):.4f} | "
-                           f"Contrast: {batch_raw_metrics.get('contrast_ratio', 0):.4f}")
         
         # Average all metrics
-        avg_standardized_loss = total_standardized_loss / num_batches
-        for key in raw_metrics:
-            raw_metrics[key] /= num_batches
-        for key in transformer_metrics:
-            transformer_metrics[key] /= num_batches
+        avg_loss = total_loss / num_batches
         
-        logger.debug(f"✅ Validation completed. Average standardized loss: {avg_standardized_loss:.6f}")
-        logger.info(f"📊 VALID SUMMARY | Raw_RMSE: {raw_metrics['raw_rmse_total']:.4f} | "
-                   f"Dice: {raw_metrics['raw_dice']:.4f} | Contrast: {raw_metrics['raw_contrast']:.4f} | "
-                   f"μₐ: {raw_metrics['raw_rmse_mu_a']:.4f} | μ′ₛ: {raw_metrics['raw_rmse_mu_s']:.4f}")
-        logger.info(f"🔮 TRANSFORMER | Feature Enhancement: {transformer_metrics['feature_enhancement_ratio']:.4f} | "
-                   f"Attention Entropy: {transformer_metrics['attention_entropy']:.4f}")
+        # Only average raw metrics if we did E2E validation
+        if do_e2e_validation:
+            for key in raw_metrics:
+                raw_metrics[key] /= num_batches
+            for key in transformer_metrics:
+                transformer_metrics[key] /= num_batches
+                
+            logger.debug(f"✅ Validation completed. Average loss: {avg_loss:.6f}")
+            logger.info(f"📊 VALID SUMMARY | Raw_RMSE: {raw_metrics['raw_rmse_total']:.4f} | "
+                       f"Dice: {raw_metrics['raw_dice']:.4f} | Contrast: {raw_metrics['raw_contrast']:.4f} | "
+                       f"μₐ: {raw_metrics['raw_rmse_mu_a']:.4f} | μ′ₛ: {raw_metrics['raw_rmse_mu_s']:.4f}")
+            logger.info(f"� VALID CHAN | Dice μₐ: {raw_metrics['raw_dice_mu_a']:.4f} | Dice μ′ₛ: {raw_metrics['raw_dice_mu_s']:.4f} | "
+                       f"CR μₐ: {raw_metrics['raw_contrast_mu_a']:.4f} | CR μ′ₛ: {raw_metrics['raw_contrast_mu_s']:.4f}")
+            logger.info(f"�🔮 TRANSFORMER | Feature Enhancement: {transformer_metrics['feature_enhancement_ratio']:.4f} | "
+                       f"Attention Entropy: {transformer_metrics['attention_entropy']:.4f}")
+        else:
+            # For latent-only validation
+            logger.debug(f"✅ Latent validation completed. Average loss: {avg_loss:.6f}")
+            logger.info(f"📊 LATENT SUMMARY | RMSE: {avg_loss:.4f}")
         
         # Combine metrics for return (maintain Stage 1 compatibility but add transformer metrics)
         combined_metrics = {**raw_metrics, **transformer_metrics}
         
-        return avg_standardized_loss, combined_metrics
+        return avg_loss, combined_metrics
     
     def train(self, data_loaders, epochs=EPOCHS_STAGE2):
         """
@@ -1006,8 +1292,8 @@ class Stage2Trainer:
                 wandb.log({
                     "epoch": epoch + 1,  # Custom x-axis for epoch metrics
                     
-                    # === STANDARDIZED LOSSES (optimization space) ===
-                    "train/loss_std": train_std_loss,           # Training metric (standardized)
+                    # === TRAINING LOSS (latent-only) ===
+                    "train/latent_rmse": train_std_loss,        # Primary training metric (latent RMSE)
                     "val/loss_std": val_std_loss,               # Main validation metric for early stopping
                     
                     # === RAW METRICS (human-interpretable) ===
@@ -1016,6 +1302,12 @@ class Stage2Trainer:
                     "val/raw_rmse_mu_s": val_raw_metrics['raw_rmse_mu_s'],
                     "val/raw_dice": val_raw_metrics['raw_dice'],
                     "val/raw_contrast": val_raw_metrics['raw_contrast'],
+                    
+                    # === PER-CHANNEL METRICS (new) ===
+                    "val/raw_dice_mu_a": val_raw_metrics['raw_dice_mu_a'],
+                    "val/raw_dice_mu_s": val_raw_metrics['raw_dice_mu_s'],
+                    "val/raw_contrast_mu_a": val_raw_metrics['raw_contrast_mu_a'],
+                    "val/raw_contrast_mu_s": val_raw_metrics['raw_contrast_mu_s'],
                     
                     # === TRANSFORMER METRICS (Stage 2 specific) ===
                     "transformer/feature_enhancement_valid": val_raw_metrics['feature_enhancement_ratio'],

@@ -50,12 +50,12 @@ from code.utils.logging_config import get_model_logger
 # HYPERPARAMETERS AND CONSTANTS
 # =============================================================================
 
-# Model Architecture Parameters (OPTIMIZED FOR MEMORY EFFICIENCY)
+# Model Architecture Parameters (OPTIMIZED FOR CHECKPOINT COMPATIBILITY)
 EMBED_DIM = 256                         # Transformer embedding dimension
-NUM_LAYERS = 6                          # Number of transformer layers (increased for better capacity)
-NUM_HEADS = 4                           # Number of attention heads (reduced from 8 for better training stability)
-MLP_RATIO = 3                           # MLP expansion ratio (reduced from 4)
-DROPOUT = 0.1                           # Dropout probability
+NUM_LAYERS = 6                          # Number of transformer layers (keep compatible with Stage 1 checkpoint)
+NUM_HEADS = 4                           # Number of attention heads (optimal head_dim=64 for low-SNR physics)
+MLP_RATIO = 3                           # MLP expansion ratio (keep compatible with Stage 1 checkpoint)
+DROPOUT = 0.05                          # Dropout probability (reduced since not overfitting)
 MAX_SEQ_LEN = 512                       # Maximum sequence length (reduced from 1000 for memory efficiency)
                                         # Robin's approach: pad when dscan < dseq, truncate when dscan > dseq
 

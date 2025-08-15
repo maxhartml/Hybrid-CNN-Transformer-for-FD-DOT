@@ -47,7 +47,7 @@ from code.utils.logging_config import get_training_logger
 from code.utils.metrics import NIRDOTMetrics, create_metrics_for_stage, calculate_batch_metrics, RMSELoss
 from code.utils.standardizers import PerChannelZScore, fit_standardizer_on_dataloader
 from code.utils.visualization import log_reconstruction_images_to_wandb
-from code.training.training_config import *  # Import all training config
+from .training_config import *  # Import all training config
 
 # =============================================================================
 # STAGE-SPECIFIC CONFIGURATION
@@ -577,7 +577,16 @@ class Stage1Trainer:
             
         # Use shared visualization function to avoid code duplication
         from code.utils.visualization import log_reconstruction_images_to_wandb
-        log_reconstruction_images_to_wandb(predictions, targets, epoch, "Reconstructions", step, phantom_ids)
+        log_reconstruction_images_to_wandb(
+            predictions=predictions, 
+            targets=targets, 
+            epoch=epoch, 
+            prefix="Reconstructions", 
+            step=step, 
+            phantom_ids=phantom_ids,
+            gt_standardizer=self.standardizer,  # Pass Stage 1 standardizer for inverse transform
+            add_autocontrast_preview=True
+        )
     
     def validate(self, data_loader):
         """
@@ -771,8 +780,13 @@ class Stage1Trainer:
                     
                     # Log using raw predictions and raw ground truth
                     log_reconstruction_images_to_wandb(
-                        raw_predictions, raw_ground_truth, epoch, 
-                        prefix="Reconstructions", phantom_ids=phantom_ids
+                        predictions=raw_predictions, 
+                        targets=raw_ground_truth, 
+                        epoch=epoch, 
+                        prefix="Reconstructions", 
+                        phantom_ids=phantom_ids,
+                        gt_standardizer=None,  # Already in raw physics units
+                        add_autocontrast_preview=True
                     )
                 except Exception as e:
                     logger.warning(f"⚠️ Failed to log images at epoch {epoch + 1}: {e}")            # Print epoch summary every epoch for important milestones
