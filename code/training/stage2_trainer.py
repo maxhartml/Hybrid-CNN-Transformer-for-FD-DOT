@@ -894,103 +894,27 @@ class Stage2Trainer:
         return avg_loss
     
     def _log_reconstruction_images(self, predictions, targets, nir_measurements, epoch, step=None, phantom_ids=None):
-        """Log 3D reconstruction slices to W&B for visualization (using shared function)."""
-        if not self.use_wandb:
-            return
-            
-        # Use shared visualization function with proper inverse standardization
-        from code.utils.visualization import log_reconstruction_images_to_wandb
-        log_reconstruction_images_to_wandb(
-            predictions=predictions, 
-            targets=targets, 
-            epoch=epoch, 
-            prefix="Reconstructions", 
-            step=step, 
-            phantom_ids=phantom_ids,
-            gt_standardizer=self.standardizers.ground_truth_standardizer,  # CRITICAL: Pass standardizer for inverse transform
-            add_autocontrast_preview=True
-        )
-    
-    def _log_teacher_student_comparison(self, student_recon, teacher_recon, targets, epoch, phantom_ids=None):
-        """Log teacher vs student reconstruction comparison for E2E validation."""
+        """Log 3D reconstruction slices to W&B for visualization (using hardened function)."""
         if not self.use_wandb:
             return
             
         try:
-            import wandb
+            from code.utils.viz_recon import prepare_raw_DHW, log_recon_slices_raw
             
-            # Apply inverse standardization for visualization using standardizers
-            student_raw = self.standardizers.ground_truth_standardizer.inverse_transform(student_recon)
-            teacher_raw = self.standardizers.ground_truth_standardizer.inverse_transform(teacher_recon) 
-            targets_raw = self.standardizers.ground_truth_standardizer.inverse_transform(targets)
+            # Prepare raw mm^-1 volumes with strict [B,2,D,H,W] format
+            pred_raw, tgt_raw = prepare_raw_DHW(
+                predictions, targets,
+                standardizer=self.standardizers.ground_truth_standardizer
+            )
             
-            # Physical range clamping for proper visualization
-            def clamp_to_physical_range(tensor):
-                # mu_a: [0.01, 0.1] mm^-1, mu_s: [5, 25] mm^-1 (typical values)
-                mu_a_min, mu_a_max = 0.001, 0.2   # Conservative bounds
-                mu_s_min, mu_s_max = 1.0, 50.0
-                
-                clamped = tensor.clone()
-                clamped[:, 0] = torch.clamp(clamped[:, 0], mu_a_min, mu_a_max)  # mu_a
-                clamped[:, 1] = torch.clamp(clamped[:, 1], mu_s_min, mu_s_max)  # mu_s
-                return clamped
+            # Acceptance check
+            assert pred_raw[:,0].max() > 1e-5 and pred_raw[:,1].max() > 1e-3, "Zeros after prep; abort recon logging."
             
-            student_raw = clamp_to_physical_range(student_raw)
-            teacher_raw = clamp_to_physical_range(teacher_raw)
-            targets_raw = clamp_to_physical_range(targets_raw)
+            # Log exactly 24 images
+            log_recon_slices_raw(pred_raw, tgt_raw, epoch, phantom_ids=phantom_ids, prefix="Reconstructions")
             
-            # Log comparison images (first sample in batch)
-            images = []
-            
-            # Extract middle slice for visualization (Z//2)
-            z_mid = student_raw.shape[-1] // 2
-            
-            # Student reconstruction
-            student_slice = student_raw[0, :, :, :, z_mid].cpu().numpy()  # [2, H, W]
-            # Teacher reconstruction  
-            teacher_slice = teacher_raw[0, :, :, :, z_mid].cpu().numpy()  # [2, H, W]
-            # Ground truth
-            target_slice = targets_raw[0, :, :, :, z_mid].cpu().numpy()   # [2, H, W]
-            
-            phantom_id = phantom_ids[0] if phantom_ids is not None else "unknown"
-            
-            # Log mu_a comparison
-            images.append(wandb.Image(
-                student_slice[0], 
-                caption=f"Student μa (Phantom {phantom_id})"
-            ))
-            images.append(wandb.Image(
-                teacher_slice[0], 
-                caption=f"Teacher μa (Phantom {phantom_id})"
-            ))
-            images.append(wandb.Image(
-                target_slice[0], 
-                caption=f"GT μa (Phantom {phantom_id})"
-            ))
-            
-            # Log mu_s comparison
-            images.append(wandb.Image(
-                student_slice[1], 
-                caption=f"Student μs (Phantom {phantom_id})"
-            ))
-            images.append(wandb.Image(
-                teacher_slice[1], 
-                caption=f"Teacher μs (Phantom {phantom_id})"
-            ))
-            images.append(wandb.Image(
-                target_slice[1], 
-                caption=f"GT μs (Phantom {phantom_id})"
-            ))
-            
-            wandb.log({
-                f"Teacher_vs_Student_E2E_Epoch_{epoch}": images
-            })  # Remove step parameter to use global step
-            
-            if DEBUG_VERBOSE:
-                logger.debug(f"✅ Logged teacher vs student comparison for epoch {epoch}")
-                
         except Exception as e:
-            logger.warning(f"⚠️ Failed to log teacher vs student comparison: {e}")
+            self.logger.warning(f"⚠️ Failed to log reconstruction images: {e}")
     
     def validate(self, data_loader, epoch=0):
         """
@@ -1119,18 +1043,7 @@ class Stage2Trainer:
                             logger.debug(f"📊 Teacher reconstruction (std): mean={teacher_reconstruction_std.mean():.4f}, std={teacher_reconstruction_std.std():.4f}")
                             logger.debug(f"📊 Student reconstruction (std): mean={student_reconstruction_std.mean():.4f}, std={student_reconstruction_std.std():.4f}")
                         
-                        # 6. Log teacher vs student comparison for first batch of epoch
-                        if batch_idx == 0 and epoch % VAL_E2E_EVERY_K_EPOCHS == 0:
-                            phantom_ids = batch.get('phantom_id', [f"batch_{batch_idx}_sample_{i}" for i in range(raw_ground_truth.size(0))])
-                            if hasattr(phantom_ids, 'cpu'):
-                                phantom_ids = phantom_ids.cpu().numpy()
-                            self._log_teacher_student_comparison(
-                                student_reconstruction_std, 
-                                teacher_reconstruction_std, 
-                                standardized_ground_truth, 
-                                epoch, 
-                                phantom_ids=phantom_ids
-                            )
+                        # Removed teacher vs student comparison - using unified visualization instead
                 
                 # Inverse transform predictions to RAW space for human-interpretable metrics (only for E2E)
                 if 'outputs' in locals() and outputs is not None:

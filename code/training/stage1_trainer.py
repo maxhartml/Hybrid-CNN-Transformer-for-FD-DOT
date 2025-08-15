@@ -46,7 +46,7 @@ from code.models.hybrid_model import HybridCNNTransformer
 from code.utils.logging_config import get_training_logger
 from code.utils.metrics import NIRDOTMetrics, create_metrics_for_stage, calculate_batch_metrics, RMSELoss
 from code.utils.standardizers import PerChannelZScore, fit_standardizer_on_dataloader
-from code.utils.visualization import log_reconstruction_images_to_wandb
+from code.utils.viz_recon import log_recon_slices_raw
 from .training_config import *  # Import all training config
 
 # =============================================================================
@@ -575,18 +575,23 @@ class Stage1Trainer:
         if not self.use_wandb:
             return
             
-        # Use shared visualization function to avoid code duplication
-        from code.utils.visualization import log_reconstruction_images_to_wandb
-        log_reconstruction_images_to_wandb(
-            predictions=predictions, 
-            targets=targets, 
-            epoch=epoch, 
-            prefix="Reconstructions", 
-            step=step, 
-            phantom_ids=phantom_ids,
-            gt_standardizer=self.standardizer,  # Pass Stage 1 standardizer for inverse transform
-            add_autocontrast_preview=True
-        )
+        try:
+            from code.utils.viz_recon import prepare_raw_DHW, log_recon_slices_raw
+            
+            # Prepare raw mm^-1 volumes with strict [B,2,D,H,W] format
+            pred_raw, tgt_raw = prepare_raw_DHW(
+                predictions, targets,
+                standardizer=self.standardizer
+            )
+            
+            # Acceptance check
+            assert pred_raw[:,0].max() > 1e-5 and pred_raw[:,1].max() > 1e-3, "Zeros after prep; abort recon logging."
+            
+            # Log exactly 24 images
+            log_recon_slices_raw(pred_raw, tgt_raw, epoch, phantom_ids=phantom_ids, prefix="Reconstructions")
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to log reconstruction images: {e}")
     
     def validate(self, data_loader):
         """
@@ -775,19 +780,20 @@ class Stage1Trainer:
                     with torch.no_grad():
                         outputs = self.model(standardized_ground_truth, tissue_patches=None)
                     
-                    # Inverse transform predictions to raw space for visualization
-                    raw_predictions = self.standardizer.inverse_transform(outputs['reconstructed'])
+                    # Log using new simplified visualization
+                    from code.utils.viz_recon import prepare_raw_DHW, log_recon_slices_raw
                     
-                    # Log using raw predictions and raw ground truth
-                    log_reconstruction_images_to_wandb(
-                        predictions=raw_predictions, 
-                        targets=raw_ground_truth, 
-                        epoch=epoch, 
-                        prefix="Reconstructions", 
-                        phantom_ids=phantom_ids,
-                        gt_standardizer=None,  # Already in raw physics units
-                        add_autocontrast_preview=True
+                    # Prepare raw mm^-1 volumes (predictions need inverse transform, targets are already raw)
+                    pred_raw, tgt_raw = prepare_raw_DHW(
+                        outputs['reconstructed'], raw_ground_truth,
+                        standardizer=self.standardizer
                     )
+                    
+                    # Acceptance check
+                    assert pred_raw[:,0].max() > 1e-5 and pred_raw[:,1].max() > 1e-3, "Zeros after prep; abort recon logging."
+                    
+                    # Log exactly 24 images
+                    log_recon_slices_raw(pred_raw, tgt_raw, epoch, phantom_ids=phantom_ids, prefix="Reconstructions")
                 except Exception as e:
                     logger.warning(f"⚠️ Failed to log images at epoch {epoch + 1}: {e}")            # Print epoch summary every epoch for important milestones
             logger.info(f"")

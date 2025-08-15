@@ -121,18 +121,37 @@ class LatentStats:
             # Per-sample cosine similarity
             per_sample_cosine = F.cosine_similarity(teacher_latent, student_latent, dim=1)
             
-            # Distribution statistics
-            detailed_stats = basic_stats.copy()
-            detailed_stats.update({
-                'latent_rmse_std': per_sample_rmse.std().item(),
-                'latent_rmse_min': per_sample_rmse.min().item(),
-                'latent_rmse_max': per_sample_rmse.max().item(),
-                'latent_rmse_p25': per_sample_rmse.quantile(0.25).item(),
-                'latent_rmse_p75': per_sample_rmse.quantile(0.75).item(),
-                'cosine_sim_std': per_sample_cosine.std().item(),
-                'cosine_sim_min': per_sample_cosine.min().item(),
-                'cosine_sim_max': per_sample_cosine.max().item(),
-            })
+            # Distribution statistics - handle large tensors for quantile computation
+            try:
+                # Sample down if tensor is too large for quantile computation
+                if per_sample_rmse.numel() > 10000:  # Limit to avoid "tensor too large" error
+                    indices = torch.randperm(per_sample_rmse.numel())[:5000]
+                    rmse_sample = per_sample_rmse[indices]
+                else:
+                    rmse_sample = per_sample_rmse
+                    
+                detailed_stats = basic_stats.copy()
+                detailed_stats.update({
+                    'latent_rmse_std': per_sample_rmse.std().item(),
+                    'latent_rmse_min': per_sample_rmse.min().item(),
+                    'latent_rmse_max': per_sample_rmse.max().item(),
+                    'latent_rmse_p25': rmse_sample.quantile(0.25).item(),
+                    'latent_rmse_p75': rmse_sample.quantile(0.75).item(),
+                    'cosine_sim_std': per_sample_cosine.std().item(),
+                    'cosine_sim_min': per_sample_cosine.min().item(),
+                    'cosine_sim_max': per_sample_cosine.max().item(),
+                })
+            except RuntimeError as e:
+                # Fallback if quantile still fails
+                detailed_stats = basic_stats.copy()
+                detailed_stats.update({
+                    'latent_rmse_std': per_sample_rmse.std().item(),
+                    'latent_rmse_min': per_sample_rmse.min().item(),
+                    'latent_rmse_max': per_sample_rmse.max().item(),
+                    'cosine_sim_std': per_sample_cosine.std().item(),
+                    'cosine_sim_min': per_sample_cosine.min().item(),
+                    'cosine_sim_max': per_sample_cosine.max().item(),
+                })
             
             return detailed_stats
 
@@ -192,13 +211,24 @@ def analyze_latent_distribution(latent: torch.Tensor, prefix: str = "") -> Dict[
             f'{prefix}magnitude_std': torch.norm(latent, dim=1).std().item(),
         }
         
-        # Add percentiles
-        stats.update({
-            f'{prefix}p25': flat_latent.quantile(0.25).item(),
-            f'{prefix}p50': flat_latent.quantile(0.50).item(),
-            f'{prefix}p75': flat_latent.quantile(0.75).item(),
-            f'{prefix}p95': flat_latent.quantile(0.95).item(),
-        })
+        # Add percentiles - handle large tensors 
+        try:
+            # Sample down if tensor is too large for quantile computation
+            if flat_latent.numel() > 10000:  # Limit to avoid "tensor too large" error
+                indices = torch.randperm(flat_latent.numel())[:5000]
+                latent_sample = flat_latent[indices]
+            else:
+                latent_sample = flat_latent
+                
+            stats.update({
+                f'{prefix}p25': latent_sample.quantile(0.25).item(),
+                f'{prefix}p50': latent_sample.quantile(0.50).item(),
+                f'{prefix}p75': latent_sample.quantile(0.75).item(),
+                f'{prefix}p95': latent_sample.quantile(0.95).item(),
+            })
+        except RuntimeError:
+            # Skip percentiles if quantile operation fails
+            pass
         
         return stats
 
