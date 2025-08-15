@@ -47,9 +47,12 @@ MEASUREMENT_DIM = 2                     # [log_amplitude, phase] - xi
 POSITION_DIM = 6                        # [src_x, src_y, src_z, det_x, det_y, det_z] - pi
 NIR_INPUT_DIM = 8                       # Total: xi + pi
 
-# Embedding dimensions - Following transformer architecture best practices
-EMBED_DIM = 256                         # Target embedding dimension
-INTERMEDIATE_DIM = 128                  # Intermediate dimension for initial measurement processing
+# Embedding dimensions - New small MLP design
+MEASUREMENT_BRANCH_DIM = 8              # Small MLP output for measurements: 2 → 8 → 8
+POSITION_BRANCH_DIM = 8                 # Small MLP output for positions: 6 → 8 → 8  
+CONCAT_DIM = 16                         # Concatenated dimensions: 8 + 8 = 16
+FUSION_HIDDEN_DIM = 64                  # Hidden dimension for fusion: 16 → 64 → EMBED_DIM
+EMBED_DIM = 256                         # Final embedding dimension (divisible by NUM_HEADS=4)
 
 # Tissue processing
 TISSUE_PATCH_SIZE = 16                  # 16x16x16 tissue patches
@@ -72,51 +75,63 @@ logger = get_model_logger(__name__)
 
 class SpatiallyAwareEmbedding(nn.Module):
     """
-    Spatially-Aware Embedding Block following transformer best practices.
+    Redesigned Spatially-Aware Embedding Block with separate small MLP branches.
     
-    This implements the measurement/position embedding approach from Figure 5.4:
-    1. Measurement vector Xi → FC layer with d_embed nodes
-    2. Output concatenated with position vector Pi  
-    3. Concatenated result → Another FC layer with d_embed nodes
-    4. Result: Single token of d_embed dimensions
+    New architecture based on requirements:
+    1. Measurement branch: 2 → FC(8) → GELU → LayerNorm → FC(8) → GELU → LayerNorm
+    2. Position branch: 6 → FC(8) → GELU → LayerNorm → FC(8) → GELU → LayerNorm  
+    3. Fusion: concat[8,8] → 16 → FC(64) → GELU → LayerNorm → FC(EMBED_DIM) → Dropout(0.1)
     
-    This maintains d_embed throughout, unlike my previous incorrect approach
-    that doubled dimensions through concatenation.
+    This design processes measurements and positions through separate small MLPs,
+    then fuses them through a larger MLP to reach the final embedding dimension.
+    EMBED_DIM=256 is divisible by NUM_HEADS=4 for compatibility.
     
     Args:
-        embed_dim (int): Target embedding dimension
+        embed_dim (int): Target embedding dimension (must be divisible by num_heads)
         dropout (float): Dropout probability for regularization
     """
     
     def __init__(self, embed_dim: int = EMBED_DIM, dropout: float = 0.1):
         super().__init__()
         
-        logger.info(f"🏗️  Initializing SpatiallyAwareEmbedding: embed_dim={embed_dim}")
+        logger.info(f"🏗️  Initializing redesigned SpatiallyAwareEmbedding: embed_dim={embed_dim}")
         
         self.embed_dim = embed_dim
         
-        # Step 1: Measurement vector Xi → FC layer with d_embed nodes (first FC)
-        self.measurement_embedding = nn.Sequential(
-            nn.Linear(MEASUREMENT_DIM, embed_dim),  # 2D → embed_dim
-            nn.ReLU(),
-            nn.Dropout(dropout)
+        # Measurement branch: 2 → 8 → 8
+        self.measurement_branch = nn.Sequential(
+            nn.Linear(MEASUREMENT_DIM, MEASUREMENT_BRANCH_DIM),    # 2 → 8
+            nn.GELU(),
+            nn.LayerNorm(MEASUREMENT_BRANCH_DIM),
+            nn.Linear(MEASUREMENT_BRANCH_DIM, MEASUREMENT_BRANCH_DIM),  # 8 → 8
+            nn.GELU(),
+            nn.LayerNorm(MEASUREMENT_BRANCH_DIM)
         )
         
-        # Step 2: Concatenated [measurement_embed + position] → FC layer with d_embed nodes (second FC)
-        concat_dim = embed_dim + POSITION_DIM  # embed_dim + 6D positions
-        self.combined_projection = nn.Sequential(
-            nn.Linear(concat_dim, embed_dim),       # (embed_dim + 6) → embed_dim
-            nn.ReLU(),
-            nn.Dropout(dropout)
+        # Position branch: 6 → 8 → 8  
+        self.position_branch = nn.Sequential(
+            nn.Linear(POSITION_DIM, POSITION_BRANCH_DIM),         # 6 → 8
+            nn.GELU(),
+            nn.LayerNorm(POSITION_BRANCH_DIM),
+            nn.Linear(POSITION_BRANCH_DIM, POSITION_BRANCH_DIM),  # 8 → 8
+            nn.GELU(),
+            nn.LayerNorm(POSITION_BRANCH_DIM)
         )
         
-        # Layer normalization for stable training
-        self.layer_norm = nn.LayerNorm(embed_dim)
+        # Fusion network: 16 → 64 → embed_dim
+        self.fusion_network = nn.Sequential(
+            nn.Linear(CONCAT_DIM, FUSION_HIDDEN_DIM),             # 16 → 64
+            nn.GELU(),
+            nn.LayerNorm(FUSION_HIDDEN_DIM),
+            nn.Linear(FUSION_HIDDEN_DIM, embed_dim),              # 64 → 256
+            nn.Dropout(dropout)
+        )
         
         # Initialize weights
         self._init_weights()
         
-        logger.info(f"✅ SpatiallyAwareEmbedding initialized with {self.count_parameters()} parameters")
+        logger.info(f"✅ Redesigned SpatiallyAwareEmbedding initialized with {self.count_parameters()} parameters")
+        logger.info(f"   Architecture: measurement[2→8→8] + position[6→8→8] → concat[16] → fusion[16→64→{embed_dim}]")
     
     def count_parameters(self):
         """Count total parameters in the model."""
@@ -132,16 +147,18 @@ class SpatiallyAwareEmbedding(nn.Module):
     
     def forward(self, nir_measurements: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass through spatially-aware embedding following transformer best practices.
+        Forward pass through redesigned spatially-aware embedding.
         
-        Architecture approach:
-        1. Measurement vector Xi → FC layer with d_embed nodes
-        2. Output concatenated with position vector Pi  
-        3. Concatenated result → Another FC layer with d_embed nodes
+        New architecture:
+        1. Split input into measurements [2D] and positions [6D]
+        2. Process each through separate small MLP branches → [8D] each
+        3. Concatenate branch outputs → [16D]
+        4. Process through fusion network → [embed_dim]
         
         Args:
             nir_measurements (torch.Tensor): Shape [batch_size, n_measurements, 8]
                 Where 8D = [log_amp, phase, src_x, src_y, src_z, det_x, det_y, det_z]
+                NOTE: measurements and positions should already be standardized/scaled
         
         Returns:
             torch.Tensor: hi tokens of shape [batch_size, n_measurements, embed_dim]
@@ -149,21 +166,19 @@ class SpatiallyAwareEmbedding(nn.Module):
         batch_size, n_measurements, feature_dim = nir_measurements.shape
         assert feature_dim == NIR_INPUT_DIM, f"Expected {NIR_INPUT_DIM}D input, got {feature_dim}D"
         
-        # Split into measurements (xi) and positions (pi)
-        measurements = nir_measurements[:, :, :MEASUREMENT_DIM]  # [batch, n_meas, 2] - xi
-        positions = nir_measurements[:, :, MEASUREMENT_DIM:]     # [batch, n_meas, 6] - pi
+        # Split into measurements (standardized) and positions (scaled to [-1,1])
+        measurements = nir_measurements[:, :, :MEASUREMENT_DIM]  # [batch, n_meas, 2] - standardized xi
+        positions = nir_measurements[:, :, MEASUREMENT_DIM:]     # [batch, n_meas, 6] - scaled pi
         
-        # Step 1: Process measurements through first FC layer
-        measurement_embedded = self.measurement_embedding(measurements)  # [batch, n_meas, embed_dim]
+        # Process through separate branches
+        measurement_features = self.measurement_branch(measurements)  # [batch, n_meas, 8]
+        position_features = self.position_branch(positions)          # [batch, n_meas, 8]
         
-        # Step 2: Concatenate embedded measurements with raw positions
-        concatenated = torch.cat([measurement_embedded, positions], dim=-1)  # [batch, n_meas, embed_dim + 6]
+        # Concatenate branch outputs
+        concatenated = torch.cat([measurement_features, position_features], dim=-1)  # [batch, n_meas, 16]
         
-        # Step 3: Pass through final FC layer to get d_embed output
-        hi_tokens = self.combined_projection(concatenated)  # [batch, n_meas, embed_dim]
-        
-        # Apply layer normalization for stability
-        hi_tokens = self.layer_norm(hi_tokens)
+        # Process through fusion network
+        hi_tokens = self.fusion_network(concatenated)  # [batch, n_meas, embed_dim]
         
         return hi_tokens
 
@@ -278,11 +293,13 @@ class TissueFeatureExtractor(nn.Module):
     
     def process_tissue_patches(self, tissue_patches: torch.Tensor) -> torch.Tensor:
         """
-        Process tissue patches to extract features for each measurement.
+        Process standardized tissue patches to extract features for each measurement.
         
         Args:
             tissue_patches (torch.Tensor): Shape [batch, n_measurements, 2_patches, 2_channels, 16, 16, 16]
-                Direct spatial format from optimized data loader
+                Where patches have been standardized using ground truth μₐ/μ′ₛ statistics.
+                2_patches = [source_patch, detector_patch]
+                2_channels = [μₐ, μ′ₛ] (already standardized to z-score)
         
         Returns:
             torch.Tensor: Tissue features of shape [batch, n_measurements, 256]
@@ -385,9 +402,12 @@ class SpatiallyAwareEncoderBlock(nn.Module):
         
         Args:
             nir_measurements (torch.Tensor): Shape [batch_size, n_measurements, 8]
-                Contains [amplitude, phase, source_x, source_y, source_z, detector_x, detector_y, detector_z]
-            tissue_patches (torch.Tensor, optional): Shape [batch_size, n_measurements, 2, patch_volume*2]
-                Contains tissue properties for source and detector patches
+                Contains STANDARDIZED [log_amp, phase, scaled_src_x, scaled_src_y, scaled_src_z, 
+                                     scaled_det_x, scaled_det_y, scaled_det_z]
+                - Measurements (log_amp, phase) are z-score standardized  
+                - Positions (x,y,z coords) are scaled to [-1, 1]
+            tissue_patches (torch.Tensor, optional): Shape [batch_size, n_measurements, 2, 2, 16, 16, 16]
+                Contains STANDARDIZED tissue properties using ground truth μₐ/μ′ₛ statistics
             use_tissue_patches (bool): Whether to use enhanced mode with tissue fusion
         
         Returns:

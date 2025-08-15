@@ -270,12 +270,14 @@ class Stage1Trainer:
         Returns:
             tuple: (optimizer, scheduler) configured for Stage 1
         """
+        # Create parameter groups with proper weight decay hygiene
+        param_groups = self._create_parameter_groups()
+        
         # Create AdamW optimizer with CNN-optimized parameters
         # Based on "Fixing Weight Decay Regularization in Adam" (Loshchilov & Hutter, 2019)
         self.optimizer = torch.optim.AdamW(
-            self.model.parameters(),
+            param_groups,
             lr=STAGE1_BASE_LR,                    # Base LR (overridden by OneCycleLR)
-            weight_decay=WEIGHT_DECAY,            # L2 regularization (medical imaging standard)
             betas=ADAMW_BETAS_STAGE1,            # CNN-optimized betas (0.9, 0.95)
             eps=ADAMW_EPS_STAGE1                 # Numerical stability
         )
@@ -310,6 +312,46 @@ class Stage1Trainer:
         logger.info(f"   └─ Momentum Cycling: {STAGE1_CYCLE_MOMENTUM}")
         
         return self.optimizer, self.scheduler
+    
+    def _create_parameter_groups(self):
+        """
+        Create parameter groups for CNN training with proper weight decay hygiene.
+        
+        AdamW hygiene: no weight decay on norms, biases, or embeddings.
+        This prevents scale drift and stabilizes training in Transformers & CNNs.
+        
+        Based on "Fixing Weight Decay Regularization in Adam" (Loshchilov & Hutter, 2019)
+        and modern deep learning best practices.
+        
+        Returns:
+            list: Parameter groups for AdamW optimizer
+        """
+        decay_params = []
+        no_decay_params = []
+        
+        for name, param in self.model.named_parameters():
+            if not param.requires_grad:
+                continue
+            # No weight decay for: LayerNorm weights, all bias terms, embedding parameters
+            if (name.endswith(".bias") or 
+                "norm" in name.lower() or 
+                "LayerNorm" in name or 
+                "layernorm" in name or 
+                name.endswith("embedding.weight") or
+                "pos_embed" in name or
+                "token_type_embedding" in name):
+                no_decay_params.append(param)
+                logger.debug(f"🚫 No decay: {name}")
+            else:
+                decay_params.append(param)
+                logger.debug(f"✅ With decay: {name}")
+        
+        logger.info(f"[AdamW Groups] decay: {len(decay_params)} params, no_decay: {len(no_decay_params)} params")
+        
+        return [
+            {'params': decay_params, 'weight_decay': WEIGHT_DECAY},
+            {'params': no_decay_params, 'weight_decay': 0.0}
+        ]
     
     def _fit_standardizer_on_train_data(self, train_loader):
         """

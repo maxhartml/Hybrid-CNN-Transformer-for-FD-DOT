@@ -45,6 +45,8 @@ from torch.cuda.amp import GradScaler, autocast  # Mixed precision training for 
 from code.models.hybrid_model import HybridCNNTransformer
 from code.utils.logging_config import get_training_logger
 from code.utils.metrics import NIRDOTMetrics, create_metrics_for_stage, calculate_batch_metrics, RMSELoss
+from code.utils.standardizers import Stage2StandardizerCollection
+from code.data_processing.data_loader import create_phantom_dataloaders  # For standardizer fitting
 from code.training.training_config import *  # Import all training config
 
 # =============================================================================
@@ -136,6 +138,9 @@ class Stage2Trainer:
         # Initialize enhanced metrics for Stage 2 (includes feature analysis)
         self.metrics = create_metrics_for_stage("stage2")
         
+        # Initialize Stage 2 standardizer collection
+        self.standardizers = Stage2StandardizerCollection(device=self.device)
+        
         # Initialize model
         self.model = HybridCNNTransformer(
             use_tissue_patches=use_tissue_patches,
@@ -218,6 +223,30 @@ class Stage2Trainer:
         # Initialize Weights & Biases (deferred until training starts)
         # Note: W&B initialization happens in train() method when epochs and data_loader are available
         self._wandb_initialized = False
+    
+    def _create_lightweight_dataloader_for_standardizer_fitting(self):
+        """
+        Create a lightweight dataloader specifically for standardizer fitting.
+        
+        This dataloader skips tissue patch extraction to dramatically reduce memory
+        usage and processing time during standardizer fitting. Standardizer fitting
+        only needs NIR measurements to compute mean/std statistics.
+        
+        Returns:
+            DataLoader: Training dataloader with tissue patches disabled
+        """
+        logger.info("🔧 Creating lightweight dataloader for standardizer fitting (no tissue patches)")
+        
+        # Create dataloaders with tissue patches explicitly disabled
+        dataloaders = create_phantom_dataloaders(
+            data_dir=DATA_DIRECTORY,
+            batch_size=BATCH_SIZE,
+            num_workers=NUM_WORKERS,
+            use_tissue_patches=False,  # Always False for standardizer fitting
+            stage='stage2'
+        )
+        
+        return dataloaders['train']
     
     def _calculate_attention_entropy(self) -> Dict[str, float]:
         """
@@ -355,11 +384,12 @@ class Stage2Trainer:
     
     def load_stage1_checkpoint(self, checkpoint_path):
         """
-        Load pre-trained Stage 1 checkpoint into the model.
+        Load pre-trained Stage 1 checkpoint into the model and initialize standardizers.
         
-        This method loads the CNN autoencoder weights from Stage 1 training,
-        providing the foundation feature representations for Stage 2 transformer
-        enhancement. The checkpoint includes model state and training metadata.
+        This method loads:
+        1. CNN autoencoder weights from Stage 1 training
+        2. Ground truth standardizer from Stage 1 for inverse transformation
+        3. Prepares Stage 2 standardizer collection for training data fitting
         
         Args:
             checkpoint_path (str): Path to the Stage 1 checkpoint file
@@ -401,6 +431,16 @@ class Stage2Trainer:
         if missing_keys:
             logger.info(f"Initialized {len(missing_keys)} new parameters (tissue encoder, etc.)")
         
+        # Load ground truth standardizer from Stage 1 checkpoint
+        if 'standardizer' in checkpoint:
+            self.standardizers.ground_truth_standardizer.load_state_dict(checkpoint['standardizer'])
+            logger.info("✅ Loaded ground truth standardizer from Stage 1 checkpoint")
+        else:
+            logger.warning("⚠️ No standardizer found in Stage 1 checkpoint - will need manual initialization")
+        
+        # Store checkpoint path for later use in standardizer fitting
+        self.stage1_checkpoint_path = checkpoint_path
+        
         logger.info(f"📂 Loaded Stage 1 checkpoint: {checkpoint_path}")
         
         epoch_info = checkpoint.get('epoch', 'N/A')
@@ -428,19 +468,21 @@ class Stage2Trainer:
         
         for name, param in self.model.named_parameters():
             if param.requires_grad:
-                # NO weight decay for: biases, norms, and embeddings (critical for gradient flow)
+                # NO weight decay for: biases, norms, and specific embedding parameters (critical for gradient flow)
                 if (name.endswith(".bias") or 
                     "norm" in name.lower() or 
                     "ln" in name.lower() or
                     "layer_norm" in name.lower() or 
-                    "embedding" in name.lower() or
-                    "pos_embed" in name.lower()):
+                    name.endswith("embedding.weight") or
+                    "pos_embed" in name.lower() or
+                    "token_type_embedding" in name):
                     no_decay_params.append(param)
                     logger.debug(f"🚫 No decay: {name}")
                 else:
                     decay_params.append(param)
                     logger.debug(f"✅ With decay: {name}")
         
+        logger.info(f"[AdamW Groups] decay: {len(decay_params)} params, no_decay: {len(no_decay_params)} params")
         logger.info(f"📊 Parameter Groups (CRITICAL for transformer training):")
         logger.info(f"   ├─ With weight decay: {len(decay_params)} groups")
         logger.info(f"   └─ No weight decay: {len(no_decay_params)} groups (norms/biases/embeddings)")
@@ -603,11 +645,15 @@ class Stage2Trainer:
     
     def train_epoch(self, data_loader, epoch=0):
         """
-        Execute one complete training epoch for transformer components with enhanced metrics.
+        Execute one complete training epoch for transformer components.
         
         This method performs forward propagation through the hybrid model,
         with tissue patch integration when enabled. Only unfrozen transformer
         parameters are updated during backpropagation.
+        
+        Logging matches Stage 1 exactly:
+        - Per batch: Std_RMSE and LR only
+        - Summary: Std_RMSE mean
         
         Args:
             data_loader: DataLoader containing training batches with
@@ -615,38 +661,40 @@ class Stage2Trainer:
             epoch (int): Current epoch number for W&B logging
         
         Returns:
-            tuple: (Average training loss, metrics dictionary) across all batches
+            float: Average standardized RMSE loss across all batches
         """
-        logger.debug("🔄 Starting Stage 2 training epoch...")
+        if DEBUG_VERBOSE:
+            logger.debug("🔄 Starting Stage 2 training epoch...")
         self.model.train()
-        total_loss = 0
+        total_standardized_loss = 0
         num_batches = 0
         
-        # Initialize metrics tracking (includes feature analysis for Stage 2)
-        epoch_metrics = {
-            'dice': 0.0, 'contrast_ratio': 0.0, 'rmse_overall': 0.0,
-            'rmse_absorption': 0.0, 'rmse_scattering': 0.0,
-            'feature_enhancement_ratio': 0.0, 'attention_entropy': 0.0
-        }
-        
-        logger.debug(f"📊 Processing {len(data_loader)} batches in Stage 2 training epoch")
+        if DEBUG_VERBOSE:
+            logger.debug(f"📊 Processing {len(data_loader)} batches in Stage 2 training epoch")
         
         for batch_idx, batch in enumerate(data_loader):
             logger.debug(f"🔍 Processing Stage 2 batch {batch_idx + 1}/{len(data_loader)}")
             
-            # In Stage 2: Complete phantom NIR measurements are input, ground truth volumes are target
-            nir_measurements = batch['nir_measurements'].to(self.device)  # Shape: (batch_size, 256_subsampled, 8)
-            targets = batch['ground_truth'].to(self.device)               # Shape: (batch_size, 2, 64, 64, 64)
+            # Extract raw inputs from batch
+            nir_measurements_raw = batch['nir_measurements'].to(self.device)  # Shape: (batch_size, 256_subsampled, 8)
+            targets_raw = batch['ground_truth'].to(self.device)               # Shape: (batch_size, 2, 64, 64, 64)
             
-            logger.debug(f"📦 NIR measurements shape: {nir_measurements.shape}")
-            logger.debug(f"📦 Ground truth targets shape: {targets.shape}")
-            logger.debug(f"🖥️  Data moved to device: {nir_measurements.device}")
+            logger.debug(f"📦 Raw NIR measurements shape: {nir_measurements_raw.shape}")
+            logger.debug(f"📦 Raw ground truth targets shape: {targets_raw.shape}")
             
-            # Get tissue patches if using them (now implemented with tissue patch extraction!)
+            # Apply Stage 2 standardization to inputs
+            nir_measurements = self.standardizers.transform_nir_inputs(nir_measurements_raw)
+            targets = self.standardizers.ground_truth_standardizer.transform(targets_raw)  # Train on standardized targets
+            
+            logger.debug(f"� Standardized NIR measurements shape: {nir_measurements.shape}")
+            logger.debug(f"📦 Standardized ground truth targets shape: {targets.shape}")
+            
+            # Get and standardize tissue patches if using them
             tissue_patches = None
             if self.use_tissue_patches and 'tissue_patches' in batch:
-                tissue_patches = batch['tissue_patches'].to(self.device)
-                logger.debug(f"🧬 Using tissue patches: {tissue_patches.shape}")
+                tissue_patches_raw = batch['tissue_patches'].to(self.device)
+                tissue_patches = self.standardizers.transform_tissue_patches(tissue_patches_raw)
+                logger.debug(f"🧬 Using standardized tissue patches: {tissue_patches.shape}")
                 logger.debug(f"🧬 Tissue patch format: (batch_size={tissue_patches.shape[0]}, "
                            f"n_measurements={tissue_patches.shape[1]}, "
                            f"patches={tissue_patches.shape[2]}, channels={tissue_patches.shape[3]}, "
@@ -692,215 +740,66 @@ class Stage2Trainer:
                     logger.error(f"🔍 Output stats: min={outputs['reconstructed'].min():.6f}, max={outputs['reconstructed'].max():.6f}")
                     raise ValueError(f"NaN detected in model output - stopping training at batch {batch_idx}")
                 
-                # Compute loss
-                logger.debug("📏 Computing Stage 2 RMSE loss...")
-                loss = self.criterion(outputs['reconstructed'], targets)
+                # Compute standardized RMSE loss (matches Stage 1)
+                std_rmse = self.criterion(outputs['reconstructed'], targets)
                 
                 # SAFETY: Check for NaN loss immediately
-                if torch.isnan(loss):
+                if torch.isnan(std_rmse):
                     logger.error(f"🚨 NaN loss detected at batch {batch_idx}")
-                    logger.error(f"🔍 Loss value: {loss}")
                     raise ValueError(f"NaN loss detected - stopping training at batch {batch_idx}")
-                    
-                logger.debug(f"💰 Stage 2 batch loss: {loss.item():.6f}")
             
-            # Backward pass with safe AMP pattern (prevents unscale_() crashes)
-            logger.debug("🔙 Starting Stage 2 backward pass (only transformer gradients)...")
-            try:
-                # Zero gradients
-                self.optimizer.zero_grad(set_to_none=True)
-                
-                # Backward pass with scaling
-                self.scaler.scale(loss).backward()
-                
-                # CRITICAL: Unscale ONCE per step → then clip → decide to step/skip
-                self.scaler.unscale_(self.optimizer)
-                
-                # Apply adaptive gradient clipping (ChatGPT recommendation)
-                # Tighter clipping for first 5 epochs, then relax
-                clip_norm = 0.5 if epoch < 5 else 1.0
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(), 
-                    max_norm=clip_norm, 
-                    norm_type=2.0
-                )
-                
-                # Log adaptive clipping info
-                if batch_idx == 0:  # Log once per epoch
-                    logger.info(f"🎯 Adaptive clipping: epoch {epoch} using max_norm={clip_norm}")
-                
-                # SAFETY: Check for extremely high gradients or non-finite values
-                skip_step = False
-                if not torch.isfinite(grad_norm) or grad_norm > 10.0:
-                    logger.warning(f"⚡ Skipping optimizer step - grad_norm: {grad_norm:.4f}")
-                    skip_step = True
-                elif grad_norm > GRADIENT_MONITOR_THRESHOLD:
-                    logger.warning(f"⚠️ High gradient norm detected: {grad_norm:.4f} > {GRADIENT_MONITOR_THRESHOLD}")
-                
-                # SAFETY: Check for NaN gradients before optimizer step
-                if not skip_step:
-                    for name, param in self.model.named_parameters():
-                        if param.grad is not None and torch.isnan(param.grad).any():
-                            logger.warning(f"⚡ NaN gradient detected in {name} - skipping step")
-                            skip_step = True
-                            break
-                
-                # Execute or skip optimizer step
-                if skip_step:
-                    # Clear gradients and update scaler (important for scale backoff)
-                    self.optimizer.zero_grad(set_to_none=True)
-                    self.scaler.update()  # Update scaler so it backs off scale
-                else:
-                    # Normal optimizer step
-                    self.scaler.step(self.optimizer)
-                    self.scaler.update()
-                    
-                    # Linear Warmup + Cosine Decay updates per-batch
-                    self.scheduler.step()
-                
-                # DEBUGGING: Log transformer parameter statistics only at final batch of epoch
-                if (batch_idx + 1) == len(data_loader):
-                    transformer_grad_norm = 0.0
-                    transformer_param_count = 0
-                    for name, param in self.model.transformer_encoder.named_parameters():
-                        if param.grad is not None:
-                            transformer_grad_norm += param.grad.norm().item() ** 2
-                            transformer_param_count += 1
-                    
-                    if transformer_param_count > 0:
-                        transformer_grad_norm = (transformer_grad_norm ** 0.5)
-                        logger.info(f"� Transformer gradients: norm={transformer_grad_norm:.4f}, "
-                                  f"params_updated={transformer_param_count}")
-                    
-                    # Log parameter statistics for transformer
-                    for name, param in self.model.transformer_encoder.named_parameters():
-                        if param.requires_grad and 'weight' in name:
-                            grad_norm_val = param.grad.norm().item() if param.grad is not None else 0.0
-                            logger.info(f"🎛️ {name}: mean={param.data.mean().item():.6f}, "
-                                      f"std={param.data.std().item():.6f}, "
-                                      f"grad_norm={grad_norm_val:.6f}")
-                    
-                    # ChatGPT diagnostic: Check for zero gradients (key problem indicator)
-                    zero_grad_count = 0
-                    total_params = 0
-                    for name, param in self.model.transformer_encoder.named_parameters():
-                        if param.requires_grad and param.grad is not None:
-                            total_params += 1
-                            if param.grad.norm().item() < 1e-8:
-                                zero_grad_count += 1
-                    
-                    if zero_grad_count > 0:
-                        logger.warning(f"🚨 Zero gradients detected: {zero_grad_count}/{total_params} transformer params")
-                        logger.warning(f"   This indicates frozen learning - check LR, weight decay, and AMP scaling")
-                
-                # Log learning rate every 5 batches to avoid W&B buffer warnings
-                if not skip_step and batch_idx % LOG_LR_EVERY_N_BATCHES == 0:
-                    self._log_learning_rate_to_wandb(epoch, batch_idx, len(data_loader))
-            except RuntimeError as e:
-                logger.error(f"🚨 Gradient error: {e}")
-                raise e
+            # Backward pass and optimization (Mixed Precision enabled)
+            self.scaler.scale(std_rmse).backward()
             
-            total_loss += loss.item()
+            # Gradient clipping (prevents exploding gradients in transformer training)
+            self.scaler.unscale_(self.optimizer)
+            grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), GRADIENT_CLIP_MAX_NORM)
+            
+            # SAFETY: Check for extreme gradient norms (sign of training instability)
+            if grad_norm > GRADIENT_MONITOR_THRESHOLD:
+                if DEBUG_VERBOSE:
+                    logger.warning(f"⚠️ High gradient norm detected: {grad_norm:.3f} (threshold: {GRADIENT_MONITOR_THRESHOLD})")
+            
+            # Optimizer step with gradient scaling
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+            self.scheduler.step()  # Step-wise LR scheduling for linear warmup + cosine decay
+            
+            # Wandb logging (matches Stage 1 pattern exactly)
+            if self.use_wandb and wandb.run:
+                current_lr = self.optimizer.param_groups[0]['lr']
+                global_step = epoch * len(data_loader) + batch_idx + 1
+                
+                wandb.log({
+                    "training_step": global_step,
+                    "train/loss_std": std_rmse.item(),  # Standardized RMSE loss (matches Stage 1 key)
+                    "train/lr": current_lr
+                })
+            
+            total_standardized_loss += std_rmse.item()
             num_batches += 1
             
-            # ChatGPT early diagnostic: Enhanced logging for first few batches
-            if epoch < 3 and batch_idx < 3:
-                logger.info(f"🔬 Early diagnostic - Epoch {epoch}, Batch {batch_idx}:")
-                logger.info(f"   ├─ Global grad norm: {grad_norm:.6f}")
-                logger.info(f"   ├─ Loss: {loss.item():.6f}")
-                logger.info(f"   ├─ Learning rate: {self.optimizer.param_groups[0]['lr']:.2e}")
-                logger.info(f"   ├─ Skip step: {skip_step}")
-                logger.info(f"   └─ Reconstruction range: [{outputs['reconstructed'].min().item():.6f}, {outputs['reconstructed'].max().item():.6f}]")
-            
-            # Calculate enhanced metrics for this batch
-            with torch.no_grad():
-                batch_metrics = calculate_batch_metrics(
-                    self.metrics, outputs, targets, "stage2"
-                )
-                
-                # Accumulate metrics
-                for key, value in batch_metrics.items():
-                    if key in epoch_metrics:
-                        epoch_metrics[key] += value
-            
-            # Show batch progress with standardized metrics format (including transformer metrics)
+            # Clean training batch progress: only standardized RMSE and LR (matches Stage 1)
             current_lr = self.optimizer.param_groups[0]['lr']
-            logger.info(f"🏋️ TRAIN | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
-                       f"RMSE: {loss.item():.4f} | Dice: {batch_metrics.get('dice', 0):.4f} | "
-                       f"Contrast: {batch_metrics.get('contrast_ratio', 0):.4f} | "
-                       f"Enhancement: {batch_metrics.get('feature_enhancement_ratio', 0):.4f} | "
-                       f"Attention: {batch_metrics.get('attention_entropy', 0):.4f} | LR: {current_lr:.2e}")
+            logger.info(f"🏋️  TRAIN | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
+                       f"Std_RMSE: {std_rmse.item():.4f} | LR: {current_lr:.2e}")
             
-            # Log gradient norm at debug level for monitoring training health (match Stage 1)
-            logger.debug(f"🔧 Batch {batch_idx + 1} | Gradient Norm: {grad_norm:.3f}")
+            # Log gradient norm at debug level for monitoring training health
+            if DEBUG_VERBOSE:
+                logger.debug(f"🔧 Batch {batch_idx + 1} | Gradient Norm: {grad_norm:.3f}")
             
             # Additional detailed logging at DEBUG level
-            if batch_idx % 10 == 0:  # Log every 10 batches for stability monitoring
-                logger.debug(f"🔍 Detailed: Batch {batch_idx}: Loss = {loss.item():.6f}, "
-                           f"Running Avg = {total_loss/num_batches:.6f}")
+            if DEBUG_VERBOSE and batch_idx % 10 == 0:  # Log every 10 batches for stability monitoring
+                logger.debug(f"🔍 Detailed: Batch {batch_idx}: Std_Loss = {std_rmse.item():.6f}, "
+                           f"Running Avg = {total_standardized_loss/num_batches:.6f}")
         
-        avg_loss = total_loss / num_batches
+        avg_standardized_loss = total_standardized_loss / num_batches
         
-        # Average metrics across epoch
-        for key in epoch_metrics:
-            epoch_metrics[key] /= num_batches
+        if DEBUG_VERBOSE:
+            logger.debug(f"✅ Training epoch completed. Average standardized loss: {avg_standardized_loss:.6f}")
+        logger.info(f"📊 TRAIN SUMMARY | Std_RMSE: {avg_standardized_loss:.4f}")
         
-        logger.debug(f"✅ Stage 2 training epoch completed. Average loss: {avg_loss:.6f}")
-        
-        # ChatGPT diagnostic: Track attention entropy to detect frozen attention
-        attention_entropies = self._calculate_attention_entropy()
-        if attention_entropies:
-            entropy_str = ", ".join([f"{k}: {v:.3f}" for k, v in attention_entropies.items()])
-            logger.info(f"🧠 Attention Entropies: {entropy_str}")
-            
-            # Key diagnostic: Average entropy should be dropping from ~5.545 (uniform)
-            avg_entropy = sum(attention_entropies.values()) / len(attention_entropies)
-            uniform_entropy = math.log(256)  # ~5.545 for 256 tokens
-            entropy_drop = uniform_entropy - avg_entropy
-            
-            # ChatGPT's critical diagnostic
-            if avg_entropy > 5.5:
-                logger.warning(f"⚠️ High attention entropy ({avg_entropy:.3f}) - attention may be frozen/uniform")
-                if epoch >= 3:
-                    logger.error(f"🚨 After epoch 3, entropy should be dropping! Check LR, weight decay, gradients")
-            else:
-                logger.info(f"✅ Good attention specialization - entropy drop: {entropy_drop:.3f}")
-            
-            # Log to W&B if available
-            if self.use_wandb and self._wandb_initialized:
-                wandb.log({f"attention/{k}": v for k, v in attention_entropies.items()}, step=epoch)
-                wandb.log({
-                    "attention/avg_entropy": avg_entropy,
-                    "attention/uniform_baseline": uniform_entropy,
-                    "attention/entropy_drop": entropy_drop,
-                    "attention/learning_health": "frozen" if avg_entropy > 5.5 else "learning"
-                }, step=epoch)
-        
-        logger.info(f"📊 TRAIN SUMMARY | RMSE: {avg_loss:.4f} | Dice: {epoch_metrics['dice']:.4f} | "
-                   f"Contrast: {epoch_metrics['contrast_ratio']:.4f} | Abs: {epoch_metrics['rmse_absorption']:.4f} | "
-                   f"Scat: {epoch_metrics['rmse_scattering']:.4f}")
-        
-        # ChatGPT diagnostic summary for early epochs
-        if epoch < 10:
-            # Check for key problems ChatGPT identified
-            problems = []
-            if attention_entropies:
-                avg_entropy = sum(attention_entropies.values()) / len(attention_entropies)
-                if avg_entropy > 5.4:
-                    problems.append("frozen attention")
-            
-            # Check if RMSE is improving
-            if hasattr(self, '_last_rmse') and avg_loss >= self._last_rmse:
-                problems.append("stalled RMSE")
-            self._last_rmse = avg_loss
-            
-            if problems:
-                logger.warning(f"🚨 Training issues detected: {', '.join(problems)}")
-                logger.warning(f"   Recommended: Check gradients, LR schedule, weight decay groups")
-            else:
-                logger.info(f"✅ Training health: Good progress detected")
-        
-        return avg_loss, epoch_metrics
+        return avg_standardized_loss
     
     def _log_reconstruction_images(self, predictions, targets, nir_measurements, epoch, step=None, phantom_ids=None):
         """Log 3D reconstruction slices to W&B for visualization (using shared function)."""
@@ -913,114 +812,163 @@ class Stage2Trainer:
     
     def validate(self, data_loader):
         """
-        Evaluate the hybrid model on the validation dataset with enhanced metrics.
+        Evaluate the hybrid model on validation data with both standardized and raw metrics.
         
-        This method performs forward propagation without gradient computation
-        to assess the performance of the enhanced model on unseen data.
-        Includes tissue patch processing when enabled and collects transformer-specific metrics.
+        This method runs the forward pass on standardized inputs but computes
+        human-interpretable metrics in raw space after inverse transformation.
+        Matches Stage 1 validation pattern exactly for logging consistency.
         
         Args:
             data_loader: DataLoader containing validation batches with
                         'nir_measurements', 'ground_truth', and optionally 'tissue_patches'
         
         Returns:
-            tuple: (average_validation_loss, metrics_dict)
+            tuple: (standardized_loss, raw_metrics_dict) for monitoring
         """
-        logger.debug("🔍 Starting Stage 2 validation epoch...")
+        if not self.standardizers.fitted:
+            raise RuntimeError("Standardizers must be fitted before validation.")
+        
+        logger.debug("🔍 Starting validation epoch with standardized inputs...")
         self.model.eval()
-        total_loss = 0
+        total_standardized_loss = 0
         num_batches = 0
         
-        # Initialize metrics tracking (includes feature analysis for Stage 2)
-        epoch_metrics = {
-            'dice': 0.0, 'contrast_ratio': 0.0, 'rmse_overall': 0.0,
-            'rmse_absorption': 0.0, 'rmse_scattering': 0.0,
+        # Initialize RAW metrics tracking (human-interpretable) - match Stage 1 exactly
+        raw_metrics = {
+            'raw_rmse_total': 0.0, 'raw_rmse_mu_a': 0.0, 'raw_rmse_mu_s': 0.0,
+            'raw_dice': 0.0, 'raw_contrast': 0.0
+        }
+        
+        # Add transformer metrics for Stage 2
+        transformer_metrics = {
             'feature_enhancement_ratio': 0.0, 'attention_entropy': 0.0
         }
         
-        logger.debug(f"📊 Processing {len(data_loader)} Stage 2 validation batches")
+        logger.debug(f"📊 Processing {len(data_loader)} validation batches")
         
         with torch.no_grad():
             for batch_idx, batch in enumerate(data_loader):
-                logger.debug(f"🔍 Validating Stage 2 batch {batch_idx + 1}/{len(data_loader)}")
+                logger.debug(f"🔍 Validating batch {batch_idx + 1}/{len(data_loader)}")
                 
-                nir_measurements = batch['nir_measurements'].to(self.device)  # Shape: (batch_size, 256_subsampled, 8)
-                targets = batch['ground_truth'].to(self.device)               # Shape: (batch_size, 2, 64, 64, 64)
+                # Extract inputs and targets
+                nir_measurements_raw = batch['nir_measurements'].to(self.device)
+                raw_ground_truth = batch['ground_truth'].to(self.device)  # Shape: (batch_size, 2, 64, 64, 64)
                 
-                logger.debug(f"📦 Stage 2 validation NIR shape: {nir_measurements.shape}")
-                logger.debug(f"📦 Stage 2 validation target shape: {targets.shape}")
+                # Standardize inputs for forward pass
+                nir_measurements = self.standardizers.transform_nir_inputs(nir_measurements_raw)
+                standardized_ground_truth = self.standardizers.ground_truth_standardizer.transform(raw_ground_truth)
                 
+                # Get and standardize tissue patches if using them
                 tissue_patches = None
                 if self.use_tissue_patches and 'tissue_patches' in batch:
-                    tissue_patches = batch['tissue_patches'].to(self.device)
-                    logger.debug(f"🧬 Validation tissue patches: {tissue_patches.shape}")
-                else:
-                    logger.debug("🧬 No tissue patches in validation")
+                    tissue_patches_raw = batch['tissue_patches'].to(self.device)
+                    tissue_patches = self.standardizers.transform_tissue_patches(tissue_patches_raw)
                 
-                logger.debug("⚡ Stage 2 validation forward pass (no gradients)...")
+                logger.debug(f"📦 Validation batch shape: {raw_ground_truth.shape}")
+                
+                logger.debug("⚡ Forward pass on standardized inputs (no gradients)...")
                 # Use same dtype as training for consistency
                 dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
                 with autocast(dtype=dtype):
                     outputs = self.model(nir_measurements, tissue_patches)
-                    loss = self.criterion(outputs['reconstructed'], targets)
-                    logger.debug(f"💰 Stage 2 validation batch loss: {loss.item():.6f}")
+                    # Loss computed in STANDARDIZED space (consistency with training)
+                    standardized_loss = self.criterion(outputs['reconstructed'], standardized_ground_truth)
                 
-                # Calculate enhanced metrics including feature analysis
-                batch_metrics = calculate_batch_metrics(
-                    self.metrics, outputs, targets, "stage2"
-                )
+                # Inverse transform predictions to RAW space for human-interpretable metrics
+                raw_predictions = self.standardizers.inverse_transform_ground_truth(outputs['reconstructed'])
+                # raw_ground_truth already in raw space (no transformation needed)
                 
-                # Accumulate metrics
-                for key, value in batch_metrics.items():
-                    if key in epoch_metrics:
-                        epoch_metrics[key] += value
+                logger.debug(f"� Standardized validation loss: {standardized_loss.item():.6f}")
                 
-                total_loss += loss.item()
+                # Calculate RAW metrics in original μₐ/μ′ₛ space for human interpretation
+                with torch.no_grad():
+                    # Create outputs dict with raw predictions for metrics calculation (include transformer outputs)
+                    raw_outputs = {
+                        'reconstructed': raw_predictions,
+                        'attention_weights': outputs.get('attention_weights'),
+                        'enhanced_features': outputs.get('enhanced_features'),
+                        'cnn_features': outputs.get('cnn_features')  # Add this too
+                    }
+                    batch_raw_metrics = calculate_batch_metrics(
+                        self.metrics, raw_outputs, raw_ground_truth, "stage2"
+                    )
+                    
+                    # Map batch metrics to our raw metrics naming
+                    raw_metrics['raw_rmse_total'] += batch_raw_metrics.get('rmse_overall', 0)
+                    raw_metrics['raw_rmse_mu_a'] += batch_raw_metrics.get('rmse_absorption', 0)
+                    raw_metrics['raw_rmse_mu_s'] += batch_raw_metrics.get('rmse_scattering', 0)
+                    raw_metrics['raw_dice'] += batch_raw_metrics.get('dice', 0)
+                    raw_metrics['raw_contrast'] += batch_raw_metrics.get('contrast_ratio', 0)
+                    
+                    # Collect transformer metrics
+                    transformer_metrics['feature_enhancement_ratio'] += batch_raw_metrics.get('feature_enhancement_ratio', 0)
+                    transformer_metrics['attention_entropy'] += batch_raw_metrics.get('attention_entropy', 0)
+                
+                total_standardized_loss += standardized_loss.item()
                 num_batches += 1
                 
-                # Show validation batch progress with standardized format including transformer metrics
+                # Show validation batch progress with RAW metrics (human-interpretable) - match Stage 1
                 logger.info(f"🔍 VALID | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
-                           f"RMSE: {loss.item():.4f} | Dice: {batch_metrics.get('dice', 0):.4f} | "
-                           f"Contrast: {batch_metrics.get('contrast_ratio', 0):.4f} | "
-                           f"Enhancement: {batch_metrics.get('feature_enhancement_ratio', 0):.4f} | "
-                           f"Attention: {batch_metrics.get('attention_entropy', 0):.4f}")
+                           f"Raw_RMSE: {batch_raw_metrics.get('rmse_overall', 0):.4f} | "
+                           f"Dice: {batch_raw_metrics.get('dice', 0):.4f} | "
+                           f"Contrast: {batch_raw_metrics.get('contrast_ratio', 0):.4f}")
         
-        avg_loss = total_loss / num_batches
+        # Average all metrics
+        avg_standardized_loss = total_standardized_loss / num_batches
+        for key in raw_metrics:
+            raw_metrics[key] /= num_batches
+        for key in transformer_metrics:
+            transformer_metrics[key] /= num_batches
         
-        # Average metrics across epoch
-        for key in epoch_metrics:
-            epoch_metrics[key] /= num_batches
+        logger.debug(f"✅ Validation completed. Average standardized loss: {avg_standardized_loss:.6f}")
+        logger.info(f"📊 VALID SUMMARY | Raw_RMSE: {raw_metrics['raw_rmse_total']:.4f} | "
+                   f"Dice: {raw_metrics['raw_dice']:.4f} | Contrast: {raw_metrics['raw_contrast']:.4f} | "
+                   f"μₐ: {raw_metrics['raw_rmse_mu_a']:.4f} | μ′ₛ: {raw_metrics['raw_rmse_mu_s']:.4f}")
+        logger.info(f"🔮 TRANSFORMER | Feature Enhancement: {transformer_metrics['feature_enhancement_ratio']:.4f} | "
+                   f"Attention Entropy: {transformer_metrics['attention_entropy']:.4f}")
         
-        logger.debug(f"✅ Stage 2 validation completed. Average loss: {avg_loss:.6f}")
-        logger.info(f"📊 VALID SUMMARY | RMSE: {avg_loss:.4f} | Dice: {epoch_metrics['dice']:.4f} | "
-                   f"Contrast: {epoch_metrics['contrast_ratio']:.4f} | Abs: {epoch_metrics['rmse_absorption']:.4f} | "
-                   f"Scat: {epoch_metrics['rmse_scattering']:.4f}")
+        # Combine metrics for return (maintain Stage 1 compatibility but add transformer metrics)
+        combined_metrics = {**raw_metrics, **transformer_metrics}
         
-        return avg_loss, epoch_metrics
+        return avg_standardized_loss, combined_metrics
     
     def train(self, data_loaders, epochs=EPOCHS_STAGE2):
         """
         Execute the complete Stage 2 training pipeline.
         
         This method orchestrates the full transformer enhancement training process,
-        including epoch-wise training and validation, progress monitoring, and
-        automatic checkpoint saving. Supports both baseline and enhanced modes.
+        including standardizer fitting, epoch-wise training and validation, 
+        progress monitoring, and automatic checkpoint saving.
         
         Args:
             data_loaders (dict): Dictionary containing 'train' and 'val' DataLoaders
             epochs (int): Number of training epochs to execute. Default from constants
         
         The training process:
-        - Trains only unfrozen transformer parameters
+        - Fits Stage 2 standardizers on training data (measurements, positions, tissue patches)
+        - Trains only unfrozen transformer parameters with standardized inputs
+        - Computes validation metrics in physical units via inverse standardization
         - Monitors validation loss for model selection
         - Saves mode-specific checkpoints (baseline/enhanced)
-        - Provides comprehensive progress logging
         
         Example:
             >>> # Enhanced mode with tissue patches
             >>> trainer = Stage2Trainer(checkpoint_path, use_tissue_patches=True)
             >>> trainer.train(data_loaders, epochs=EPOCHS_STAGE2)
         """
+        # Fit Stage 2 standardizers on training data before training begins
+        if not self.standardizers.fitted:
+            logger.info("🔧 Fitting Stage 2 standardizers on training data...")
+            
+            # Use lightweight dataloader for standardizer fitting (no tissue patches)
+            standardizer_fit_loader = self._create_lightweight_dataloader_for_standardizer_fitting()
+            
+            self.standardizers.fit_from_stage1_checkpoint(
+                stage1_checkpoint_path=self.stage1_checkpoint_path,
+                train_dataloader=standardizer_fit_loader
+            )
+            logger.info("✅ Stage 2 standardizers fitted successfully!")
+        
         # Initialize AdamW optimizer and Linear Warmup + Cosine Decay scheduler
         if self.optimizer is None:
             steps_per_epoch = len(data_loaders['train'])
@@ -1045,79 +993,70 @@ class Stage2Trainer:
             
             # Train: Update transformer parameters (CNN decoder frozen)
             logger.debug(f"🏋️  Beginning transformer training phase for epoch {epoch+1}")
-            train_loss, train_metrics = self.train_epoch(data_loaders['train'], epoch)
-            logger.info(f"🏋️  TRAIN COMPLETE | Avg RMSE: {train_loss:.4f}")
+            train_std_loss = self.train_epoch(data_loaders['train'], epoch)
+            logger.info(f"🏋️  TRAIN COMPLETE | Std_RMSE: {train_std_loss:.4f}")
             
             # Validate: Evaluate hybrid model on unseen data (no parameter updates)
             logger.debug(f"🔍 Beginning transformer validation phase for epoch {epoch+1}")
-            val_loss, val_metrics = self.validate(data_loaders['val'])
-            logger.info(f"🔍 VALID COMPLETE | Avg RMSE: {val_loss:.4f}")
+            val_std_loss, val_raw_metrics = self.validate(data_loaders['val'])
+            logger.info(f"🔍 VALID COMPLETE | Std_RMSE: {val_std_loss:.4f} | Raw_RMSE: {val_raw_metrics['raw_rmse_total']:.4f}")
             
-            # Log enhanced metrics to W&B
-            if self.use_wandb:
-                mode = "Enhanced" if self.use_tissue_patches else "Baseline"
-                # Log comprehensive metrics in organized format with clean epoch x-axis
+            # Log enhanced metrics to W&B with proper separation of standardized vs raw - MATCH STAGE 1 EXACTLY
+            if self.use_wandb and wandb.run:
                 wandb.log({
-                    "epoch": epoch + 1,  # Custom x-axis for epoch metrics (consistent with Stage1)
+                    "epoch": epoch + 1,  # Custom x-axis for epoch metrics
                     
-                    # === PRIMARY METRICS (most important) ===
-                    "Metrics/RMSE_Overall_Train": train_loss,
-                    "Metrics/RMSE_Overall_Valid": val_loss,
-                    "Metrics/Dice_Train": train_metrics['dice'],
-                    "Metrics/Dice_Valid": val_metrics['dice'],
-                    "Metrics/ContrastRatio_Train": train_metrics['contrast_ratio'],
-                    "Metrics/ContrastRatio_Valid": val_metrics['contrast_ratio'],
+                    # === STANDARDIZED LOSSES (optimization space) ===
+                    "train/loss_std": train_std_loss,           # Training metric (standardized)
+                    "val/loss_std": val_std_loss,               # Main validation metric for early stopping
                     
-                    # === DETAILED RMSE BREAKDOWN ===
-                    "RMSE_Details/Absorption_Train": train_metrics['rmse_absorption'],
-                    "RMSE_Details/Absorption_Valid": val_metrics['rmse_absorption'],
-                    "RMSE_Details/Scattering_Train": train_metrics['rmse_scattering'],
-                    "RMSE_Details/Scattering_Valid": val_metrics['rmse_scattering'],
+                    # === RAW METRICS (human-interpretable) ===
+                    "val/raw_rmse_total": val_raw_metrics['raw_rmse_total'],
+                    "val/raw_rmse_mu_a": val_raw_metrics['raw_rmse_mu_a'], 
+                    "val/raw_rmse_mu_s": val_raw_metrics['raw_rmse_mu_s'],
+                    "val/raw_dice": val_raw_metrics['raw_dice'],
+                    "val/raw_contrast": val_raw_metrics['raw_contrast'],
                     
-                    # === TRANSFORMER SPECIFIC METRICS ===
-                    "Transformer/Feature_Enhancement_Train": train_metrics['feature_enhancement_ratio'],
-                    "Transformer/Feature_Enhancement_Valid": val_metrics['feature_enhancement_ratio'],
-                    "Transformer/Attention_Entropy_Train": train_metrics['attention_entropy'],
-                    "Transformer/Attention_Entropy_Valid": val_metrics['attention_entropy'],
+                    # === TRANSFORMER METRICS (Stage 2 specific) ===
+                    "transformer/feature_enhancement_valid": val_raw_metrics['feature_enhancement_ratio'],
+                    "transformer/attention_entropy_valid": val_raw_metrics['attention_entropy'],
                     
-                    # === ENHANCED OVERFITTING ANALYSIS ===
-                    "Analysis/Overfitting_Ratio": train_loss / val_loss if val_loss > 0 else 1.0,
-                    "Analysis/Dice_Gap_Train_Val": train_metrics['dice'] - val_metrics['dice'],
-                    "Analysis/Contrast_Gap_Train_Val": train_metrics['contrast_ratio'] - val_metrics['contrast_ratio'],
-                    "Analysis/Overfitting_Risk": "High" if (train_loss / val_loss < 0.85 if val_loss > 0 else False) else "Low",
+                    # === LEARNING RATE TRACKING ===
+                    "train/lr": self.optimizer.param_groups[0]['lr']
                 })
                 
-                # Log reconstruction images periodically (and always on first/last epoch)
-                should_log_images = (epoch % LOG_IMAGES_EVERY == 0) or (epoch == 0) or (epoch == epochs - 1)
-                if should_log_images:
-                    try:
-                        sample_batch = next(iter(data_loaders['val']))
-                        # Stage 2 uses NIR measurements as input and ground truth as target
-                        measurements = sample_batch['nir_measurements'].to(self.device)  # Fixed key
-                        targets = sample_batch['ground_truth'].to(self.device)          # Fixed key
-                        phantom_ids = sample_batch['phantom_id'].cpu().numpy()          # Extract phantom IDs
-                        tissue_patches = sample_batch.get('tissue_patches', None)
-                        if tissue_patches is not None:
-                            tissue_patches = tissue_patches.to(self.device)
-                        
-                        with torch.no_grad():
-                            outputs = self.model(measurements, tissue_patches)
-                        self._log_reconstruction_images(outputs['reconstructed'], targets, measurements, epoch, phantom_ids=phantom_ids)
-                    except Exception as e:
-                        logger.warning(f"⚠️ Failed to log Stage 2 images at epoch {epoch + 1}: {e}")
+                # Log reconstruction images every epoch
+                try:
+                    sample_batch = next(iter(data_loaders['val']))
+                    # Stage 2 uses NIR measurements as input and ground truth as target
+                    measurements = sample_batch['nir_measurements'].to(self.device)  # Fixed key
+                    targets = sample_batch['ground_truth'].to(self.device)          # Fixed key
+                    phantom_ids = sample_batch['phantom_id'].cpu().numpy()          # Extract phantom IDs
+                    tissue_patches = sample_batch.get('tissue_patches', None)
+                    if tissue_patches is not None:
+                        tissue_patches = tissue_patches.to(self.device)
+                    
+                    with torch.no_grad():
+                        outputs = self.model(measurements, tissue_patches)
+                    self._log_reconstruction_images(outputs['reconstructed'], targets, measurements, epoch, phantom_ids=phantom_ids)
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to log Stage 2 images at epoch {epoch + 1}: {e}")
             
-            # Print epoch summary with clear visual formatting
+            # Print epoch summary with clear visual formatting - MATCH STAGE 1 EXACTLY
             if epoch % PROGRESS_LOG_INTERVAL == 0 or epoch == epochs - FINAL_EPOCH_OFFSET:
                 logger.info(f"")
                 logger.info(f"{'='*80}")
                 logger.info(f"🚀 EPOCH {epoch+1:3d}/{epochs} SUMMARY")
                 logger.info(f"{'='*80}")
-                logger.info(f"📈 Train RMSE: {train_loss:.4f} | Valid RMSE: {val_loss:.4f} | LR: {self.optimizer.param_groups[0]['lr']:.2e}")
-                logger.info(f"📊 Train Dice: {train_metrics['dice']:.4f} | Valid Dice: {val_metrics['dice']:.4f}")
-                logger.info(f"📊 Train Contrast: {train_metrics['contrast_ratio']:.4f} | Valid Contrast: {val_metrics['contrast_ratio']:.4f}")
-                logger.info(f"🔮 Feature Enhancement: {val_metrics['feature_enhancement_ratio']:.4f} | Attention: {val_metrics['attention_entropy']:.4f} | Mode: {mode}")
+                logger.info(f"📈 Train Std_RMSE: {train_std_loss:.4f} | Valid Std_RMSE: {val_std_loss:.4f} | LR: {self.optimizer.param_groups[0]['lr']:.2e}")
+                logger.info(f"📊 Valid Raw_RMSE: {val_raw_metrics['raw_rmse_total']:.4f} | "
+                        f"Dice: {val_raw_metrics['raw_dice']:.4f} | Contrast: {val_raw_metrics['raw_contrast']:.4f}")
+                logger.info(f"📊 Raw μₐ: {val_raw_metrics['raw_rmse_mu_a']:.4f} | Raw μ′ₛ: {val_raw_metrics['raw_rmse_mu_s']:.4f}")
+                logger.info(f"🔮 TRANSFORMER | Feature Enhancement: {val_raw_metrics['feature_enhancement_ratio']:.4f} | "
+                           f"Attention Entropy: {val_raw_metrics['attention_entropy']:.4f}")
                 logger.info(f"{'='*80}")
-            
+                
+                
             # Log GPU stats every 5 epochs
             if epoch % 5 == 0 and torch.cuda.is_available():
                 log_gpu_stats()
@@ -1125,22 +1064,22 @@ class Stage2Trainer:
             # Learning rate scheduling (Linear Warmup + Cosine Decay updates per-batch)
             # No epoch-level action needed - scheduler updates per-batch automatically
             
-            # Save best model
-            if val_loss < best_val_loss:
-                improvement = best_val_loss - val_loss
-                best_val_loss = val_loss
+            # Save best model - use standardized loss for consistency with Stage 1
+            if val_std_loss < best_val_loss:
+                improvement = best_val_loss - val_std_loss
+                best_val_loss = val_std_loss
                 checkpoint_filename = CHECKPOINT_STAGE2_ENHANCED if self.use_tissue_patches else CHECKPOINT_STAGE2_BASELINE
                 checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{checkpoint_filename}"
-                logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best RMSE: {best_val_loss:.4f}")
-                self.save_checkpoint(checkpoint_path, epoch, val_loss)
+                logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best Std_RMSE: {best_val_loss:.4f}")
+                self.save_checkpoint(checkpoint_path, epoch, val_std_loss)
             else:
-                logger.debug(f"📊 Stage 2 no improvement. Current: {val_loss:.6f}, Best: {best_val_loss:.6f}")
+                logger.debug(f"📊 Stage 2 no improvement. Current: {val_std_loss:.6f}, Best: {best_val_loss:.6f}")
         
         mode = "Enhanced" if self.use_tissue_patches else "Baseline"
         logger.info(f"")
         logger.info(f"{'='*80}")
         logger.info(f"✅ TRANSFORMER TRAINING COMPLETED ({mode})")
-        logger.info(f"🏆 Best RMSE Loss: {best_val_loss:.4f}")
+        logger.info(f"🏆 Best Std_RMSE Loss: {best_val_loss:.4f}")
         logger.info(f"📊 Total Epochs: {epochs}")
         logger.info(f"{'='*80}")
         

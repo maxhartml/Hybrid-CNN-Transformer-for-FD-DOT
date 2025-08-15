@@ -53,7 +53,7 @@ from code.utils.logging_config import get_model_logger
 # Model Architecture Parameters (OPTIMIZED FOR MEMORY EFFICIENCY)
 EMBED_DIM = 256                         # Transformer embedding dimension
 NUM_LAYERS = 6                          # Number of transformer layers (increased for better capacity)
-NUM_HEADS = 8                           # Number of attention heads (reduced from 12)
+NUM_HEADS = 4                           # Number of attention heads (reduced from 8 for better training stability)
 MLP_RATIO = 3                           # MLP expansion ratio (reduced from 4)
 DROPOUT = 0.1                           # Dropout probability
 MAX_SEQ_LEN = 512                       # Maximum sequence length (reduced from 1000 for memory efficiency)

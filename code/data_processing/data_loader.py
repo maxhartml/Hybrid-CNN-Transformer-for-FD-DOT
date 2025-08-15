@@ -27,6 +27,9 @@ import psutil
 import torch
 from torch.utils.data import Dataset, DataLoader
 
+# Import tissue patch config flag
+from code.training.training_config import USE_TISSUE_PATCHES_STAGE2
+
 # ===============================================================================
 # CONFIGURATION AND CONSTANTS
 # ===============================================================================
@@ -212,12 +215,12 @@ def extract_tissue_patches_from_measurements(ground_truth: np.ndarray,
             total_zeros = np.sum(patch_absorption == 0) + np.sum(patch_scattering == 0)
             patch_zero_percentage = (total_zeros / (total_voxels * 2)) * 100
             
-            # VALIDATION WARNINGS: Alert if patch has unusual zero content (extreme cases only)
-            # For surface-centered patches, expect ~40-70% zeros (30-60% tissue)
+            # VALIDATION WARNINGS: Only log when tissue patches are being actively extracted
+            # Demote to debug level to reduce log noise during standardizer fitting
             if patch_zero_percentage > 85.0:
-                logger.warning(f"⚠️ HIGH ZEROS: {pos_name} patch at meas {i} has {patch_zero_percentage:.1f}% zeros (>85%)")
+                logger.debug(f"⚠️ HIGH ZEROS: {pos_name} patch at meas {i} has {patch_zero_percentage:.1f}% zeros (>85%)")
             elif patch_zero_percentage < 20.0:
-                logger.warning(f"⚠️ LOW ZEROS: {pos_name} patch at meas {i} has {patch_zero_percentage:.1f}% zeros (<20%)")
+                logger.debug(f"⚠️ LOW ZEROS: {pos_name} patch at meas {i} has {patch_zero_percentage:.1f}% zeros (<20%)")
             
             # Legacy quality tracking
             if absorption_nonzero == 0 and scattering_nonzero == 0:
@@ -427,8 +430,14 @@ class NIRPhantomDataset(Dataset):
                 # Extract phantom ID
                 phantom_id = int(phantom_file.stem.split('_')[1])
                 
-                # 🧬 TISSUE PATCH EXTRACTION: Extract 16x16x16 patches for ALL measurements
-                # This provides local anatomical context for each measurement
+                # Prepare result dict with core data
+                result = {
+                    'nir_measurements': torch.tensor(nir_measurements, dtype=torch.float32),
+                    'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),
+                    'phantom_id': torch.tensor(phantom_id, dtype=torch.long)
+                }
+                
+                # 🧬 TISSUE PATCH EXTRACTION: Only when enabled (Stage 2 Enhanced mode)
                 if self.extract_tissue_patches:
                     tissue_patches = extract_tissue_patches_from_measurements(
                         ground_truth=ground_truth,           # (2, 64, 64, 64)
@@ -438,10 +447,11 @@ class NIRPhantomDataset(Dataset):
                         patch_size=16
                     )
                     
-                    logger.debug(f"Extracted tissue patches shape: {tissue_patches.shape}")  # Should be (1000, 2, 8192)
+                    logger.debug(f"Extracted tissue patches shape: {tissue_patches.shape}")  # Should be (1000, 2, 2, 16, 16, 16)
+                    result['tissue_patches'] = torch.tensor(tissue_patches, dtype=torch.float32)
                     
-                    # 📊 TISSUE PATCH QUALITY MONITORING: Basic sanity check
-                    tissue_tensor = torch.tensor(tissue_patches, dtype=torch.float32)
+                    # 📊 TISSUE PATCH QUALITY MONITORING: Only when patches are extracted
+                    tissue_tensor = result['tissue_patches']
                     zero_ratio = (tissue_tensor == 0).float().mean()
                     if zero_ratio > 0.98:  # Only warn for extremely high zero content (>98%)
                         logger.debug(f"⚠️ Very high zero content in tissue patches: {zero_ratio:.1%} for phantom {phantom_id}")
@@ -450,28 +460,25 @@ class NIRPhantomDataset(Dataset):
                     else:
                         logger.debug(f"✅ Normal tissue patch quality: {zero_ratio:.1%} zeros for phantom {phantom_id}")
                 else:
-                    # Create empty tissue patches for all measurements if not extracting
-                    # Keep consistent 6D format: (n_measurements, 2_patches, 2_channels, 16, 16, 16)
-                    tissue_patches = np.zeros((n_measurements, 2, 2, 16, 16, 16), dtype=np.float32)
-                    logger.debug(f"Skipping tissue patch extraction for Stage 1 training")
+                    # No tissue patch extraction - don't add the key at all (clean, zero-alloc)
+                    logger.debug(f"Skipping tissue patch extraction (tissue patches disabled)")
+                
+                return result
                 
         except Exception as e:
             logger.error(f"Error loading complete phantom {phantom_idx} from {phantom_file}: {e}")
-            # Return zero-filled phantom with full measurement dimensions
-            # Keep consistent 6D format: (n_measurements, 2_patches, 2_channels, 16, 16, 16)
-            return {
+            # Return zero-filled phantom with minimal memory allocation
+            result = {
                 'nir_measurements': torch.zeros(DEFAULT_N_GENERATED_MEASUREMENTS, DEFAULT_NIR_FEATURE_DIMENSION, dtype=torch.float32),
                 'ground_truth': torch.zeros(DEFAULT_OPTICAL_CHANNELS, *DEFAULT_PHANTOM_SHAPE, dtype=torch.float32),
-                'tissue_patches': torch.zeros(DEFAULT_N_GENERATED_MEASUREMENTS, 2, 2, 16, 16, 16, dtype=torch.float32),
                 'phantom_id': torch.tensor(0, dtype=torch.long)
             }
-        
-        return {
-            'nir_measurements': torch.tensor(nir_measurements, dtype=torch.float32),    # (1000, 8) - full NIR measurements
-            'ground_truth': torch.tensor(ground_truth, dtype=torch.float32),           # (2, 64, 64, 64) - full ground truth
-            'tissue_patches': torch.tensor(tissue_patches, dtype=torch.float32),       # (1000, 2, 2, 16, 16, 16) - tissue patches for all measurements
-            'phantom_id': torch.tensor(phantom_id, dtype=torch.long)                   # Phantom identifier
-        }
+            
+            # Only add tissue patches if extraction is enabled
+            if self.extract_tissue_patches:
+                result['tissue_patches'] = torch.zeros(DEFAULT_N_GENERATED_MEASUREMENTS, 2, 2, 16, 16, 16, dtype=torch.float32)
+            
+            return result
 
 
 # ===============================================================================
@@ -485,14 +492,15 @@ def create_phantom_dataloaders(data_dir: str = "../data",
                               pin_memory: bool = True,
                               persistent_workers: bool = True,
                               random_seed: int = DEFAULT_RANDOM_SEED,
-                              extract_tissue_patches: bool = True,
+                              extract_tissue_patches: bool = None,  # Deprecated param name
+                              use_tissue_patches: bool = USE_TISSUE_PATCHES_STAGE2,  # New explicit flag
                               stage: str = "stage2") -> Dict[str, DataLoader]:
     """
     Create DataLoaders for complete phantom batching (batches of complete phantoms).
     
     OPTIMIZED for different training stages:
     - Stage 1: Only loads ground truth (97% memory reduction!)
-    - Stage 2: Loads full data including NIR measurements and tissue patches
+    - Stage 2: Loads full data including NIR measurements and optional tissue patches
     
     Args:
         data_dir (str): Path to phantom data directory
@@ -502,12 +510,17 @@ def create_phantom_dataloaders(data_dir: str = "../data",
         pin_memory (bool): Enable pin memory for GPU efficiency
         persistent_workers (bool): Keep workers alive between epochs
         random_seed (int): Random seed for splits
-        extract_tissue_patches (bool): Whether to extract tissue patches (Stage 2 Enhanced only)
+        extract_tissue_patches (bool): DEPRECATED - use use_tissue_patches instead
+        use_tissue_patches (bool): Whether to extract tissue patches (Stage 2 Enhanced only)
         stage (str): Training stage ('stage1' for ground truth only, 'stage2' for full data)
         
     Returns:
         Dict[str, DataLoader]: Dictionary with 'train', 'val', 'test' DataLoaders
     """
+    # Handle backward compatibility for extract_tissue_patches
+    if extract_tissue_patches is not None:
+        logger.warning("extract_tissue_patches is deprecated, use use_tissue_patches instead")
+        use_tissue_patches = extract_tissue_patches
     
     # Ensure persistent workers is disabled for single worker
     if num_workers == 0:
@@ -517,7 +530,8 @@ def create_phantom_dataloaders(data_dir: str = "../data",
     dataloaders = {}
     
     for split in ['train', 'val', 'test']:
-        dataset = NIRPhantomDataset(data_dir, split, random_seed, extract_tissue_patches, stage)
+        dataset = NIRPhantomDataset(data_dir, split, random_seed, 
+                                   extract_tissue_patches=use_tissue_patches, stage=stage)
         
         shuffle = (split == 'train') 
         

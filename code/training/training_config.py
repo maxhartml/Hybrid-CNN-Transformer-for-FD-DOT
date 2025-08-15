@@ -24,10 +24,13 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Training Stage Control - Set which stage to run
-CURRENT_TRAINING_STAGE = "stage1"  # "stage1" or "stage2"
+CURRENT_TRAINING_STAGE = "stage2"  # "stage1" or "stage2"
 
 # Weights & Biases Logging
 USE_WANDB_LOGGING = True
+
+# Debug Logging Control
+DEBUG_VERBOSE = False                   # Set to True to enable verbose debug logging (attention, gradients, etc.)
 
 # Performance Optimizations
 USE_MODEL_COMPILATION = True            # PyTorch 2.0 compilation for 2x speedup (fixed compilation issues)
@@ -39,7 +42,7 @@ USE_CHANNELS_LAST_MEMORY_FORMAT = True  # Efficient memory layout for 3D convolu
 # =============================================================================
 
 # Training Duration
-EPOCHS_STAGE1 = 100  # Stage 1 CNN training epochs - more (↑) = better feature learning, less (↓) = faster training
+EPOCHS_STAGE1 = 150  # Stage 1 CNN training epochs - more (↑) = better feature learning, less (↓) = faster training
 EPOCHS_STAGE2 = 150   # Stage 2 transformer epochs - more (↑) = better fine-tuning, less (↓) = faster completion
 
 # Batch Sizes - Hard-coded for stability
@@ -52,7 +55,7 @@ EARLY_STOPPING_PATIENCE = 25  # Epochs to wait without improvement - higher (↑
 # Data Loading Configuration
 # Optimized for large 3D medical imaging data (64x64x64 phantoms)
 
-NUM_WORKERS = 8          # Increased for Stage 2 - more parallel loading to feed transformer
+NUM_WORKERS = 12          # Increased for Stage 2 - more parallel loading to feed transformer
 PIN_MEMORY = True        # Pin memory for faster GPU transfer - True = faster but uses more system memory
 PREFETCH_FACTOR = 2      # Reduced to save memory - 8 workers × 2 = 16 batches prefetched
 PERSISTENT_WORKERS = True # Keep workers alive between epochs - True = faster epoch transitions
@@ -63,12 +66,12 @@ PERSISTENT_WORKERS = True # Keep workers alive between epochs - True = faster ep
 
 # Weight Decay (L2 regularization)
 WEIGHT_DECAY = 7e-4             # CNN weight decay - higher (↑) = less overfitting but may underfit, lower (↓) = more capacity but overfitting risk
-WEIGHT_DECAY_TRANSFORMER = 0.01 # Transformer weight decay - prevents attention weights from becoming too large
+WEIGHT_DECAY_TRANSFORMER = 0.02  # Transformer weight decay - prevents attention weights from becoming too large
 
 # Dropout Rates (prevent overfitting)
 DROPOUT_CNN = 0.18              # CNN dropout rate - higher (↑) = stronger regularization, lower (↓) = more model capacity
 DROPOUT_TRANSFORMER = 0.10      # Reduced from 0.20 - less aggressive regularization for early training
-DROPOUT_NIR_PROCESSOR = 0.18    # NIR measurement dropout - prevents over-reliance on specific measurements
+DROPOUT_NIR_PROCESSOR = 0.12    # NIR measurement dropout - prevents over-reliance on specific measurements
 
 # Gradient Clipping (training stability)
 GRADIENT_CLIP_MAX_NORM = 0.5      # Tighter clipping during early training for better stability
@@ -107,9 +110,9 @@ MAX_MOMENTUM = 0.95   # Maximum momentum value - cycles between base and max dur
 # Based on "Attention Is All You Need", BERT, and ViT papers for transformer training
 
 # Learning Rate Schedule
-STAGE2_BASE_LR = 2.0e-4   # Higher peak LR to move transformer weights effectively  
+STAGE2_BASE_LR = 1.5e-4   # Higher peak LR to move transformer weights effectively  
 STAGE2_WARMUP_PCT = 0.03  # Shorter warmup (~4-5 epochs) for faster learning start
-STAGE2_ETA_MIN_PCT = 0.10 # Higher floor (10% of base = 2e-5) prevents vanishing gradients
+STAGE2_ETA_MIN_PCT = 0.05 # Higher floor (10% of base = 2e-5) prevents vanishing gradients
 
 # Optimizer Parameters
 ADAMW_BETAS_STAGE2 = (0.9, 0.98)  # Transformer-optimized momentum - beta2=0.98 reduces noise in attention gradients
@@ -125,8 +128,14 @@ CHECKPOINT_STAGE1 = "stage1_best.pth"
 CHECKPOINT_STAGE2_BASELINE = "stage2_baseline_best.pth"
 CHECKPOINT_STAGE2_ENHANCED = "stage2_enhanced_best.pth"
 
+# Full checkpoint paths (for easy import)
+STAGE1_CHECKPOINT_PATH = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_STAGE1}"
+STAGE2_BASELINE_CHECKPOINT_PATH = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_STAGE2_BASELINE}"
+STAGE2_ENHANCED_CHECKPOINT_PATH = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_STAGE2_ENHANCED}"
+
 # Logging Configuration
 LOG_LR_EVERY_N_BATCHES = 5      # Log learning rate every N batches
+PROGRESS_LOG_INTERVAL = 5       # Log detailed epoch summary every N epochs
 FINAL_EPOCH_OFFSET = 1          # Always log final epoch
 
 # Weights & Biases Configuration
