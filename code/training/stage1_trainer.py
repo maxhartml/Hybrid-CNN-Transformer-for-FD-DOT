@@ -47,8 +47,6 @@ from code.utils.logging_config import get_training_logger
 from code.utils.metrics import NIRDOTMetrics, create_metrics_for_stage, calculate_batch_metrics, RMSELoss
 from code.utils.standardizers import PerChannelZScore, fit_standardizer_on_dataloader
 from code.utils.viz_recon import log_recon_slices_raw
-from code.utils.tv3d import tv3d_l1
-from code.utils.ema import EMA
 from .training_config import *  # Import all training config
 
 # =============================================================================
@@ -146,13 +144,6 @@ class Stage1Trainer:
             logger.info("✅ Model compilation complete")
         elif USE_MODEL_COMPILATION:
             logger.warning("⚠️ PyTorch 2.0+ required for model compilation - skipping")
-        
-        # Initialize EMA for improved validation performance
-        if STAGE1_USE_EMA:
-            self.ema = EMA(self.model, decay=STAGE1_EMA_DECAY)
-            logger.info(f"🔄 EMA initialized with decay={STAGE1_EMA_DECAY}")
-        else:
-            self.ema = None
         
         # Loss function - Standard RMSE loss
         self.criterion = RMSELoss()
@@ -436,11 +427,13 @@ class Stage1Trainer:
             # Calculate global step for OneCycleLR tracking (dissertation graphs need this!)
             global_step = epoch * total_batches + batch_idx + 1  # Start from 1, not 0
             
-            # Log detailed learning rate and momentum for OneCycleLR visualization
+            # Log detailed learning rate and momentum for smooth OneCycleLR visualization
+            # Essential for dissertation graphs showing scheduler behavior
             wandb.log({
                 "training_step": global_step,  # Custom x-axis for LR metrics
                 "LR_Scheduler/Learning_Rate": current_lr,
-                "LR_Scheduler/Momentum": current_momentum
+                "LR_Scheduler/Momentum": current_momentum,
+                "LR_Scheduler/Training_Progress": epoch + (batch_idx / total_batches)
             })
                 
         except Exception as e:
@@ -496,19 +489,9 @@ class Stage1Trainer:
                     outputs = self.model(standardized_ground_truth, tissue_patches=None)
                     logger.debug(f"📤 Model output shape: {outputs['reconstructed'].shape}")
                     
-                    # Compute composite loss in STANDARDIZED space
-                    logger.debug("📏 Computing composite loss (L1 + L2 + TV)...")
-                    pred_std = outputs['reconstructed']
-                    tgt_std = standardized_ground_truth
-                    
-                    # Compute loss components
-                    err = pred_std - tgt_std
-                    l1_loss = err.abs().mean()
-                    l2_loss = (err ** 2).mean()
-                    tv_loss = tv3d_l1(pred_std)
-                    
-                    # Composite loss: 0.7*L1 + 0.3*L2 + tiny TV
-                    loss = STAGE1_LOSS_L1_W * l1_loss + STAGE1_LOSS_L2_W * l2_loss + STAGE1_TV_WEIGHT * tv_loss
+                    # Compute loss in STANDARDIZED space
+                    logger.debug("📏 Computing standardized RMSE loss...")
+                    loss = self.criterion(outputs['reconstructed'], standardized_ground_truth)
                 
                 # Backward pass with gradient scaling
                 self.scaler.scale(loss).backward()
@@ -523,27 +506,13 @@ class Stage1Trainer:
                 
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
-                
-                # Update EMA after optimizer step
-                if self.ema is not None:
-                    self.ema.update(self.model)
             else:  # Standard precision training (CPU fallback)
                 outputs = self.model(standardized_ground_truth, tissue_patches=None)
                 logger.debug(f"📤 Model output shape: {outputs['reconstructed'].shape}")
                 
-                # Compute composite loss in STANDARDIZED space
-                logger.debug("📏 Computing composite loss (L1 + L2 + TV)...")
-                pred_std = outputs['reconstructed']
-                tgt_std = standardized_ground_truth
-                
-                # Compute loss components
-                err = pred_std - tgt_std
-                l1_loss = err.abs().mean()
-                l2_loss = (err ** 2).mean()
-                tv_loss = tv3d_l1(pred_std)
-                
-                # Composite loss: 0.7*L1 + 0.3*L2 + tiny TV
-                loss = STAGE1_LOSS_L1_W * l1_loss + STAGE1_LOSS_L2_W * l2_loss + STAGE1_TV_WEIGHT * tv_loss
+                # Compute loss in STANDARDIZED space
+                logger.debug("📏 Computing standardized RMSE loss...")
+                loss = self.criterion(outputs['reconstructed'], standardized_ground_truth)
                 
                 # Standard backward pass
                 loss.backward()
@@ -557,10 +526,6 @@ class Stage1Trainer:
                 
                 self.optimizer.step()
                 
-            # Update EMA after optimizer step
-            if self.ema is not None:
-                self.ema.update(self.model)
-                
             # OneCycleLR updates per-batch (essential for proper LR scheduling)
             self.scheduler.step()
             
@@ -568,17 +533,14 @@ class Stage1Trainer:
             if batch_idx % LOG_LR_EVERY_N_BATCHES == 0:
                 self._log_learning_rate_to_wandb(epoch, batch_idx, len(data_loader))
             
-            # Log to W&B during training: composite loss components and LR
+            # Log to W&B during training: only standardized loss and LR
             if self.use_wandb and wandb.run:
                 current_lr = self.optimizer.param_groups[0]['lr']
                 global_step = epoch * len(data_loader) + batch_idx + 1
                 
                 wandb.log({
                     "training_step": global_step,
-                    "train/loss_std": loss.item(),     # Total composite loss
-                    "train/loss_l1": l1_loss.item(),  # L1 component  
-                    "train/loss_l2": l2_loss.item(),  # L2 component
-                    "train/loss_tv": tv_loss.item(),  # TV component
+                    "train/loss_std": loss.item(),  # Standardized RMSE loss
                     "train/lr": current_lr
                 })
                 
@@ -661,12 +623,6 @@ class Stage1Trainer:
             raise RuntimeError("Standardizer must be fitted before validation. Call _fit_standardizer_on_train_data() first.")
         
         logger.debug("🔍 Starting validation epoch with standardized targets...")
-        
-        # Swap in EMA parameters for validation if available
-        if self.ema is not None:
-            logger.debug("🔄 Swapping in EMA parameters for validation...")
-            self.ema.swap_in(self.model)
-        
         self.model.eval()
         total_standardized_loss = 0
         num_batches = 0
@@ -693,24 +649,12 @@ class Stage1Trainer:
                 if self.scaler:  # Mixed precision validation
                     with autocast():
                         outputs = self.model(standardized_ground_truth, tissue_patches=None)
-                        # Composite loss computed in STANDARDIZED space (consistency with training)
-                        pred_std = outputs['reconstructed']
-                        tgt_std = standardized_ground_truth
-                        err = pred_std - tgt_std
-                        l1_loss = err.abs().mean()
-                        l2_loss = (err ** 2).mean()
-                        tv_loss = tv3d_l1(pred_std)
-                        standardized_loss = STAGE1_LOSS_L1_W * l1_loss + STAGE1_LOSS_L2_W * l2_loss + STAGE1_TV_WEIGHT * tv_loss
+                        # Loss computed in STANDARDIZED space (consistency with training)
+                        standardized_loss = self.criterion(outputs['reconstructed'], standardized_ground_truth)
                 else:  # Standard precision validation
                     outputs = self.model(standardized_ground_truth, tissue_patches=None)
-                    # Composite loss computed in STANDARDIZED space (consistency with training)
-                    pred_std = outputs['reconstructed']
-                    tgt_std = standardized_ground_truth
-                    err = pred_std - tgt_std
-                    l1_loss = err.abs().mean()
-                    l2_loss = (err ** 2).mean()
-                    tv_loss = tv3d_l1(pred_std)
-                    standardized_loss = STAGE1_LOSS_L1_W * l1_loss + STAGE1_LOSS_L2_W * l2_loss + STAGE1_TV_WEIGHT * tv_loss
+                    # Loss computed in STANDARDIZED space (consistency with training) 
+                    standardized_loss = self.criterion(outputs['reconstructed'], standardized_ground_truth)
                 
                 # Inverse transform predictions to RAW space for human-interpretable metrics
                 raw_predictions = self.standardizer.inverse_transform(outputs['reconstructed'])
@@ -751,11 +695,6 @@ class Stage1Trainer:
         logger.info(f"📊 VALID SUMMARY | Raw_RMSE: {raw_metrics['raw_rmse_total']:.4f} | "
                    f"Dice: {raw_metrics['raw_dice']:.4f} | Contrast: {raw_metrics['raw_contrast']:.4f} | "
                    f"μₐ: {raw_metrics['raw_rmse_mu_a']:.4f} | μ′ₛ: {raw_metrics['raw_rmse_mu_s']:.4f}")
-        
-        # Restore original parameters after EMA validation
-        if self.ema is not None:
-            logger.debug("🔄 Restoring original model parameters after EMA validation...")
-            self.ema.restore(self.model)
         
         return avg_standardized_loss, raw_metrics
     
@@ -817,19 +756,23 @@ class Stage1Trainer:
             val_std_loss, val_raw_metrics = self.validate(data_loaders['val'])
             logger.info(f"🔍 VALID COMPLETE | Std_RMSE: {val_std_loss:.4f} | Raw_RMSE: {val_raw_metrics['raw_rmse_total']:.4f}")
             
-            # Log enhanced metrics to W&B with clean, flat keys
+            # Log enhanced metrics to W&B with proper separation of standardized vs raw
             if self.use_wandb and wandb.run:
                 wandb.log({
                     "epoch": epoch + 1,  # Custom x-axis for epoch metrics
                     
-                    # === RAW METRICS (validation space) ===
+                    # === STANDARDIZED LOSSES (optimization space) ===
+                    "val/loss_std": val_std_loss,           # Main validation metric for early stopping
+                    
+                    # === RAW METRICS (human-interpretable) ===
                     "val/raw_rmse_total": val_raw_metrics['raw_rmse_total'],
                     "val/raw_rmse_mu_a": val_raw_metrics['raw_rmse_mu_a'],
                     "val/raw_rmse_mu_s": val_raw_metrics['raw_rmse_mu_s'],
                     "val/raw_dice": val_raw_metrics['raw_dice'],
                     "val/raw_contrast": val_raw_metrics['raw_contrast'],
-                    "val/loss_std": val_std_loss,           # Composite loss for tracking
-                    "val/std_train_val_ratio": train_std_loss / val_std_loss if val_std_loss > 0 else 1.0,
+                    
+                    # === ANALYSIS METRICS ===
+                    "Analysis/Std_Train_Val_Ratio": train_std_loss / val_std_loss if val_std_loss > 0 else 1.0,
                 })
                 
                 # Log reconstruction images every epoch (always)
@@ -855,8 +798,8 @@ class Stage1Trainer:
                     # Acceptance check
                     assert pred_raw[:,0].max() > 1e-5 and pred_raw[:,1].max() > 1e-3, "Zeros after prep; abort recon logging."
                     
-                    # Log exactly 24 images with clean prefix
-                    log_recon_slices_raw(pred_raw, tgt_raw, epoch, phantom_ids=phantom_ids, prefix="recon")
+                    # Log exactly 24 images
+                    log_recon_slices_raw(pred_raw, tgt_raw, epoch, phantom_ids=phantom_ids, prefix="Reconstructions")
                 except Exception as e:
                     logger.warning(f"⚠️ Failed to log images at epoch {epoch + 1}: {e}")            # Print epoch summary every epoch for important milestones
             logger.info(f"")
@@ -877,25 +820,24 @@ class Stage1Trainer:
                 except:
                     pass
             
-            # Early stopping based on EMA raw RMSE total (primary metric)
-            val_primary_metric = val_raw_metrics['raw_rmse_total']
-            if val_primary_metric < self.best_val_loss:
-                improvement = self.best_val_loss - val_primary_metric
-                self.best_val_loss = val_primary_metric
+            # Early stopping based on STANDARDIZED validation loss
+            if val_std_loss < self.best_val_loss:
+                improvement = self.best_val_loss - val_std_loss
+                self.best_val_loss = val_std_loss
                 self.patience_counter = 0  # Reset patience counter
                 checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_STAGE1}"
-                logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best Raw_RMSE: {self.best_val_loss:.4f}")
+                logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best Std_RMSE: {self.best_val_loss:.4f}")
                 self.save_checkpoint(checkpoint_path, epoch, val_std_loss, val_raw_metrics)
             else:
                 self.patience_counter += 1
-                logger.debug(f"📊 No improvement. Current: {val_primary_metric:.6f}, Best: {self.best_val_loss:.6f}, Patience: {self.patience_counter}/{self.early_stopping_patience}")
+                logger.debug(f"📊 No improvement. Current: {val_std_loss:.6f}, Best: {self.best_val_loss:.6f}, Patience: {self.patience_counter}/{self.early_stopping_patience}")
                 
                 # Check for early stopping
                 if self.patience_counter >= self.early_stopping_patience:
                     logger.info(f"")
                     logger.info(f"🛑 EARLY STOPPING TRIGGERED")
                     logger.info(f"🔄 No improvement for {self.early_stopping_patience} epochs")
-                    logger.info(f"🏆 Best Raw_RMSE achieved: {self.best_val_loss:.4f}")
+                    logger.info(f"🏆 Best Std_RMSE achieved: {self.best_val_loss:.4f}")
                     self.early_stopped = True
                     break
         
@@ -906,7 +848,7 @@ class Stage1Trainer:
             logger.info(f"✅ STAGE 1 TRAINING COMPLETED (Early Stopped)")
         else:
             logger.info(f"✅ STAGE 1 TRAINING COMPLETED (Full {epochs} Epochs)")
-        logger.info(f"🏆 Best Raw_RMSE Loss: {self.best_val_loss:.4f}")
+        logger.info(f"🏆 Best Std_RMSE Loss: {self.best_val_loss:.4f}")
         logger.info(f"📊 Final Epoch: {epoch+1}")
         logger.info(f"{'='*80}")
         

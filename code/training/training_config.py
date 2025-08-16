@@ -110,10 +110,10 @@ GRADSCALER_GROWTH_INTERVAL = 200        # Shorter interval for quicker scale gro
 
 # Learning Rate Schedule
 STAGE1_MAX_LR = 3e-3          # Peak learning rate - higher values speed up training but risk instability
-STAGE1_BASE_LR = 1e-4       # Starting learning rate - conservative start for stable training
+STAGE1_BASE_LR = 1.0e-4         # Starting/ending learning rate - lower values provide smoother convergence
 STAGE1_DIV_FACTOR = 25          # Initial LR division factor - controls how low we start (max_lr/div_factor)
-STAGE1_FINAL_DIV_FACTOR = 10    # Final LR reduction factor - higher LR floor late (was 100)
-STAGE1_PCT_START = 0.35         # Warmup phase percentage - fatter warmup phase (was 0.30)
+STAGE1_FINAL_DIV_FACTOR = 100   # Final LR reduction factor - higher values give gentler final decay
+STAGE1_PCT_START = 0.30         # Warmup phase percentage - more warmup (↑) = more stable but slower start
 STAGE1_CYCLE_MOMENTUM = True    # Enable momentum cycling for CNN - helps escape local minima
 
 # Optimizer Parameters
@@ -200,14 +200,3 @@ def log_gpu_stats():
             logger.warning("⚠️ GPU memory usage >90% - consider reducing batch size")
         elif reserved/total > 0.8:
             logger.warning("⚠️ GPU memory reservation >80% - monitor for potential issues")
-
-# =============================================================================
-# STAGE 1: ENHANCED TRAINING FLAGS
-# =============================================================================
-
-# Stage-1 toggles
-STAGE1_USE_EMA = True
-STAGE1_EMA_DECAY = 0.999
-STAGE1_TV_WEIGHT = 2e-4
-STAGE1_LOSS_L1_W = 0.7
-STAGE1_LOSS_L2_W = 0.3
