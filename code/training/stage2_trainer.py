@@ -66,6 +66,14 @@ if torch.cuda.is_available():
 logger = get_training_logger(__name__)
 
 # =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
+
+def _assert_raw_chfirst(x):
+    """Assert tensor is RAW [B,2,D,H,W] format for viz."""
+    assert x.ndim==5 and x.shape[1]==2, f"Require RAW [B,2,D,H,W], got {tuple(x.shape)}"
+
+# =============================================================================
 # TRAINING CLASSES
 # =============================================================================
 
@@ -902,25 +910,31 @@ class Stage2Trainer:
             return
             
         try:
-            from code.utils.viz_recon import prepare_raw_DHW, log_recon_slices_raw
+            from code.utils import viz_recon as viz
             
-            # Convert tensors from channels-last [B,D,H,W,2] to channel-first [B,2,D,H,W]
-            if predictions.shape[-1] == 2:  # Check if channels-last
-                predictions = predictions.permute(0, 4, 1, 2, 3).contiguous()  # [B,D,H,W,2] -> [B,2,D,H,W]
-            if targets.shape[-1] == 2:  # Check if channels-last
-                targets = targets.permute(0, 4, 1, 2, 3).contiguous()  # [B,D,H,W,2] -> [B,2,D,H,W]
-            
-            # Prepare raw mm^-1 volumes with strict [B,2,D,H,W] format
-            pred_raw, tgt_raw = prepare_raw_DHW(
-                predictions, targets,
-                standardizer=self.standardizers.ground_truth_standardizer
-            )
-            
-            # Acceptance check
-            assert pred_raw[:,0].max() > 1e-5 and pred_raw[:,1].max() > 1e-3, "Zeros after prep; abort recon logging."
-            
-            # Log exactly 24 images
-            log_recon_slices_raw(pred_raw, tgt_raw, epoch, phantom_ids=phantom_ids, prefix="Reconstructions")
+            # Ensure channel-first
+            pred_std = predictions
+            if pred_std.shape[-1] == 2:  # channels-last
+                pred_std = pred_std.permute(0, 4, 1, 2, 3).contiguous()
+            tgt_raw = targets
+            if tgt_raw.shape[-1] == 2:
+                tgt_raw = tgt_raw.permute(0, 4, 1, 2, 3).contiguous()
+
+            # Inverse predictions to RAW
+            pred_raw = self.standardizers.ground_truth_standardizer.inverse_transform_gt_chfirst(pred_std)
+
+            # Sanity asserts
+            _assert_raw_chfirst(pred_raw)
+            _assert_raw_chfirst(tgt_raw)
+
+            # Log telemetry
+            mu_a_rng = (float(pred_raw[:,0].min()), float(pred_raw[:,0].max()))
+            mu_s_rng = (float(pred_raw[:,1].min()), float(pred_raw[:,1].max()))
+            logger.info(f"[VIZ RAW] pred μₐ {mu_a_rng[0]:.4f}..{mu_a_rng[1]:.4f}, μ′ₛ {mu_s_rng[0]:.3f}..{mu_s_rng[1]:.3f}")
+
+            # Viz (raw-only)
+            pred_raw, tgt_raw = viz.prepare_raw_DHW(pred_raw, tgt_raw)
+            viz.log_recon_slices_raw(pred_raw, tgt_raw, epoch, phantom_ids=phantom_ids, prefix="Reconstructions")
             
         except Exception as e:
             self.logger.warning(f"⚠️ Failed to log reconstruction images: {e}")

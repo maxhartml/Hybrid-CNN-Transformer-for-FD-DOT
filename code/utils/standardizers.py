@@ -6,6 +6,11 @@ This module provides comprehensive standardization utilities for NIR-DOT reconst
 including ground truth volume normalization, NIR measurement standardization, 
 position coordinate scaling, and tissue patch normalization.
 
+All ground truth operations assume CHANNEL-FIRST layout [B, 2, D, H, W] where:
+- B: batch size
+- 2: optical channels (μₐ, μ′ₛ) 
+- D,H,W: spatial dimensions
+
 The standardizers are designed to:
 - Fit normalization parameters only on training data
 - Transform inputs during training and validation consistently  
@@ -14,7 +19,7 @@ The standardizers are designed to:
 - Maintain consistency between Stage 1 and Stage 2 pipelines
 
 Classes:
-    PerChannelZScore: Per-channel z-score normalization for 3D volumes
+    PerChannelZScore: Per-channel z-score normalization for 3D volumes (channel-first)
     MeasurementStandardizer: Per-feature z-score normalization for NIR measurements
     PositionScaler: Min-max scaling for spatial coordinates to [-1, 1]
     TissuePatchStandardizer: Uses ground truth stats for tissue patch normalization
@@ -346,6 +351,15 @@ class PerChannelZScore:
             self.stds = self.stds.to(device)
         
         return self
+    
+    # Convenience aliases for clarity in channel-first operations
+    def transform_gt_chfirst(self, volumes: torch.Tensor) -> torch.Tensor:
+        """Convenience alias: transform ground truth volumes (channel-first [B,2,D,H,W])."""
+        return self.transform(volumes)
+    
+    def inverse_transform_gt_chfirst(self, standardized_volumes: torch.Tensor) -> torch.Tensor:
+        """Convenience alias: inverse transform ground truth volumes (channel-first [B,2,D,H,W]).""" 
+        return self.inverse_transform(standardized_volumes)
     
     def __repr__(self) -> str:
         """String representation of the standardizer."""
