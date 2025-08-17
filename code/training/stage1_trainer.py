@@ -85,7 +85,7 @@ class Stage1Trainer:
     Example:
         >>> trainer = Stage1Trainer(learning_rate=STAGE1_BASE_LR, device="cuda")
         >>> results = trainer.train(data_loaders, epochs=EPOCHS_STAGE1)
-        >>> print(f"Best validation raw RMSE: {results['best_val_raw_rmse']:.6f}")
+        >>> print(f"Best validation loss: {results['best_val_loss']:.6f}")
     """
     
     def __init__(self, learning_rate=STAGE1_BASE_LR, device=CPU_DEVICE, use_wandb=True, 
@@ -106,18 +106,14 @@ class Stage1Trainer:
         self.weight_decay = weight_decay
         self.early_stopping_patience = early_stopping_patience
         
-        # Early stopping tracking - using raw RMSE for model selection
-        self.best_val_raw_rmse = float('inf')
+        # Early stopping tracking
+        self.best_val_loss = float('inf')
         self.patience_counter = 0
         self.early_stopped = False
         
         # Initialize ground truth standardizer for normalized training
         self.standardizer = PerChannelZScore(device=self.device)
         self.standardizer_fitted = False
-        
-        # Ensure we always have the inverse we need for Stage-1 viz
-        assert hasattr(self.standardizer, "inverse_transform"), \
-            "Stage-1 requires standardizer.inverse_transform for ground-truth volumes"
         
         # Initialize enhanced metrics for Stage 1
         self.metrics = create_metrics_for_stage("stage1")
@@ -723,7 +719,7 @@ class Stage1Trainer:
             epochs (int): Number of training epochs to execute. Default from constants
         
         Returns:
-            dict: Training results containing 'best_val_raw_rmse' and standardizer info
+            dict: Training results containing 'best_val_loss' and standardizer info
         """
         # Initialize AdamW optimizer and OneCycleLR scheduler
         if self.optimizer is None:
@@ -742,6 +738,8 @@ class Stage1Trainer:
         logger.debug(f"📈 Data loaders: train_batches={len(data_loaders['train'])}, val_batches={len(data_loaders['val'])}")
         logger.info(f"📅 AdamW + OneCycleLR | Steps per epoch: {len(data_loaders['train'])}")
         logger.info(f"📊 Ground truth standardization: ENABLED (z-score per channel)")
+        
+        best_val_loss = float('inf')
         
         for epoch in range(epochs):
             logger.info(f"")
@@ -782,18 +780,25 @@ class Stage1Trainer:
                     sample_batch = next(iter(data_loaders['val']))
                     raw_ground_truth = sample_batch['ground_truth'].to(self.device)
                     phantom_ids = sample_batch.get('phantom_id', torch.arange(raw_ground_truth.shape[0])).cpu().numpy()
-
-                    # Forward on standardized input
+                    
+                    # Forward pass on standardized input
                     standardized_ground_truth = self.standardizer.transform(raw_ground_truth)
                     with torch.no_grad():
                         outputs = self.model(standardized_ground_truth, tissue_patches=None)
-
-                    # Explicit inverse to raw space (both pred and tgt)
-                    pred_raw = self.standardizer.inverse_transform(outputs['reconstructed']).cpu()
-                    tgt_raw  = self.standardizer.inverse_transform(standardized_ground_truth).cpu()
-
-                    # Directly log raw recon slices (already [B,2,D,H,W] in raw units)
-                    from code.utils.viz_recon import log_recon_slices_raw
+                    
+                    # Log using new simplified visualization
+                    from code.utils.viz_recon import prepare_raw_DHW, log_recon_slices_raw
+                    
+                    # Prepare raw mm^-1 volumes (predictions need inverse transform, targets are already raw)
+                    pred_raw, tgt_raw = prepare_raw_DHW(
+                        outputs['reconstructed'], raw_ground_truth,
+                        standardizer=self.standardizer
+                    )
+                    
+                    # Acceptance check
+                    assert pred_raw[:,0].max() > 1e-5 and pred_raw[:,1].max() > 1e-3, "Zeros after prep; abort recon logging."
+                    
+                    # Log exactly 24 images
                     log_recon_slices_raw(pred_raw, tgt_raw, epoch, phantom_ids=phantom_ids, prefix="Reconstructions")
                 except Exception as e:
                     logger.warning(f"⚠️ Failed to log images at epoch {epoch + 1}: {e}")            # Print epoch summary every epoch for important milestones
@@ -815,25 +820,24 @@ class Stage1Trainer:
                 except:
                     pass
             
-            # Early stopping based on RAW validation RMSE (physically meaningful)
-            val_raw_rmse = val_raw_metrics['raw_rmse_total']
-            if val_raw_rmse < self.best_val_raw_rmse:
-                improvement = self.best_val_raw_rmse - val_raw_rmse
-                self.best_val_raw_rmse = val_raw_rmse
+            # Early stopping based on STANDARDIZED validation loss
+            if val_std_loss < self.best_val_loss:
+                improvement = self.best_val_loss - val_std_loss
+                self.best_val_loss = val_std_loss
                 self.patience_counter = 0  # Reset patience counter
                 checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_STAGE1}"
-                logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best Raw_RMSE: {self.best_val_raw_rmse:.4f}")
-                self.save_checkpoint(checkpoint_path, epoch, val_raw_rmse, val_raw_metrics)
+                logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best Std_RMSE: {self.best_val_loss:.4f}")
+                self.save_checkpoint(checkpoint_path, epoch, val_std_loss, val_raw_metrics)
             else:
                 self.patience_counter += 1
-                logger.debug(f"📊 No improvement. Current: {val_raw_rmse:.6f}, Best: {self.best_val_raw_rmse:.6f}, Patience: {self.patience_counter}/{self.early_stopping_patience}")
+                logger.debug(f"📊 No improvement. Current: {val_std_loss:.6f}, Best: {self.best_val_loss:.6f}, Patience: {self.patience_counter}/{self.early_stopping_patience}")
                 
                 # Check for early stopping
                 if self.patience_counter >= self.early_stopping_patience:
                     logger.info(f"")
                     logger.info(f"🛑 EARLY STOPPING TRIGGERED")
                     logger.info(f"🔄 No improvement for {self.early_stopping_patience} epochs")
-                    logger.info(f"🏆 Best Raw_RMSE achieved: {self.best_val_raw_rmse:.4f}")
+                    logger.info(f"🏆 Best Std_RMSE achieved: {self.best_val_loss:.4f}")
                     self.early_stopped = True
                     break
         
@@ -844,25 +848,25 @@ class Stage1Trainer:
             logger.info(f"✅ STAGE 1 TRAINING COMPLETED (Early Stopped)")
         else:
             logger.info(f"✅ STAGE 1 TRAINING COMPLETED (Full {epochs} Epochs)")
-        logger.info(f"🏆 Best Raw_RMSE Loss: {self.best_val_raw_rmse:.4f}")
+        logger.info(f"🏆 Best Std_RMSE Loss: {self.best_val_loss:.4f}")
         logger.info(f"📊 Final Epoch: {epoch+1}")
         logger.info(f"{'='*80}")
         
-        logger.debug(f"🏁 Training summary: Completed epochs: {epoch+1}, Final best Raw RMSE: {self.best_val_raw_rmse:.6f}")
+        logger.debug(f"🏁 Training summary: Completed epochs: {epoch+1}, Final best loss: {self.best_val_loss:.6f}")
         
         # Finish W&B run
         if self.use_wandb and wandb.run:
-            wandb.log({"System/final_best_val_raw_rmse": self.best_val_raw_rmse, "System/early_stopped": self.early_stopped}, commit=False)
+            wandb.log({"System/final_best_val_loss": self.best_val_loss, "System/early_stopped": self.early_stopped}, commit=False)
             wandb.finish()
             logger.info("🔬 W&B experiment finished")
         
         return {
-            'best_val_raw_rmse': self.best_val_raw_rmse, 
+            'best_val_loss': self.best_val_loss, 
             'early_stopped': self.early_stopped,
             'standardizer_fitted': self.standardizer_fitted
         }
     
-    def save_checkpoint(self, path, epoch, val_raw_rmse, val_raw_metrics=None):
+    def save_checkpoint(self, path, epoch, val_loss, val_raw_metrics=None):
         """
         Save model checkpoint with training state and standardizer information.
         
@@ -873,16 +877,16 @@ class Stage1Trainer:
         Args:
             path (str): File path for saving the checkpoint
             epoch (int): Current training epoch number
-            val_raw_rmse (float): Current validation raw RMSE value (physical units)
+            val_loss (float): Current validation loss value (standardized space)
             val_raw_metrics (dict, optional): Raw validation metrics for reference
         
         The checkpoint includes:
         - Model state dictionary (learned parameters)
         - Optimizer state dictionary (for training resumption)
         - Standardizer state dictionary (normalization parameters)
-        - Training metadata (epoch, validation raw RMSE, raw metrics)
+        - Training metadata (epoch, validation loss, raw metrics)
         """
-        logger.debug(f"💾 Saving Stage 1 checkpoint: epoch={epoch}, val_raw_rmse={val_raw_rmse:.6f}")
+        logger.debug(f"💾 Saving Stage 1 checkpoint: epoch={epoch}, val_loss={val_loss:.6f}")
         
         # Only create directory if path has a directory component
         dir_path = os.path.dirname(path)
@@ -894,7 +898,7 @@ class Stage1Trainer:
             'epoch': epoch,
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
-            'val_raw_rmse': val_raw_rmse,  # Raw validation RMSE (physical units)
+            'val_loss': val_loss,  # Standardized validation loss
             'standardizer': self.standardizer.state_dict() if self.standardizer_fitted else None,
             'standardizer_fitted': self.standardizer_fitted,
         }
@@ -904,7 +908,7 @@ class Stage1Trainer:
             checkpoint_data['val_raw_metrics'] = val_raw_metrics
         
         torch.save(checkpoint_data, path)
-        logger.info(f"💾 ✅ CHECKPOINT SAVED | Path: {path} | Epoch: {epoch+1} | Raw_RMSE: {val_raw_rmse:.6f}")
+        logger.info(f"💾 ✅ CHECKPOINT SAVED | Path: {path} | Epoch: {epoch+1} | Std_Loss: {val_loss:.6f}")
         if val_raw_metrics:
             logger.info(f"📊 Raw metrics saved: RMSE={val_raw_metrics.get('raw_rmse_total', 0):.4f}, Dice={val_raw_metrics.get('raw_dice', 0):.4f}")
         logger.debug(f"📊 Checkpoint data keys: {list(checkpoint_data.keys())}")
