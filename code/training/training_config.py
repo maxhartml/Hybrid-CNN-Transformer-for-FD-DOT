@@ -56,7 +56,7 @@ EPOCHS_STAGE1 = 150  # Stage 1 CNN training epochs - more (↑) = better feature
 EPOCHS_STAGE2 = 200   # Stage 2 transformer epochs - more (↑) = better fine-tuning, less (↓) = faster completion
 
 # Batch Sizes - Hard-coded for stability
-BATCH_SIZE = 128  # Increased for better utilization - lower gradient noise and better GPU usage
+BATCH_SIZE = 256  # Increased for better utilization - lower gradient noise and better GPU usage
 
 # Early Stopping
 EARLY_STOPPING_PATIENCE = 25  # Epochs to wait without improvement - higher (↑) = more exploration, lower (↓) = faster stopping
