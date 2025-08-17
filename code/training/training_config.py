@@ -47,10 +47,6 @@ USE_MODEL_COMPILATION = True            # PyTorch 2.0 compilation for 2x speedup
 COMPILATION_MODE = "default"            # Clean compilation without aggressive autotune noise
 USE_CHANNELS_LAST_MEMORY_FORMAT = True  # Efficient memory layout for 3D convolutions
 
-# EMA for evaluation only (Stage 1)
-USE_EMA_EVAL = True                     # Use EMA for validation/testing (no change to training)
-EMA_DECAY = 0.999                       # EMA decay rate - higher = smoother averaging
-
 # =============================================================================
 # TRAINING HYPERPARAMETERS
 # =============================================================================
@@ -60,11 +56,10 @@ EPOCHS_STAGE1 = 150  # Stage 1 CNN training epochs - more (↑) = better feature
 EPOCHS_STAGE2 = 200   # Stage 2 transformer epochs - more (↑) = better fine-tuning, less (↓) = faster completion
 
 # Batch Sizes - Hard-coded for stability
-BATCH_SIZE = 192  # Increased for better utilization - lower gradient noise and better GPU usage
+BATCH_SIZE = 128  # Increased for better utilization - lower gradient noise and better GPU usage
 
 # Early Stopping
-EARLY_STOPPING_PATIENCE = 40       # Epochs to wait without improvement - higher (↑) = more exploration, lower (↓) = faster stopping
-EARLY_STOPPING_MIN_DELTA = 1e-4    # Minimum improvement required to reset patience counter
+EARLY_STOPPING_PATIENCE = 25  # Epochs to wait without improvement - higher (↑) = more exploration, lower (↓) = faster stopping
 
 # =============================================================================
 # Data Loading Configuration
@@ -84,12 +79,12 @@ WEIGHT_DECAY = 7e-4             # CNN weight decay - higher (↑) = less overfit
 WEIGHT_DECAY_TRANSFORMER = 0.01  # Reduced transformer weight decay - less shrinkage for better capacity
 
 # Dropout Rates (prevent overfitting)
-DROPOUT_CNN = 0.12              # CNN dropout rate - higher (↑) = stronger regularization, lower (↓) = more model capacity
+DROPOUT_CNN = 0.18              # CNN dropout rate - higher (↑) = stronger regularization, lower (↓) = more model capacity
 DROPOUT_TRANSFORMER = 0.05      # Reduced dropout - more capacity since not overfitting
 DROPOUT_NIR_PROCESSOR = 0.08    # Reduced NIR dropout - less input masking for better signal learning
 
 # Gradient Clipping (training stability)
-GRADIENT_CLIP_MAX_NORM = 2.0      # Relaxed clipping - avoid over-clipping healthy updates
+GRADIENT_CLIP_MAX_NORM = 1.0      # Relaxed clipping - avoid over-clipping healthy updates
 GRADIENT_MONITOR_THRESHOLD = 5.0  # Updated from 1.0 - less over-sensitive warnings
 
 # AMP GradScaler Configuration (prevents scaling issues and crashes)
@@ -107,7 +102,7 @@ GRADSCALER_GROWTH_INTERVAL = 200        # Shorter interval for quicker scale gro
 STAGE1_MAX_LR = 3e-3          # Peak learning rate - higher values speed up training but risk instability
 STAGE1_BASE_LR = 1.0e-4         # Starting/ending learning rate - lower values provide smoother convergence
 STAGE1_DIV_FACTOR = 25          # Initial LR division factor - controls how low we start (max_lr/div_factor)
-STAGE1_FINAL_DIV_FACTOR = 250   # Final LR reduction factor - higher values give gentler final decay
+STAGE1_FINAL_DIV_FACTOR = 100   # Final LR reduction factor - higher values give gentler final decay
 STAGE1_PCT_START = 0.30         # Warmup phase percentage - more warmup (↑) = more stable but slower start
 STAGE1_CYCLE_MOMENTUM = True    # Enable momentum cycling for CNN - helps escape local minima
 
