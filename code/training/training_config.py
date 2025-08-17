@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Training Stage Control - Set which stage to run
-CURRENT_TRAINING_STAGE = "stage1"  # "stage1" or "stage2"
+CURRENT_TRAINING_STAGE = "stage2"  # "stage1" or "stage2"
 
 # Weights & Biases Logging
 USE_WANDB_LOGGING = True
@@ -56,7 +56,7 @@ EPOCHS_STAGE1 = 150  # Stage 1 CNN training epochs - more (↑) = better feature
 EPOCHS_STAGE2 = 200   # Stage 2 transformer epochs - more (↑) = better fine-tuning, less (↓) = faster completion
 
 # Batch Sizes - Hard-coded for stability
-BATCH_SIZE = 256  # Increased for better utilization - lower gradient noise and better GPU usage
+BATCH_SIZE = 128  # Reduced for better gradient diversity and memory efficiency
 
 # Early Stopping
 EARLY_STOPPING_PATIENCE = 25  # Epochs to wait without improvement - higher (↑) = more exploration, lower (↓) = faster stopping
@@ -76,12 +76,12 @@ PERSISTENT_WORKERS = True # Keep workers alive between epochs - True = faster ep
 
 # Weight Decay (L2 regularization)
 WEIGHT_DECAY = 7e-4             # CNN weight decay - higher (↑) = less overfitting but may underfit, lower (↓) = more capacity but overfitting risk
-WEIGHT_DECAY_TRANSFORMER = 0.01  # Reduced transformer weight decay - less shrinkage for better capacity
+WEIGHT_DECAY_TRANSFORMER = 0.001  # Further reduced transformer weight decay for better capacity
 
 # Dropout Rates (prevent overfitting)
 DROPOUT_CNN = 0.12              # CNN dropout rate - higher (↑) = stronger regularization, lower (↓) = more model capacity
-DROPOUT_TRANSFORMER = 0.05      # Reduced dropout - more capacity since not overfitting
-DROPOUT_NIR_PROCESSOR = 0.08    # Reduced NIR dropout - less input masking for better signal learning
+DROPOUT_TRANSFORMER = 0.02      # Further reduced dropout for more capacity since not overfitting
+DROPOUT_NIR_PROCESSOR = 0.04    # Further reduced NIR dropout for better signal learning
 
 # Gradient Clipping (training stability)
 GRADIENT_CLIP_MAX_NORM = 1.0      # Relaxed clipping - avoid over-clipping healthy updates
@@ -122,7 +122,7 @@ MAX_MOMENTUM = 0.95   # Maximum momentum value - cycles between base and max dur
 # Learning Rate Schedule
 STAGE2_BASE_LR = 1.5e-4   # Higher peak LR to move transformer weights effectively  
 STAGE2_WARMUP_PCT = 0.06  # Longer warmup for smoother ramp - reduces early volatility
-STAGE2_ETA_MIN_PCT = 0.15 # Higher LR floor - keeps learning active late in training
+STAGE2_ETA_MIN_PCT = 0.03 # Lower LR floor for better final convergence
 
 # Optimizer Parameters
 ADAMW_BETAS_STAGE2 = (0.9, 0.98)  # Transformer-optimized momentum - beta2=0.98 reduces noise in attention gradients

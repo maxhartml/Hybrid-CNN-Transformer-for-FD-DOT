@@ -37,6 +37,7 @@ from datetime import datetime
 
 # Third-party imports
 import torch
+import torch.nn as nn
 import numpy as np
 import wandb
 from torch.cuda.amp import GradScaler, autocast  # Mixed precision training for A100 optimization
@@ -245,6 +246,14 @@ class Stage2Trainer:
             self.teacher = load_teacher_stage1(checkpoint_path=stage1_checkpoint_path, device=self.device)
             logger.info("✅ Stage 1 teacher model loaded for latent targets")
             
+            # Initialize latent affine aligner (learned scale + bias transformation)
+            self.latent_align = nn.Linear(LATENT_DIM, LATENT_DIM, bias=True)
+            with torch.no_grad():
+                self.latent_align.weight.copy_(torch.eye(LATENT_DIM))
+                self.latent_align.bias.zero_()
+            self.latent_align.to(self.device)
+            logger.info(f"🔧 Latent affine aligner initialized (identity transform)")
+            
             # Initialize latent statistics tracker
             self.latent_stats = LatentStats()
             
@@ -255,6 +264,7 @@ class Stage2Trainer:
             logger.info("🔄 STANDARD TRAINING MODE (end-to-end reconstruction)")
             self.teacher = None
             self.latent_stats = None
+            self.latent_align = None
     
     def _create_lightweight_dataloader_for_standardizer_fitting(self):
         """
@@ -497,6 +507,12 @@ class Stage2Trainer:
         """
         decay_params = []
         no_decay_params = []
+        
+        # Add latent aligner parameters to no_decay group (if using latent-only training)
+        if TRAIN_STAGE2_LATENT_ONLY and hasattr(self, 'latent_align'):
+            no_decay_params.append(self.latent_align.weight)
+            no_decay_params.append(self.latent_align.bias)
+            logger.debug(f"🔧 Added latent aligner to no_decay group")
         
         for name, param in self.model.named_parameters():
             if param.requires_grad:
@@ -759,20 +775,23 @@ class Stage2Trainer:
                     # Forward pass only through encoder to get student latent
                     student_latent = self.model.encode(nir_measurements, tissue_patches)
                     
+                    # Apply latent affine aligner (learned scale + bias transformation)
+                    student_latent_aligned = self.latent_align(student_latent)
+                    
                     # Get teacher latent from standardized ground truth (NOT NIR measurements)
                     with torch.no_grad():
                         teacher_latent = self.teacher.encode_from_gt_std(targets)
                     
-                    # Compute latent RMSE loss
-                    loss = self.criterion(student_latent, teacher_latent)
+                    # Compute latent RMSE loss using aligned student latent
+                    loss = self.criterion(student_latent_aligned, teacher_latent)
                     
-                    # Update latent statistics
-                    batch_latent_stats = self.latent_stats.update(teacher_latent, student_latent)
+                    # Update latent statistics using aligned student latent
+                    batch_latent_stats = self.latent_stats.update(teacher_latent, student_latent_aligned)
                     
                     # Debug: Assert correct shapes and no NaNs
-                    assert teacher_latent.shape == student_latent.shape == (targets.shape[0], LATENT_DIM), \
-                        f"Latent shape mismatch: teacher={teacher_latent.shape}, student={student_latent.shape}, expected=({targets.shape[0]}, {LATENT_DIM})"
-                    assert not torch.isnan(student_latent).any(), "Student latent contains NaNs"
+                    assert teacher_latent.shape == student_latent_aligned.shape == (targets.shape[0], LATENT_DIM), \
+                        f"Latent shape mismatch: teacher={teacher_latent.shape}, student_aligned={student_latent_aligned.shape}, expected=({targets.shape[0]}, {LATENT_DIM})"
+                    assert not torch.isnan(student_latent_aligned).any(), "Student aligned latent contains NaNs"
                     assert not torch.isnan(teacher_latent).any(), "Teacher latent contains NaNs"
                     
                     # Log latent stats at debug level
@@ -781,7 +800,9 @@ class Stage2Trainer:
                                    f"Cosine Sim: {batch_latent_stats['latent_cosine_sim']:.4f}")
                         logger.debug(f"📊 Teacher latent: mean={teacher_latent.mean():.4f}, std={teacher_latent.std():.4f}, "
                                    f"min={teacher_latent.min():.4f}, max={teacher_latent.max():.4f}, norm={teacher_latent.norm():.4f}")
-                        logger.debug(f"📊 Student latent: mean={student_latent.mean():.4f}, std={student_latent.std():.4f}, "
+                        logger.debug(f"📊 Student latent (aligned): mean={student_latent_aligned.mean():.4f}, std={student_latent_aligned.std():.4f}, "
+                                   f"min={student_latent_aligned.min():.4f}, max={student_latent_aligned.max():.4f}, norm={student_latent_aligned.norm():.4f}")
+                        logger.debug(f"📊 Student latent (raw): mean={student_latent.mean():.4f}, std={student_latent.std():.4f}, "
                                    f"min={student_latent.min():.4f}, max={student_latent.max():.4f}, norm={student_latent.norm():.4f}")
                 else:
                     # STANDARD END-TO-END TRAINING MODE
@@ -1017,15 +1038,18 @@ class Stage2Trainer:
                         # LATENT-ONLY VALIDATION
                         student_latent = self.model.encode(nir_measurements, tissue_patches)
                         
+                        # Apply latent affine aligner for validation consistency
+                        student_latent_aligned = self.latent_align(student_latent)
+                        
                         # Get teacher latent from standardized ground truth (NOT NIR measurements)
                         with torch.no_grad():
                             teacher_latent = self.teacher.encode_from_gt_std(standardized_ground_truth)
                         
-                        # Compute latent loss
-                        loss = self.criterion(student_latent, teacher_latent)
+                        # Compute latent loss using aligned student latent
+                        loss = self.criterion(student_latent_aligned, teacher_latent)
                         
-                        # Update latent statistics
-                        batch_latent_stats = val_latent_stats.update(teacher_latent, student_latent)
+                        # Update latent statistics using aligned student latent
+                        batch_latent_stats = val_latent_stats.update(teacher_latent, student_latent_aligned)
                         
                         logger.info(f"🔍 VALID | Batch {batch_idx + 1:2d}/{len(data_loader):2d} | "
                                    f"Latent_RMSE: {batch_latent_stats['latent_rmse']:.4f} | "
@@ -1040,8 +1064,9 @@ class Stage2Trainer:
                         # 2. Get student reconstruction via full forward pass to get transformer features
                         student_outputs = self.model(nir_measurements, tissue_patches)
                         student_latent = student_outputs['encoded_scan']  # Get latent from full forward pass
+                        student_latent_aligned = self.latent_align(student_latent)  # Apply aligner for consistent decoding
                         with torch.no_grad():
-                            student_reconstruction_std = self.teacher.decode_from_latent(student_latent)
+                            student_reconstruction_std = self.teacher.decode_from_latent(student_latent_aligned)
                         
                         # 3. Use student reconstruction for loss (comparison against ground truth)
                         loss = self.criterion(student_reconstruction_std, standardized_ground_truth)
@@ -1055,7 +1080,7 @@ class Stage2Trainer:
                         }
                         
                         # 5. Debug assertions and logging
-                        assert teacher_latent.shape == student_latent.shape, f"Latent shape mismatch: teacher={teacher_latent.shape}, student={student_latent.shape}"
+                        assert teacher_latent.shape == student_latent_aligned.shape, f"Latent shape mismatch: teacher={teacher_latent.shape}, student_aligned={student_latent_aligned.shape}"
                         assert student_reconstruction_std.shape == standardized_ground_truth.shape, f"Reconstruction shape mismatch: {student_reconstruction_std.shape} vs {standardized_ground_truth.shape}"
                         assert not torch.isnan(student_reconstruction_std).any(), "Student reconstruction contains NaNs"
                         
@@ -1272,8 +1297,11 @@ class Stage2Trainer:
                         # Get student latent encoding
                         student_latent = self.model.encode(nir_measurements, tissue_patches_std)
                         
-                        # Decode with teacher to get standardized reconstruction
-                        pred_std = self.teacher.decode_from_latent(student_latent)
+                        # Apply latent affine aligner for consistent reconstruction
+                        student_latent_aligned = self.latent_align(student_latent)
+                        
+                        # Decode with teacher to get standardized reconstruction using aligned latent
+                        pred_std = self.teacher.decode_from_latent(student_latent_aligned)
                         
                     self._log_reconstruction_images(pred_std, targets, measurements, epoch, phantom_ids=phantom_ids)
                 except Exception as e:
