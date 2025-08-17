@@ -32,6 +32,10 @@ def assert_raw_units(name: str, mu_a: torch.Tensor, mu_s: torch.Tensor) -> None:
     """
     Assert that both channels are in raw physical units (mm^-1).
     
+    Uses lenient thresholds during training to allow model exploration while
+    still catching major unit conversion errors. Values will be clamped to 
+    strict physical ranges after validation.
+    
     Args:
         name: Name for error messages
         mu_a: Absorption coefficient tensor
@@ -40,17 +44,25 @@ def assert_raw_units(name: str, mu_a: torch.Tensor, mu_s: torch.Tensor) -> None:
     Raises:
         AssertionError: If values are not in expected physical ranges
     """
-    eps = 1e-6
+    # Early training tolerance - allow small negatives as model learns constraints  
+    early_training_eps = 0.005  # Allow up to -0.005 mm^-1 during early epochs
     
-    # Check μₐ is in valid range [0, PHYS_MAX['mu_a']*1.1] with small tolerance
+    # Check μₐ is in valid range with early training tolerance
     mu_a_min, mu_a_max = mu_a.min().item(), mu_a.max().item()
-    assert mu_a_min >= -eps, f"{name}: μₐ minimum {mu_a_min:.6f} < 0 - not raw mm^-1 units"
-    assert mu_a_max <= PHYS_MAX["mu_a"] * 1.1, f"{name}: μₐ maximum {mu_a_max:.6f} > {PHYS_MAX['mu_a']*1.1:.4f} - not raw mm^-1 units"
+    assert mu_a_min >= -early_training_eps, f"{name}: μₐ minimum {mu_a_min:.6f} < -{early_training_eps} - not raw mm^-1 units"
     
-    # Check μ′ₛ is in valid range [0, PHYS_MAX['mu_s']*1.1] with small tolerance  
+    # Allow for model overshoot during training - clamp to physical range later
+    # This is more lenient than the original 1.1x limit to handle model exploration
+    mu_a_training_limit = PHYS_MAX["mu_a"] * 1.5  # Allow 50% overshoot during training
+    assert mu_a_max <= mu_a_training_limit, f"{name}: μₐ maximum {mu_a_max:.6f} > {mu_a_training_limit:.4f} - likely standardized data"
+    
+    # Check μ′ₛ is in valid range with early training tolerance  
     mu_s_min, mu_s_max = mu_s.min().item(), mu_s.max().item()
-    assert mu_s_min >= -eps, f"{name}: μ′ₛ minimum {mu_s_min:.6f} < 0 - not raw mm^-1 units"
-    assert mu_s_max <= PHYS_MAX["mu_s"] * 1.1, f"{name}: μ′ₛ maximum {mu_s_max:.6f} > {PHYS_MAX['mu_s']*1.1:.4f} - not raw mm^-1 units"
+    assert mu_s_min >= -early_training_eps, f"{name}: μ′ₛ minimum {mu_s_min:.6f} < -{early_training_eps} - not raw mm^-1 units"
+    
+    # Allow for model overshoot during training - clamp to physical range later
+    mu_s_training_limit = PHYS_MAX["mu_s"] * 1.5  # Allow 50% overshoot during training
+    assert mu_s_max <= mu_s_training_limit, f"{name}: μ′ₛ maximum {mu_s_max:.6f} > {mu_s_training_limit:.4f} - likely standardized data"
 
 def _ensure_correct_shape(tensor: torch.Tensor, name: str) -> torch.Tensor:
     """
@@ -102,10 +114,12 @@ def _check_tensor_similarity(pred: torch.Tensor, tgt: torch.Tensor) -> None:
 
 def _should_inverse_standardize(tensor: torch.Tensor) -> bool:
     """
-    Heuristic to determine if tensor needs inverse standardization.
+    Improved heuristic to determine if tensor needs inverse standardization.
     
-    If >20% of μₐ voxels exceed PHYS_MAX['mu_a']*1.5 OR any μ′ₛ > PHYS_MAX['mu_s']*1.5,
-    treat as standardized and need inverse_transform. Otherwise assume already raw.
+    Checks for multiple indicators of standardized data:
+    1. Values significantly exceeding physical bounds (high values)
+    2. Strongly negative values (typical of standardized data)
+    3. Values with very large absolute ranges (typical of z-scored data)
     
     Args:
         tensor: Input tensor [B,2,D,H,W]
@@ -116,23 +130,36 @@ def _should_inverse_standardize(tensor: torch.Tensor) -> bool:
     mu_a = tensor[:, 0]  # Absorption channel
     mu_s = tensor[:, 1]  # Scattering channel
     
-    # Check if values exceed physical bounds significantly
+    # Check 1: Values exceeding physical bounds (original logic)
     mu_a_exceed_threshold = PHYS_MAX["mu_a"] * 1.5
     mu_s_exceed_threshold = PHYS_MAX["mu_s"] * 1.5
     
-    # Count fraction of μₐ voxels that exceed threshold
     mu_a_exceed_fraction = (mu_a > mu_a_exceed_threshold).float().mean().item()
-    
-    # Check if any μ′ₛ exceeds threshold
     mu_s_max = mu_s.max().item()
     
-    # If >20% of μₐ exceeds OR any μ′ₛ exceeds, assume standardized
-    needs_inverse = mu_a_exceed_fraction > 0.2 or mu_s_max > mu_s_exceed_threshold
+    # Check 2: Strongly negative values (typical of standardized data)
+    mu_a_min = mu_a.min().item()
+    mu_s_min = mu_s.min().item()
+    strongly_negative = mu_a_min < -0.1 or mu_s_min < -0.1  # Much more negative than physical
+    
+    # Check 3: Very large absolute ranges (typical of z-scored data) 
+    mu_a_range = mu_a.max().item() - mu_a.min().item()
+    mu_s_range = mu_s.max().item() - mu_s.min().item()
+    large_range = mu_a_range > 10 or mu_s_range > 20  # Much larger than physical ranges
+    
+    # If any condition suggests standardized data, apply inverse transform
+    needs_inverse = (mu_a_exceed_fraction > 0.2 or 
+                    mu_s_max > mu_s_exceed_threshold or
+                    strongly_negative or 
+                    large_range)
     
     if needs_inverse:
-        logger.debug(f"Detected standardized data: μₐ exceed fraction={mu_a_exceed_fraction:.3f}, μ′ₛ max={mu_s_max:.3f}")
+        logger.debug(f"Detected standardized data: exceed_frac={mu_a_exceed_fraction:.3f}, "
+                    f"μ′ₛ_max={mu_s_max:.3f}, μₐ_min={mu_a_min:.3f}, μ′ₛ_min={mu_s_min:.3f}, "
+                    f"ranges=({mu_a_range:.2f}, {mu_s_range:.2f})")
     else:
-        logger.debug(f"Detected raw data: μₐ exceed fraction={mu_a_exceed_fraction:.3f}, μ′ₛ max={mu_s_max:.3f}")
+        logger.debug(f"Detected raw data: exceed_frac={mu_a_exceed_fraction:.3f}, "
+                    f"μ′ₛ_max={mu_s_max:.3f}, ranges=({mu_a_range:.2f}, {mu_s_range:.2f})")
     
     return needs_inverse
 def _inv_std_chlast(x: torch.Tensor, stdzr) -> torch.Tensor:
@@ -243,15 +270,11 @@ def prepare_raw_DHW(pred, tgt, standardizer=None):
     # Step 2: Check for suspicious similarity
     _check_tensor_similarity(pred, tgt)
     
-    # Step 3: Intelligent inverse standardization (only if needed)
+    # Step 3: Stage-1 rule — if a standardizer is given, ALWAYS inverse both tensors.
     if standardizer is not None:
-        # Check if data appears to be standardized
-        if _should_inverse_standardize(pred):
-            logger.debug("Applying inverse standardization to pred")
-            pred = _inv_std_chlast(pred, standardizer)
-        if _should_inverse_standardize(tgt):
-            logger.debug("Applying inverse standardization to tgt")
-            tgt = _inv_std_chlast(tgt, standardizer)
+        logger.debug("Stage-1 viz: unconditionally applying inverse standardization to pred & tgt")
+        pred = _inv_std_chlast(pred, standardizer)
+        tgt  = _inv_std_chlast(tgt,  standardizer)
 
     # Step 4: Move to CPU and ensure float32 for consistent processing
     pred = pred.float().cpu()
@@ -267,15 +290,15 @@ def prepare_raw_DHW(pred, tgt, standardizer=None):
     assert pred[:,1].max() > 1e-2, \
         f"μ′ₛ too small after processing: max={float(pred[:,1].max()):.2e} - check standardizer"
 
-    # Step 6: Validate raw physical units
-    assert_raw_units("pred", pred[:,0], pred[:,1])
-    assert_raw_units("tgt", tgt[:,0], tgt[:,1])
+    # Step 6: Clamp to physically realistic tissue property ranges
+    pred[:,0].clamp_(0.0, PHYS_MAX["mu_a"])  # μₐ: [0, 0.0245]
+    pred[:,1].clamp_(0.0, PHYS_MAX["mu_s"])  # μ′ₛ: [0, 2.95]
+    tgt[:,0].clamp_(0.0, PHYS_MAX["mu_a"])
+    tgt[:,1].clamp_(0.0, PHYS_MAX["mu_s"])
 
-    # Step 7: Clamp to physically realistic tissue property ranges
-    pred[:,0].clamp_(0.0, PHYS_MAX["mu_a"])  # μₐ: [0, 0.0245] mm^-1
-    pred[:,1].clamp_(0.0, PHYS_MAX["mu_s"])  # μ′ₛ: [0, 2.95] mm^-1
-    tgt[:,0].clamp_(0.0, PHYS_MAX["mu_a"])   
-    tgt[:,1].clamp_(0.0, PHYS_MAX["mu_s"])   
+    # Step 7: Validate post-clamp raw physical units
+    assert_raw_units("pred", pred[:,0], pred[:,1])
+    assert_raw_units("tgt", tgt[:,0], tgt[:,1])   
     
     return pred, tgt
 

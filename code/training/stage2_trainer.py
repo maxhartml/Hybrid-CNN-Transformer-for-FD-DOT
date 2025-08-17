@@ -978,20 +978,16 @@ class Stage2Trainer:
                         teacher_latent = self.teacher.encode_from_gt_std(targets)
                         # Decode using frozen decoder
                         teacher_reconstruction = self.teacher.decode_from_latent(teacher_latent)
-                        # Prepare teacher reconstruction for visualization
-                        teacher_raw, _ = prepare_raw_DHW(
-                            teacher_reconstruction, targets,
-                            standardizer=self.standardizers.ground_truth_standardizer
-                        )
+                        # Explicit inverse to raw space for teacher visualization
+                        teacher_raw = self.standardizers.ground_truth_standardizer.inverse_transform(teacher_reconstruction).cpu()
                         self.logger.debug(f"✅ Generated teacher reconstruction for visualization")
                 except Exception as e:
                     self.logger.warning(f"⚠️ Failed to generate teacher reconstruction: {e}")
             
-            # Prepare raw mm^-1 volumes with strict [B,2,D,H,W] format
-            pred_raw, tgt_raw = prepare_raw_DHW(
-                predictions, targets,
-                standardizer=self.standardizers.ground_truth_standardizer
-            )
+            # Prepare raw mm^-1 volumes with explicit inverse transformation
+            # Apply same fix as Stage 1: explicit inverse to raw space for both pred and tgt
+            pred_raw = self.standardizers.ground_truth_standardizer.inverse_transform(predictions).cpu()
+            tgt_raw = targets.cpu()  # targets are already raw in Stage 2
             
             # Acceptance check
             assert pred_raw[:,0].max() > 1e-5 and pred_raw[:,1].max() > 1e-3, "Zeros after prep; abort recon logging."
@@ -1356,26 +1352,27 @@ class Stage2Trainer:
             # Learning rate scheduling (Linear Warmup + Cosine Decay updates per-batch)
             # No epoch-level action needed - scheduler updates per-batch automatically
             
-            # Save best model - use standardized loss for consistency with Stage 1
-            if val_std_loss < best_val_loss:
-                improvement = best_val_loss - val_std_loss
-                best_val_loss = val_std_loss
+            # Save best model - use raw RMSE for consistency with Stage 1
+            val_raw_rmse = val_raw_metrics['raw_rmse_total']
+            if val_raw_rmse < best_val_loss:
+                improvement = best_val_loss - val_raw_rmse
+                best_val_loss = val_raw_rmse
                 checkpoint_filename = CHECKPOINT_STAGE2_ENHANCED if self.use_tissue_patches else CHECKPOINT_STAGE2_BASELINE
                 checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{checkpoint_filename}"
-                logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best Std_RMSE: {best_val_loss:.4f}")
-                self.save_checkpoint(checkpoint_path, epoch, val_std_loss)
+                logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best Raw_RMSE: {best_val_loss:.4f}")
+                self.save_checkpoint(checkpoint_path, epoch, val_raw_rmse)
             else:
-                logger.debug(f"📊 Stage 2 no improvement. Current: {val_std_loss:.6f}, Best: {best_val_loss:.6f}")
+                logger.debug(f"📊 Stage 2 no improvement. Current Raw_RMSE: {val_raw_rmse:.6f}, Best: {best_val_loss:.6f}")
         
         mode = "Enhanced" if self.use_tissue_patches else "Baseline"
         logger.info(f"")
         logger.info(f"{'='*80}")
         logger.info(f"✅ TRANSFORMER TRAINING COMPLETED ({mode})")
-        logger.info(f"🏆 Best Std_RMSE Loss: {best_val_loss:.4f}")
+        logger.info(f"🏆 Best Raw_RMSE Loss: {best_val_loss:.4f}")
         logger.info(f"📊 Total Epochs: {epochs}")
         logger.info(f"{'='*80}")
         
-        logger.debug(f"🏁 Training summary: Completed epochs: {epochs}, Final best loss: {best_val_loss:.6f}")
+        logger.debug(f"🏁 Training summary: Completed epochs: {epochs}, Final best raw RMSE: {best_val_loss:.6f}")
         
         # Finish W&B run
         if self.use_wandb:
