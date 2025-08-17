@@ -46,6 +46,7 @@ from code.models.hybrid_model import HybridCNNTransformer
 from code.utils.logging_config import get_training_logger
 from code.utils.metrics import NIRDOTMetrics, create_metrics_for_stage, calculate_batch_metrics, RMSELoss
 from code.utils.standardizers import PerChannelZScore, fit_standardizer_on_dataloader
+from code.utils.viz_recon import log_recon_slices_raw
 from .training_config import *  # Import all training config
 
 # =============================================================================
@@ -54,14 +55,6 @@ from .training_config import *  # Import all training config
 
 # Initialize module logger
 logger = get_training_logger(__name__)
-
-# =============================================================================
-# HELPER FUNCTIONS
-# =============================================================================
-
-def _assert_raw_chfirst(x):
-    """Assert tensor is RAW [B,2,D,H,W] format for viz."""
-    assert x.ndim==5 and x.shape[1]==2, f"Require RAW [B,2,D,H,W], got {tuple(x.shape)}"
 
 # =============================================================================
 # TRAINING CLASSES
@@ -583,31 +576,25 @@ class Stage1Trainer:
             return
             
         try:
-            from code.utils import viz_recon as viz
-
-            # Ensure channel-first
-            pred_std = predictions
-            if pred_std.shape[-1] == 2:  # channels-last
-                pred_std = pred_std.permute(0, 4, 1, 2, 3).contiguous()
-            tgt_raw = targets
-            if tgt_raw.shape[-1] == 2:
-                tgt_raw = tgt_raw.permute(0, 4, 1, 2, 3).contiguous()
-
-            # Inverse predictions to RAW
-            pred_raw = self.standardizer.inverse_transform_gt_chfirst(pred_std)
-
-            # Sanity asserts
-            _assert_raw_chfirst(pred_raw)
-            _assert_raw_chfirst(tgt_raw)
-
-            # Log telemetry
-            mu_a_rng = (float(pred_raw[:,0].min()), float(pred_raw[:,0].max()))
-            mu_s_rng = (float(pred_raw[:,1].min()), float(pred_raw[:,1].max()))
-            logger.info(f"[VIZ RAW] pred μₐ {mu_a_rng[0]:.4f}..{mu_a_rng[1]:.4f}, μ′ₛ {mu_s_rng[0]:.3f}..{mu_s_rng[1]:.3f}")
-
-            # Viz (raw-only)
-            pred_raw, tgt_raw = viz.prepare_raw_DHW(pred_raw, tgt_raw)
-            viz.log_recon_slices_raw(pred_raw, tgt_raw, epoch, phantom_ids=phantom_ids, prefix="Reconstructions")
+            from code.utils.viz_recon import prepare_raw_DHW, log_recon_slices_raw
+            
+            # Convert tensors from channels-last [B,D,H,W,2] to channel-first [B,2,D,H,W]
+            if predictions.shape[-1] == 2:  # Check if channels-last
+                predictions = predictions.permute(0, 4, 1, 2, 3).contiguous()  # [B,D,H,W,2] -> [B,2,D,H,W]
+            if targets.shape[-1] == 2:  # Check if channels-last
+                targets = targets.permute(0, 4, 1, 2, 3).contiguous()  # [B,D,H,W,2] -> [B,2,D,H,W]
+            
+            # Prepare raw mm^-1 volumes with strict [B,2,D,H,W] format
+            pred_raw, tgt_raw = prepare_raw_DHW(
+                predictions, targets,
+                standardizer=self.standardizer
+            )
+            
+            # Acceptance check
+            assert pred_raw[:,0].max() > 1e-5 and pred_raw[:,1].max() > 1e-3, "Zeros after prep; abort recon logging."
+            
+            # Log exactly 24 images
+            log_recon_slices_raw(pred_raw, tgt_raw, epoch, phantom_ids=phantom_ids, prefix="Reconstructions")
             
         except Exception as e:
             logger.warning(f"⚠️ Failed to log reconstruction images: {e}")
@@ -799,13 +786,20 @@ class Stage1Trainer:
                     with torch.no_grad():
                         outputs = self.model(standardized_ground_truth, tissue_patches=None)
                     
-                    # Use the centralized logging method
-                    self._log_reconstruction_images(
-                        predictions=outputs['reconstructed'], 
-                        targets=raw_ground_truth, 
-                        epoch=epoch, 
-                        phantom_ids=phantom_ids
+                    # Log using new simplified visualization
+                    from code.utils.viz_recon import prepare_raw_DHW, log_recon_slices_raw
+                    
+                    # Prepare raw mm^-1 volumes (predictions need inverse transform, targets are already raw)
+                    pred_raw, tgt_raw = prepare_raw_DHW(
+                        outputs['reconstructed'], raw_ground_truth,
+                        standardizer=self.standardizer
                     )
+                    
+                    # Acceptance check
+                    assert pred_raw[:,0].max() > 1e-5 and pred_raw[:,1].max() > 1e-3, "Zeros after prep; abort recon logging."
+                    
+                    # Log exactly 24 images
+                    log_recon_slices_raw(pred_raw, tgt_raw, epoch, phantom_ids=phantom_ids, prefix="Reconstructions")
                 except Exception as e:
                     logger.warning(f"⚠️ Failed to log images at epoch {epoch + 1}: {e}")            # Print epoch summary every epoch for important milestones
             logger.info(f"")
