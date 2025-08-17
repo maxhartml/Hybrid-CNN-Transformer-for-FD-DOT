@@ -23,42 +23,43 @@ from typing import Dict, Tuple, Optional
 
 class LatentAdapter(nn.Module):
     """
-    Truly near-identity adapter for aligning student latent scale/direction to teacher.
+    Small near-identity MLP + LayerNorm for aligning student latent scale/direction to teacher.
     
-    This adapter makes minimal adjustments to student latent representations using:
-    - LayerNorm only inside the residual branch
-    - Small initialization for immediate gradient flow
-    - Learnable gamma parameter for gating the residual path
+    This adapter fine-tunes the student latent representations to better match the
+    teacher's latent distribution without changing the core learned features.
     
     Args:
         d: Latent dimension (default 256)
         hidden: Hidden layer dimension
-        init_gamma: Initial scaling factor for residual connection (very small)
+        init_gamma: Initial scaling factor for residual connection
     """
     
-    def __init__(self, d: int = 256, hidden: int = 512, init_gamma: float = 0.01):
+    def __init__(self, d: int = 256, hidden: int = 512, init_gamma: float = 0.1):
         super().__init__()
         
-        # Layer normalization only inside the residual branch
-        self.ln = nn.LayerNorm(d)
+        # Layer normalization for input
+        self.ln1 = nn.LayerNorm(d)
         
         # Small MLP transformation
         self.fc1 = nn.Linear(d, hidden)
         self.act = nn.GELU()
         self.fc2 = nn.Linear(hidden, d)
         
-        # Learnable scaling factor for residual connection (very small initial value)
+        # Output layer normalization
+        self.ln2 = nn.LayerNorm(d)
+        
+        # Learnable scaling factor for residual connection
         self.gamma = nn.Parameter(torch.tensor(init_gamma, dtype=torch.float32))
         
-        # Initialize weights for near-identity behavior with nonzero fc2
+        # Initialize weights for near-identity behavior
         nn.init.xavier_uniform_(self.fc1.weight)
         nn.init.zeros_(self.fc1.bias)
-        nn.init.normal_(self.fc2.weight, std=1e-3)  # Small but nonzero for gradient flow
+        nn.init.zeros_(self.fc2.weight)  # Start with zero output for identity
         nn.init.zeros_(self.fc2.bias)
     
     def forward(self, z: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass: z + gamma * fc2(act(fc1(ln(z))))
+        Forward pass through adapter.
         
         Args:
             z: Student latent representation [batch_size, latent_dim]
@@ -66,11 +67,11 @@ class LatentAdapter(nn.Module):
         Returns:
             z_adapted: Adapted latent representation [batch_size, latent_dim]
         """
-        # Compute small perturbation with LayerNorm inside residual branch
-        y = self.fc2(self.act(self.fc1(self.ln(z))))
+        # Compute small perturbation
+        y = self.fc2(self.act(self.fc1(self.ln1(z))))
         
-        # Apply residual connection with learnable scaling (no output LayerNorm)
-        z_adapted = z + self.gamma * y
+        # Apply residual connection with learnable scaling
+        z_adapted = self.ln2(z + self.gamma * y)
         
         return z_adapted
 
@@ -169,7 +170,7 @@ class LatentStats:
     def compute_detailed_stats(self, teacher_latent: torch.Tensor, 
                              student_latent: torch.Tensor) -> Dict[str, float]:
         """
-        Compute detailed statistics for a batch without mutating epoch accumulators.
+        Compute detailed statistics for a batch of latent representations.
         
         Args:
             teacher_latent: Teacher latent representations [batch_size, latent_dim]
@@ -179,20 +180,8 @@ class LatentStats:
             detailed_stats: Extended statistics including percentiles and distributions
         """
         with torch.no_grad():
-            # Compute basic stats locally without calling self.update()
-            rmse = torch.sqrt(F.mse_loss(student_latent, teacher_latent))
-            cosine_sim = F.cosine_similarity(teacher_latent, student_latent, dim=1).mean()
-            teacher_mag = torch.norm(teacher_latent, dim=1).mean()
-            student_mag = torch.norm(student_latent, dim=1).mean()
-            mag_diff = torch.abs(teacher_mag - student_mag)
-            
-            basic_stats = {
-                'latent_rmse': rmse.item(),
-                'latent_cosine_sim': cosine_sim.item(),
-                'teacher_magnitude': teacher_mag.item(),
-                'student_magnitude': student_mag.item(),
-                'magnitude_diff': mag_diff.item()
-            }
+            # Basic stats
+            basic_stats = self.update(teacher_latent, student_latent)
             
             # Per-sample RMSE distribution
             per_sample_rmse = torch.sqrt(F.mse_loss(student_latent, teacher_latent, reduction='none').mean(dim=1))
@@ -267,14 +256,12 @@ def compute_latent_cosine_similarity(teacher_latent: torch.Tensor,
 
 
 # =============================================================================
-# SIMPLE LATENT LOSS FUNCTION
+# COMPOSITE LATENT LOSS FUNCTIONS
 # =============================================================================
 
 def latent_rmse(z_hat: torch.Tensor, z_t: torch.Tensor) -> torch.Tensor:
     """
-    Compute simple RMSE between student and teacher latents.
-    
-    This is the only latent loss function used for stable training.
+    Compute RMSE between student and teacher latents.
     
     Args:
         z_hat: Student latent representations [batch_size, latent_dim]
@@ -284,6 +271,68 @@ def latent_rmse(z_hat: torch.Tensor, z_t: torch.Tensor) -> torch.Tensor:
         rmse: Root mean squared error
     """
     return torch.sqrt(torch.mean((z_hat - z_t)**2))
+
+
+def latent_cosine_sim(z_hat: torch.Tensor, z_t: torch.Tensor) -> torch.Tensor:
+    """
+    Compute cosine similarity between student and teacher latents.
+    
+    Args:
+        z_hat: Student latent representations [batch_size, latent_dim]
+        z_t: Teacher latent representations [batch_size, latent_dim]
+        
+    Returns:
+        cosine_sim: Mean cosine similarity across batch
+    """
+    return torch.nn.functional.cosine_similarity(z_hat, z_t, dim=1).mean()
+
+
+def latent_mag_loss(z_hat: torch.Tensor, z_t: torch.Tensor) -> torch.Tensor:
+    """
+    Compute magnitude difference loss between student and teacher latents.
+    
+    Args:
+        z_hat: Student latent representations [batch_size, latent_dim]
+        z_t: Teacher latent representations [batch_size, latent_dim]
+        
+    Returns:
+        mag_loss: Mean squared difference in magnitude
+    """
+    return ((z_hat.norm(dim=1) - z_t.norm(dim=1))**2).mean()
+
+
+def composite_latent_loss(z_hat: torch.Tensor, z_t: torch.Tensor, 
+                         w_cos: float = 0.5, w_mag: float = 0.05) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    """
+    Compute composite latent loss combining RMSE, cosine similarity, and magnitude alignment.
+    
+    Args:
+        z_hat: Student latent representations [batch_size, latent_dim]
+        z_t: Teacher latent representations [batch_size, latent_dim]
+        w_cos: Weight for cosine similarity loss
+        w_mag: Weight for magnitude loss
+        
+    Returns:
+        total_loss: Combined weighted loss
+        loss_dict: Dictionary with individual loss components
+    """
+    # Compute individual loss components
+    cos = latent_cosine_sim(z_hat, z_t)
+    L_rmse = latent_rmse(z_hat, z_t)
+    L_cos = 1.0 - cos  # Convert similarity to loss
+    L_mag = latent_mag_loss(z_hat, z_t)
+    
+    # Compute total weighted loss
+    total_loss = L_rmse + w_cos * L_cos + w_mag * L_mag
+    
+    # Return both total loss and individual components for logging
+    loss_dict = {
+        'latent_rmse': L_rmse,
+        'latent_cosine_sim': cos,  # Keep as similarity for monitoring
+        'latent_mag': L_mag
+    }
+    
+    return total_loss, loss_dict
 
 
 def analyze_latent_distribution(latent: torch.Tensor, prefix: str = "") -> Dict[str, float]:
@@ -354,7 +403,7 @@ if __name__ == "__main__":
     print("✓ Batch stats:", {k: f"{v:.4f}" for k, v in batch_stats.items()})
     print("✓ Epoch stats:", {k: f"{v:.4f}" for k, v in epoch_stats.items()})
     
-    # Test detailed stats (no longer calls self.update)
+    # Test detailed stats
     detailed_stats = stats_tracker.compute_detailed_stats(teacher_latent, student_latent)
     print("✓ Detailed stats keys:", list(detailed_stats.keys()))
     
@@ -363,9 +412,10 @@ if __name__ == "__main__":
     cosine_sim = compute_latent_cosine_similarity(teacher_latent, student_latent)
     print(f"✓ RMSE: {rmse:.4f}, Cosine sim: {cosine_sim:.4f}")
     
-    # Test simple latent RMSE loss
-    simple_rmse = latent_rmse(adapted_student, teacher_latent)
-    print(f"✓ Simple latent RMSE: {simple_rmse:.4f}")
+    # Test composite loss functions
+    total_loss, loss_dict = composite_latent_loss(adapted_student, teacher_latent)
+    print(f"✓ Composite loss: {total_loss:.4f}")
+    print("✓ Loss components:", {k: f"{v:.4f}" for k, v in loss_dict.items()})
     
     # Test distribution analysis
     teacher_dist = analyze_latent_distribution(teacher_latent, "teacher_")
