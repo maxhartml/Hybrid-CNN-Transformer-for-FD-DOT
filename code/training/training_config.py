@@ -50,6 +50,17 @@ VAL_E2E_EVERY_K_EPOCHS = 1              # Decode + raw metrics every K epochs
 # Tissue patch gating for Stage 2
 USE_TISSUE_PATCHES_STAGE2 = False       # Baseline: no patch extraction (set True for enhanced mode)
 
+# Exponential Moving Average (EMA) Configuration
+USE_EMA = True                          # Enable EMA of model weights for better generalization
+EMA_DECAY = 0.997                       # EMA decay factor - higher (↑) = slower update, lower (↓) = faster tracking
+
+# Decoder Fine-tuning Control
+UNFREEZE_LAST_DECODER_BLOCK = True      # Allow fine-tuning of final decoder block in Stage 2
+DECODER_FINETUNING_LR_SCALE = 0.1       # LR scaling for unfrozen decoder block (relative to transformer LR)
+
+# Attention Entropy Regularization
+ATTENTION_ENTROPY_LAMBDA = 2e-4         # Regularization weight for attention entropy - encourages diverse attention patterns
+
 # Performance Optimizations
 USE_MODEL_COMPILATION = True            # PyTorch 2.0 compilation for 2x speedup (fixed compilation issues)
 COMPILATION_MODE = "default"            # Clean compilation without aggressive autotune noise
@@ -61,7 +72,7 @@ USE_CHANNELS_LAST_MEMORY_FORMAT = True  # Efficient memory layout for 3D convolu
 
 # Training Duration
 EPOCHS_STAGE1 = 150  # Stage 1 CNN training epochs - more (↑) = better feature learning, less (↓) = faster training
-EPOCHS_STAGE2 = 200   # Stage 2 transformer epochs - more (↑) = better fine-tuning, less (↓) = faster completion
+EPOCHS_STAGE2 = 400   # Stage 2 transformer epochs - increased for better convergence, more (↑) = better fine-tuning, less (↓) = faster completion
 
 # Batch Sizes - Hard-coded for stability
 BATCH_SIZE = 128  # Reduced for better gradient diversity and memory efficiency
@@ -123,14 +134,14 @@ BASE_MOMENTUM = 0.85  # Minimum momentum value - higher (↑) = more stability, 
 MAX_MOMENTUM = 0.95   # Maximum momentum value - cycles between base and max during training
 
 # =============================================================================
-# STAGE 2: TRANSFORMER TRAINING (Linear Warmup + Cosine Decay)
+# STAGE 2: TRANSFORMER TRAINING (Cosine Decay with Warmup and Floor)
 # =============================================================================
-# Based on "Attention Is All You Need", BERT, and ViT papers for transformer training
+# Enhanced cosine annealing schedule with nonzero floor for better convergence
 
 # Learning Rate Schedule
-STAGE2_BASE_LR = 1.5e-4   # Higher peak LR to move transformer weights effectively  
-STAGE2_WARMUP_PCT = 0.06  # Longer warmup for smoother ramp - reduces early volatility
-STAGE2_ETA_MIN_PCT = 0.03 # Lower LR floor for better final convergence
+STAGE2_BASE_LR = 1.5e-4         # Peak learning rate - optimized for transformer training  
+STAGE2_WARMUP_PCT = 0.06        # Warmup phase (6% of total steps) for stable transformer training
+STAGE2_MIN_LR = 2e-6            # Final LR floor (nonzero) - prevents complete learning cessation
 
 # Optimizer Parameters
 ADAMW_BETAS_STAGE2 = (0.9, 0.98)  # Transformer-optimized momentum - beta2=0.98 reduces noise in attention gradients

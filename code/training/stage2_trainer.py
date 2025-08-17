@@ -61,6 +61,57 @@ if torch.cuda.is_available():
     logger.debug("✅ Enabled TensorFloat32 for optimized A100 matrix multiplication")
 
 # =============================================================================
+# EXPONENTIAL MOVING AVERAGE (EMA)
+# =============================================================================
+
+class EMAModel:
+    """
+    Exponential Moving Average of model parameters for better generalization.
+    
+    Maintains a moving average of model weights that often performs better
+    than the final training weights, especially for transformer models.
+    """
+    
+    def __init__(self, model: nn.Module, decay: float = 0.997):
+        """
+        Initialize EMA model.
+        
+        Args:
+            model: The model to track
+            decay: EMA decay rate (higher = slower update)
+        """
+        self.decay = decay
+        self.model = model
+        self.shadow = {}
+        self.backup = {}
+        
+        # Initialize shadow weights
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                self.shadow[name] = param.data.clone()
+    
+    @torch.no_grad()
+    def update(self):
+        """Update EMA weights with current model weights."""
+        for name, param in self.model.named_parameters():
+            if param.requires_grad and name in self.shadow:
+                self.shadow[name] = self.decay * self.shadow[name] + (1 - self.decay) * param.data
+    
+    def apply_shadow(self):
+        """Apply EMA weights to model for evaluation."""
+        for name, param in self.model.named_parameters():
+            if param.requires_grad and name in self.shadow:
+                self.backup[name] = param.data.clone()
+                param.data.copy_(self.shadow[name])
+    
+    def restore(self):
+        """Restore original weights from backup."""
+        for name, param in self.model.named_parameters():
+            if param.requires_grad and name in self.backup:
+                param.data.copy_(self.backup[name])
+        self.backup.clear()
+
+# =============================================================================
 # STAGE-SPECIFIC CONFIGURATION
 # =============================================================================
 
@@ -281,6 +332,14 @@ class Stage2Trainer:
             self.teacher = None
             self.latent_stats = None
             self.latent_align = None
+        
+        # Initialize EMA if enabled
+        self.ema = None
+        if USE_EMA:
+            self.ema = EMAModel(self.model, decay=EMA_DECAY)
+            logger.info(f"🔄 EMA initialized with decay={EMA_DECAY}")
+        else:
+            logger.info("📊 EMA disabled")
     
     def _create_lightweight_dataloader_for_standardizer_fitting(self):
         """
@@ -419,24 +478,37 @@ class Stage2Trainer:
         embedding_total = sum(p.numel() for p in self.model.spatially_aware_encoder.parameters())
         transformer_total = sum(p.numel() for p in self.model.transformer_encoder.parameters())
         pooling_total = sum(p.numel() for p in self.model.global_pooling_encoder.parameters())
+        calibrator_total = sum(p.numel() for p in self.model.range_calibrator.parameters())
         
         # Count trainable in each component
         cnn_decoder_trainable = sum(p.numel() for p in self.model.cnn_autoencoder.decoder.parameters() if p.requires_grad)
         embedding_trainable = sum(p.numel() for p in self.model.spatially_aware_encoder.parameters() if p.requires_grad)
         transformer_trainable = sum(p.numel() for p in self.model.transformer_encoder.parameters() if p.requires_grad)
         pooling_trainable = sum(p.numel() for p in self.model.global_pooling_encoder.parameters() if p.requires_grad)
+        calibrator_trainable = sum(p.numel() for p in self.model.range_calibrator.parameters() if p.requires_grad)
         
         logger.info("📊 STAGE 2 PARAMETER BREAKDOWN (AFTER FREEZING):")
         logger.info("   ┌─────────────────────────────────────────────────────────────┐")
         logger.info(f"   │ CNN Decoder:           {cnn_decoder:>8,} params ({cnn_decoder_trainable:>8,} trainable) │")
         logger.info(f"   │ Spatially-Aware Embed: {embedding_total:>8,} params ({embedding_trainable:>8,} trainable) │")
         logger.info(f"   │ Transformer Encoder:   {transformer_total:>8,} params ({transformer_trainable:>8,} trainable) │")
-        logger.info(f"   │ Global Pooling:        {pooling_total:>8,} params ({pooling_trainable:>8,} trainable) │")
+        logger.info(f"   │ Global Pooling (Attn): {pooling_total:>8,} params ({pooling_trainable:>8,} trainable) │")
+        logger.info(f"   │ Range Calibrator:      {calibrator_total:>8,} params ({calibrator_trainable:>8,} trainable) │")
         logger.info("   ├─────────────────────────────────────────────────────────────┤")
         logger.info(f"   │ TOTAL MODEL:           {total_params:>8,} params                 │")
         logger.info(f"   │ TRAINABLE:             {trainable_params:>8,} params                 │")
         logger.info(f"   │ FROZEN:                {frozen_params:>8,} params                 │")
         logger.info("   └─────────────────────────────────────────────────────────────┘")
+        
+        # Enhanced features logging
+        logger.info("🚀 ENHANCED TRAINING FEATURES:")
+        logger.info(f"   ├─ Attention Pooling: ✅ Active (learnable)")
+        logger.info(f"   ├─ Range Calibrator: ✅ Active with L2 regularization")
+        logger.info(f"   ├─ Decoder Unfreezing: {'✅ Enabled' if UNFREEZE_LAST_DECODER_BLOCK else '❌ Disabled'}")
+        logger.info(f"   ├─ EMA Training: {'✅ Active (decay=' + str(EMA_DECAY) + ')' if USE_EMA else '❌ Disabled'}")
+        logger.info(f"   ├─ Attention Entropy Reg: {'✅ Active (λ=' + str(ATTENTION_ENTROPY_LAMBDA) + ')' if ATTENTION_ENTROPY_LAMBDA > 0 else '❌ Disabled'}")
+        logger.info(f"   └─ Training Schedule: Cosine decay with floor ({STAGE2_MIN_LR})")
+        
         logger.info(f"❄️  DISCARDED: CNN Encoder ({cnn_encoder:,} params - not used in Stage 2)")
         logger.info("🎯 Stage 2 trains transformer pipeline with frozen CNN decoder")
     
@@ -516,6 +588,8 @@ class Stage2Trainer:
         LayerNorm weights, biases, and embeddings receive NO weight decay to prevent
         gradient flow issues and "frozen attention" problems.
         
+        Additionally supports decoder fine-tuning with reduced learning rate.
+        
         Based on BERT, GPT, and ViT training procedures + ChatGPT recommendations.
         
         Returns:
@@ -523,6 +597,12 @@ class Stage2Trainer:
         """
         decay_params = []
         no_decay_params = []
+        decoder_params = []  # For unfrozen decoder parameters with reduced LR
+        decoder_no_decay_params = []
+        
+        # Unfreeze last decoder block if enabled
+        if UNFREEZE_LAST_DECODER_BLOCK:
+            self.model.unfreeze_last_decoder_block()
         
         # Add latent aligner parameters to no_decay group (if using latent-only training)
         if TRAIN_STAGE2_LATENT_ONLY and hasattr(self, 'latent_align'):
@@ -530,8 +610,20 @@ class Stage2Trainer:
             no_decay_params.append(self.latent_align.bias)
             logger.debug(f"🔧 Added latent aligner to no_decay group")
         
+        # Get unfrozen decoder parameters for separate group
+        unfrozen_decoder_params = []
+        if UNFREEZE_LAST_DECODER_BLOCK:
+            unfrozen_decoder_params = self.model.get_unfrozen_decoder_parameters()
+            unfrozen_param_names = {id(p) for p in unfrozen_decoder_params}
+            logger.info(f"🔓 Found {len(unfrozen_decoder_params)} unfrozen decoder parameters")
+        else:
+            unfrozen_param_names = set()
+        
         for name, param in self.model.named_parameters():
             if param.requires_grad:
+                # Check if this parameter is from unfrozen decoder
+                is_decoder_param = id(param) in unfrozen_param_names
+                
                 # NO weight decay for: biases, norms, and specific embedding parameters (critical for gradient flow)
                 if (name.endswith(".bias") or 
                     "norm" in name.lower() or 
@@ -539,22 +631,53 @@ class Stage2Trainer:
                     "layer_norm" in name.lower() or 
                     name.endswith("embedding.weight") or
                     "pos_embed" in name.lower() or
-                    "token_type_embedding" in name):
-                    no_decay_params.append(param)
-                    logger.debug(f"🚫 No decay: {name}")
+                    "token_type_embedding" in name or
+                    "range_calibrator" in name):  # Range calibrator gets no weight decay
+                    if is_decoder_param:
+                        decoder_no_decay_params.append(param)
+                        logger.debug(f"🔓🚫 Decoder no decay: {name}")
+                    else:
+                        no_decay_params.append(param)
+                        logger.debug(f"🚫 No decay: {name}")
                 else:
-                    decay_params.append(param)
-                    logger.debug(f"✅ With decay: {name}")
+                    if is_decoder_param:
+                        decoder_params.append(param)
+                        logger.debug(f"🔓✅ Decoder with decay: {name}")
+                    else:
+                        decay_params.append(param)
+                        logger.debug(f"✅ With decay: {name}")
+        
+        param_groups = [
+            {'params': decay_params, 'weight_decay': WEIGHT_DECAY_TRANSFORMER},
+            {'params': no_decay_params, 'weight_decay': 0.0}
+        ]
+        
+        # Add decoder parameter groups with reduced LR if any unfrozen decoder params exist
+        if decoder_params or decoder_no_decay_params:
+            reduced_lr = STAGE2_BASE_LR * DECODER_FINETUNING_LR_SCALE
+            if decoder_params:
+                param_groups.append({
+                    'params': decoder_params, 
+                    'weight_decay': WEIGHT_DECAY_TRANSFORMER, 
+                    'lr': reduced_lr
+                })
+            if decoder_no_decay_params:
+                param_groups.append({
+                    'params': decoder_no_decay_params, 
+                    'weight_decay': 0.0, 
+                    'lr': reduced_lr
+                })
+            logger.info(f"🔓 Added {len(decoder_params + decoder_no_decay_params)} decoder params with {DECODER_FINETUNING_LR_SCALE}x LR")
         
         logger.info(f"[AdamW Groups] decay: {len(decay_params)} params, no_decay: {len(no_decay_params)} params")
         logger.info(f"📊 Parameter Groups (CRITICAL for transformer training):")
         logger.info(f"   ├─ With weight decay: {len(decay_params)} groups")
-        logger.info(f"   └─ No weight decay: {len(no_decay_params)} groups (norms/biases/embeddings)")
+        logger.info(f"   ├─ No weight decay: {len(no_decay_params)} groups (norms/biases/embeddings)")
+        if decoder_params or decoder_no_decay_params:
+            logger.info(f"   ├─ Decoder with decay: {len(decoder_params)} params")
+            logger.info(f"   └─ Decoder no decay: {len(decoder_no_decay_params)} params")
         
-        return [
-            {'params': decay_params, 'weight_decay': WEIGHT_DECAY_TRANSFORMER},
-            {'params': no_decay_params, 'weight_decay': 0.0}
-        ]
+        return param_groups
     
     def _create_optimizer_and_scheduler(self, epochs: int, steps_per_epoch: int):
         """
@@ -610,7 +733,7 @@ class Stage2Trainer:
             
             # Cosine decay: 1.0 → eta_min
             progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
-            eta_min = STAGE2_ETA_MIN_PCT  # Final LR = 5% of peak
+            eta_min = STAGE2_MIN_LR  # Final LR floor (nonzero)
             cosine_factor = eta_min + 0.5 * (1 - eta_min) * (1 + math.cos(math.pi * progress))
             logger.debug(f"LR Schedule - Step {step}: Cosine factor = {cosine_factor:.6f}, Progress = {progress:.3f}")
             return cosine_factor
@@ -628,7 +751,7 @@ class Stage2Trainer:
         logger.info(f"🚀 STAGE 2 LINEAR WARMUP + COSINE DECAY:")
         logger.info(f"   ├─ Total Steps: {total_steps:,}")
         logger.info(f"   ├─ Warmup Steps: {warmup_steps:,} ({STAGE2_WARMUP_PCT*100:.0f}%)")
-        logger.info(f"   ├─ Final LR: {STAGE2_ETA_MIN_PCT*100:.0f}% of peak")
+        logger.info(f"   ├─ Final LR: {STAGE2_MIN_LR} (nonzero floor)")
         logger.info(f"   ├─ Starting LR (step 0): {STAGE2_BASE_LR * 0.01:.2e}")
         logger.info(f"   ├─ Peak LR (after warmup): {STAGE2_BASE_LR:.2e}")
         logger.info(f"   └─ Schedule: Linear Warmup → Cosine Decay")
@@ -825,6 +948,35 @@ class Stage2Trainer:
                     outputs = self.model(nir_measurements, tissue_patches)
                     logger.debug(f"📤 Stage 2 model output shape: {outputs['reconstructed'].shape}")
                     
+                    # Compute standardized RMSE loss (matches Stage 1)
+                    loss = self.criterion(outputs['reconstructed'], targets)
+                    
+                    # Add attention entropy regularization if available
+                    if 'attention_weights' in outputs and ATTENTION_ENTROPY_LAMBDA > 0:
+                        attention_weights = outputs['attention_weights']
+                        # Compute entropy of attention weights across sequence dimension
+                        # attention_weights shape: [batch, num_heads, seq_len, seq_len] or [batch, seq_len, seq_len]
+                        if attention_weights.dim() == 4:
+                            # Multi-head case: average over heads
+                            attn_probs = attention_weights.mean(dim=1)  # [batch, seq_len, seq_len]
+                        else:
+                            attn_probs = attention_weights  # [batch, seq_len, seq_len]
+                        
+                        # Compute entropy for each batch item and position
+                        # Focus on entropy of each position's attention distribution
+                        entropy = -(attn_probs * torch.log(attn_probs + 1e-8)).sum(dim=-1)  # [batch, seq_len]
+                        mean_entropy = entropy.mean()  # Average across batch and positions
+                        
+                        # Add entropy regularization to loss
+                        loss += ATTENTION_ENTROPY_LAMBDA * mean_entropy
+                        
+                        # Store for logging
+                        if 'mean_entropy' not in locals():
+                            mean_entropy_for_logging = mean_entropy.item()
+                        
+                        if DEBUG_VERBOSE:
+                            logger.debug(f"🧠 Attention entropy: {mean_entropy:.4f}, regularization: {ATTENTION_ENTROPY_LAMBDA * mean_entropy:.6f}")
+                    
                     # DEBUGGING: Log transformer activity details only at the final batch of epoch
                     if (batch_idx + 1) == len(data_loader):
                         attn_weights = outputs['attention_weights']
@@ -842,9 +994,11 @@ class Stage2Trainer:
                     if torch.isnan(outputs['reconstructed']).any():
                         logger.error(f"🚨 NaN detected in model output at batch {batch_idx}")
                         raise ValueError(f"NaN detected in model output - stopping training at batch {batch_idx}")
-                    
-                    # Compute standardized RMSE loss (matches Stage 1)
-                    loss = self.criterion(outputs['reconstructed'], targets)
+                
+                # Add range calibrator regularization
+                if hasattr(self.model, 'get_calibrator_regularization'):
+                    calibrator_reg = self.model.get_calibrator_regularization()
+                    loss += calibrator_reg
                 
                 # SAFETY: Check for NaN loss immediately
                 if torch.isnan(loss):
@@ -868,6 +1022,10 @@ class Stage2Trainer:
             self.scaler.update()
             self.scheduler.step()  # Step-wise LR scheduling for linear warmup + cosine decay
             
+            # Update EMA weights if enabled
+            if self.ema is not None:
+                self.ema.update()
+            
             # Wandb logging (matches Stage 1 pattern exactly)
             if self.use_wandb and wandb.run:
                 current_lr = self.optimizer.param_groups[0]['lr']
@@ -878,6 +1036,10 @@ class Stage2Trainer:
                     "train/latent_rmse": loss.item(),  # Use latent_rmse as primary training metric
                     "train/lr": current_lr
                 }
+                
+                # Add attention entropy if available
+                if 'mean_entropy_for_logging' in locals():
+                    log_data["train/attention_entropy"] = mean_entropy_for_logging
                 
                 # Add latent-specific metrics if in latent-only mode
                 if TRAIN_STAGE2_LATENT_ONLY:
@@ -993,6 +1155,12 @@ class Stage2Trainer:
         
         logger.debug("🔍 Starting validation epoch...")
         self.model.eval()
+        
+        # Apply EMA weights if available for better evaluation performance
+        if self.ema is not None:
+            self.ema.apply_shadow()
+            logger.debug("🔄 Applied EMA weights for validation")
+        
         total_loss = 0
         num_batches = 0
         
@@ -1189,6 +1357,11 @@ class Stage2Trainer:
         
         # Combine metrics for return (maintain Stage 1 compatibility but add transformer metrics)
         combined_metrics = {**raw_metrics, **transformer_metrics}
+        
+        # Restore original weights if EMA was used
+        if self.ema is not None:
+            self.ema.restore()
+            logger.debug("🔄 Restored original weights after EMA validation")
         
         return avg_loss, combined_metrics
     

@@ -47,6 +47,9 @@ from .spatially_aware_embedding import SpatiallyAwareEmbedding, TissueFeatureExt
 from code.models.global_pooling_encoder import GlobalPoolingEncoder
 from code.utils.logging_config import get_model_logger
 
+# Import configuration constants
+from code.training.training_config import UNFREEZE_LAST_DECODER_BLOCK, DECODER_FINETUNING_LR_SCALE
+
 # Import configuration constants from component modules
 from code.models import cnn_autoencoder as cnn_config
 from code.models import transformer_encoder as transformer_config
@@ -236,6 +239,15 @@ class HybridCNNTransformer(nn.Module):
             dropout=dropout
         )
         
+        # Range Calibrator - channel-wise affine calibration
+        self.range_calibrator = nn.Conv3d(2, 2, kernel_size=1, bias=True)
+        # Initialize to identity transformation
+        nn.init.eye_(self.range_calibrator.weight.view(2, 2))
+        nn.init.zeros_(self.range_calibrator.bias)
+        
+        # Store decoder unfreezing configuration
+        self.unfreeze_last_decoder_block = UNFREEZE_LAST_DECODER_BLOCK
+        
         # Initialize network weights
         self._init_weights()
         
@@ -254,6 +266,7 @@ class HybridCNNTransformer(nn.Module):
         embedding_total = sum(p.numel() for p in self.spatially_aware_encoder.parameters())
         transformer_total = sum(p.numel() for p in self.transformer_encoder.parameters())
         pooling_total = sum(p.numel() for p in self.global_pooling_encoder.parameters())
+        calibrator_total = sum(p.numel() for p in self.range_calibrator.parameters())
         
         total_params = sum(p.numel() for p in self.parameters())
         trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
@@ -265,27 +278,41 @@ class HybridCNNTransformer(nn.Module):
         logger.info(f"   │   └─ Decoder:           {cnn_decoder:>8,} params             │")
         logger.info(f"   │ Spatially-Aware Embed: {embedding_total:>8,} params             │")
         logger.info(f"   │ Transformer Encoder:   {transformer_total:>8,} params             │")
-        logger.info(f"   │ Global Pooling:        {pooling_total:>8,} params             │")
+        logger.info(f"   │ Global Pooling (Attn): {pooling_total:>8,} params             │")
+        logger.info(f"   │ Range Calibrator:      {calibrator_total:>8,} params             │")
         logger.info("   ├─────────────────────────────────────────────────────────────┤")
         logger.info(f"   │ TOTAL MODEL:           {total_params:>8,} params             │")
         logger.info(f"   │ TRAINABLE:             {trainable_params:>8,} params             │")
         logger.info("   └─────────────────────────────────────────────────────────────┘")
         
+        # Enhanced feature logging
+        logger.info("🚀 ENHANCED FEATURES:")
+        logger.info(f"   ├─ Attention Pooling: {'✅ Active' if True else '❌ Disabled'}")
+        logger.info(f"   ├─ Range Calibrator: {'✅ Active' if True else '❌ Disabled'}")
+        logger.info(f"   ├─ Decoder Unfreezing: {'✅ Enabled' if self.unfreeze_last_decoder_block else '❌ Disabled'}")
+        logger.info(f"   └─ EMA Training: {'✅ Active' if hasattr(self, 'ema_enabled') else '⚙️  External Config'}")
+        
         # Stage-specific parameter usage
         if self.training_stage == 'stage1':
+            stage1_active = cnn_total + calibrator_total
             logger.info("🎯 STAGE 1 PARAMETER USAGE:")
-            logger.info(f"   └─ Active: CNN Autoencoder ({cnn_total:,} params)")
-            logger.info(f"   └─ Unused: Transformer pipeline ({total_params - cnn_total:,} params)")
+            logger.info(f"   ├─ Active: CNN Autoencoder ({cnn_total:,} params)")
+            logger.info(f"   ├─ Active: Range Calibrator ({calibrator_total:,} params)")
+            logger.info(f"   └─ Unused: Transformer pipeline ({total_params - stage1_active:,} params)")
         
         elif self.training_stage == 'stage2':
-            stage2_active = cnn_decoder + embedding_total + transformer_total + pooling_total
+            stage2_active = cnn_decoder + embedding_total + transformer_total + pooling_total + calibrator_total
             logger.info("🎯 STAGE 2 PARAMETER USAGE:")
             logger.info(f"   ├─ Active: CNN Decoder ({cnn_decoder:,} params)")
             logger.info(f"   ├─ Active: Embedding ({embedding_total:,} params)")
             logger.info(f"   ├─ Active: Transformer ({transformer_total:,} params)")
-            logger.info(f"   ├─ Active: Pooling ({pooling_total:,} params)")
+            logger.info(f"   ├─ Active: Pooling (Attn) ({pooling_total:,} params)")
+            logger.info(f"   ├─ Active: Range Calibrator ({calibrator_total:,} params)")
             logger.info(f"   └─ TOTAL ACTIVE: {stage2_active:,} params")
             logger.info(f"   └─ Discarded: CNN Encoder ({cnn_encoder:,} params)")
+            if self.unfreeze_last_decoder_block:
+                unfrozen_params = sum(p.numel() for p in self.get_unfrozen_decoder_parameters())
+                logger.info(f"   └─ Unfrozen Decoder Block: {unfrozen_params:,} params (fine-tuning)")
     
     def _init_weights(self):
         """
@@ -335,6 +362,9 @@ class HybridCNNTransformer(nn.Module):
                 )
             
             reconstructed = self.cnn_autoencoder(dot_measurements)
+            # Apply range calibrator
+            reconstructed = self.range_calibrator(reconstructed)
+            
             outputs.update({
                 'reconstructed': reconstructed,
                 'stage': STAGE1
@@ -379,6 +409,8 @@ class HybridCNNTransformer(nn.Module):
             
             # Step 4: CNN decoder (using pre-trained weights from Stage 1)
             reconstructed = self.cnn_autoencoder.decode(encoded_scan)  # [batch, 2, 64, 64, 64]
+            # Apply range calibrator
+            reconstructed = self.range_calibrator(reconstructed)
             
             # Prepare features for metrics (aggregate tokens to single vectors)
             enhanced_features_for_metrics = enhanced_tokens.mean(dim=1)  # [batch, 256, embed_dim] -> [batch, embed_dim]
@@ -615,3 +647,56 @@ class HybridCNNTransformer(nn.Module):
         tissue_patches = batch.get('tissue_patches', None)
         
         return self.encode(nir_measurements, tissue_patches)
+
+    def unfreeze_last_decoder_block(self):
+        """
+        Unfreeze the last decoder block for fine-tuning in Stage 2.
+        
+        When UNFREEZE_LAST_DECODER_BLOCK is True, this method allows fine-tuning
+        of the final decoder block with a reduced learning rate.
+        """
+        if not self.unfreeze_last_decoder_block:
+            return
+            
+        # Get the last decoder block (assuming it's the final layers)
+        decoder_blocks = list(self.cnn_autoencoder.decoder.children())
+        if len(decoder_blocks) > 0:
+            last_block = decoder_blocks[-1]
+            for param in last_block.parameters():
+                param.requires_grad = True
+            logger.info(f"🔓 Unfroze last decoder block for fine-tuning with {DECODER_FINETUNING_LR_SCALE}x LR")
+    
+    def get_calibrator_regularization(self, weight_lambda: float = 1e-5) -> torch.Tensor:
+        """
+        Compute L2 regularization for the range calibrator.
+        
+        Regularizes the calibrator to stay close to identity transformation,
+        only adjusting when necessary for reconstruction improvement.
+        
+        Args:
+            weight_lambda: Regularization strength
+            
+        Returns:
+            torch.Tensor: L2 regularization loss
+        """
+        # L2 penalty on deviation from identity
+        weight_penalty = torch.norm(self.range_calibrator.weight.view(2, 2) - torch.eye(2, device=self.range_calibrator.weight.device))
+        bias_penalty = torch.norm(self.range_calibrator.bias)
+        
+        return weight_lambda * (weight_penalty + bias_penalty)
+    
+    def get_unfrozen_decoder_parameters(self):
+        """
+        Get parameters from the unfrozen last decoder block for separate optimization.
+        
+        Returns:
+            List of parameters that should be optimized with reduced LR
+        """
+        if not self.unfreeze_last_decoder_block:
+            return []
+            
+        decoder_blocks = list(self.cnn_autoencoder.decoder.children())
+        if len(decoder_blocks) > 0:
+            last_block = decoder_blocks[-1]
+            return [param for param in last_block.parameters() if param.requires_grad]
+        return []

@@ -4,12 +4,12 @@ Global Pooling and Encoded Scan Module for NIR-DOT Reconstruction.
 
 This module implements the post-transformer processing that appears in the ECBO 2025 
 architecture after the self-attention transformer block:
-- Global average pooling across the sequence dimension
+- Learnable attention pooling across the sequence dimension
 - Fully connected layer to create the "Encoded Scan"
-- Matches the architecture shown in Figure 1 of the research paper
+- Enhanced architecture with attention-based aggregation
 
 Classes:
-    GlobalPoolingEncoder: Global pooling and FC layer for encoded scan generation
+    GlobalPoolingEncoder: Attention pooling and FC layer for encoded scan generation
 
 Author: Max Hart
 Date: August 2025
@@ -48,16 +48,16 @@ logger = get_model_logger(__name__)
 
 class GlobalPoolingEncoder(nn.Module):
     """
-    Global pooling and encoded scan generation following the ECBO 2025 architecture.
+    Attention-based pooling and encoded scan generation following enhanced ECBO 2025 architecture.
     
-    This module implements the post-transformer processing shown in Figure 1:
+    This module implements learnable attention pooling for post-transformer processing:
     - Takes transformer output tokens
-    - Applies global average pooling across sequence dimension
+    - Applies learnable attention pooling across sequence dimension
     - Projects through FC layer to create "Encoded Scan"
     - Feeds to pre-trained CNN decoder
     
-    This matches the architecture flow:
-    Transformer → Global avg → FC → Encoded Scan → Pre-trained CNN decoder
+    Architecture flow:
+    Transformer → Attention Pooling → FC → Encoded Scan → Pre-trained CNN decoder
     
     Args:
         embed_dim (int): Input dimension from transformer
@@ -70,15 +70,17 @@ class GlobalPoolingEncoder(nn.Module):
                  dropout: float = 0.1):
         super().__init__()
         
-        logger.info(f"🏗️  Initializing GlobalPoolingEncoder: {embed_dim} → {encoded_scan_dim}")
+        logger.info(f"🏗️  Initializing GlobalPoolingEncoder with Attention Pooling: {embed_dim} → {encoded_scan_dim}")
         
         self.embed_dim = embed_dim
         self.encoded_scan_dim = encoded_scan_dim
         
-        # Global pooling (average across sequence dimension)
-        self.global_pool = nn.AdaptiveAvgPool1d(1)
+        # Learnable attention pooling components
+        self.attention_query = nn.Parameter(torch.randn(1, 1, embed_dim) * WEIGHT_INIT_STD)
+        self.key_projection = nn.Linear(embed_dim, embed_dim, bias=False)
+        self.scale = embed_dim ** -0.5  # Scaled dot-product attention
         
-        # FC layer to create encoded scan (matching the ECBO 2025 architecture)
+        # FC layer to create encoded scan
         self.encoded_scan_projection = nn.Sequential(
             nn.Linear(embed_dim, embed_dim // 2),
             nn.ReLU(),
@@ -89,7 +91,7 @@ class GlobalPoolingEncoder(nn.Module):
         # Initialize weights
         self._init_weights()
         
-        logger.info(f"✅ GlobalPoolingEncoder initialized with {self.count_parameters()} parameters")
+        logger.info(f"✅ GlobalPoolingEncoder initialized with attention pooling, {self.count_parameters()} parameters")
     
     def count_parameters(self):
         """Count total parameters in the model."""
@@ -102,17 +104,20 @@ class GlobalPoolingEncoder(nn.Module):
                 nn.init.normal_(m.weight, std=WEIGHT_INIT_STD)
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
+        
+        # Initialize attention query
+        nn.init.normal_(self.attention_query, std=WEIGHT_INIT_STD)
     
     def forward(self, transformer_output: torch.Tensor) -> torch.Tensor:
         """
-        SIMPLIFIED forward pass for fixed N_MEASUREMENTS-measurement sequences (Option C).
+        Enhanced forward pass with learnable attention pooling.
         
-        Applies simple global average pooling across all {N_MEASUREMENTS} tokens since we eliminated
-        attention masking complexity with fixed sequence lengths.
+        Applies learnable attention pooling across all N_MEASUREMENTS tokens, allowing
+        the model to dynamically weight token importance for reconstruction.
         
         Args:
-            transformer_output (torch.Tensor): Shape [batch_size, {N_MEASUREMENTS}, embed_dim]
-                Output from transformer encoder (always {N_MEASUREMENTS} tokens)
+            transformer_output (torch.Tensor): Shape [batch_size, N_MEASUREMENTS, embed_dim]
+                Output from transformer encoder
         
         Returns:
             torch.Tensor: Encoded scan of shape [batch_size, encoded_scan_dim]
@@ -122,8 +127,19 @@ class GlobalPoolingEncoder(nn.Module):
         assert embed_dim == self.embed_dim, f"Expected {self.embed_dim}D input, got {embed_dim}D"
         assert seq_len == N_MEASUREMENTS, f"Expected exactly {N_MEASUREMENTS} tokens, got {seq_len}"
         
-        # Simple global average pooling across all N_MEASUREMENTS tokens
-        pooled = transformer_output.mean(dim=1)  # [batch, embed_dim]
+        # Learnable attention pooling
+        # Query: [1, 1, embed_dim] → [batch_size, 1, embed_dim]
+        query = self.attention_query.expand(batch_size, -1, -1)
+        
+        # Keys: [batch_size, seq_len, embed_dim]
+        keys = self.key_projection(transformer_output)
+        
+        # Attention weights: [batch_size, 1, seq_len]
+        attention_scores = torch.bmm(query, keys.transpose(1, 2)) * self.scale
+        attention_weights = F.softmax(attention_scores, dim=-1)
+        
+        # Weighted sum: [batch_size, 1, embed_dim] → [batch_size, embed_dim]
+        pooled = torch.bmm(attention_weights, transformer_output).squeeze(1)
         
         # Project to encoded scan dimension
         encoded_scan = self.encoded_scan_projection(pooled)  # [batch, encoded_scan_dim]
