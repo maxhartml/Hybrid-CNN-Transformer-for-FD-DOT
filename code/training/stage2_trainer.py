@@ -239,7 +239,7 @@ class Stage2Trainer:
             
             # Import latent-only training components
             from .teacher_stage1 import load_teacher_stage1
-            from .latent_ops import LatentStats, LatentAdapter, composite_latent_loss
+            from .latent_stats import LatentStats, compute_latent_rmse
             
             # Initialize teacher model for latent targets
             self.teacher = load_teacher_stage1(checkpoint_path=stage1_checkpoint_path, device=self.device)
@@ -249,24 +249,8 @@ class Stage2Trainer:
             self.latent_stats = LatentStats()
             
             # Override loss function to latent RMSE
-            # Initialize latent adapter for student-teacher alignment (if enabled)
-            if USE_LATENT_ADAPTER:
-                self.latent_adapter = LatentAdapter(
-                    d=LATENT_DIM, 
-                    hidden=LATENT_ADAPTER_HIDDEN,
-                    init_gamma=LATENT_ADAPTER_GAMMA
-                ).to(self.device)
-                logger.info("✅ Latent adapter initialized for student alignment")
-            else:
-                self.latent_adapter = None
-                logger.info("ℹ️ Latent adapter disabled")
-            
-            # Configure loss function
-            self.use_composite_loss = USE_COMPOSITE_LATENT_LOSS
-            if self.use_composite_loss:
-                logger.info("📊 Stage 2 using composite latent loss (RMSE + cosine + magnitude)")
-            else:
-                logger.info("📊 Stage 2 using simple latent RMSE loss")
+            self.criterion = compute_latent_rmse
+            logger.info("📊 Stage 2 using latent RMSE loss (teacher-student)")
         else:
             logger.info("🔄 STANDARD TRAINING MODE (end-to-end reconstruction)")
             self.teacher = None
@@ -506,8 +490,6 @@ class Stage2Trainer:
         LayerNorm weights, biases, and embeddings receive NO weight decay to prevent
         gradient flow issues and "frozen attention" problems.
         
-        Also includes LatentAdapter parameters when latent-only training is enabled.
-        
         Based on BERT, GPT, and ViT training procedures + ChatGPT recommendations.
         
         Returns:
@@ -516,7 +498,6 @@ class Stage2Trainer:
         decay_params = []
         no_decay_params = []
         
-        # Collect model parameters
         for name, param in self.model.named_parameters():
             if param.requires_grad:
                 # NO weight decay for: biases, norms, and specific embedding parameters (critical for gradient flow)
@@ -532,20 +513,6 @@ class Stage2Trainer:
                 else:
                     decay_params.append(param)
                     logger.debug(f"✅ With decay: {name}")
-        
-        # Add LatentAdapter parameters if using latent-only training and adapter is enabled
-        if TRAIN_STAGE2_LATENT_ONLY and hasattr(self, 'latent_adapter') and self.latent_adapter is not None:
-            for name, param in self.latent_adapter.named_parameters():
-                if param.requires_grad:
-                    # Apply same rules for adapter parameters
-                    if (name.endswith(".bias") or 
-                        "norm" in name.lower() or 
-                        "ln" in name.lower()):
-                        no_decay_params.append(param)
-                        logger.debug(f"🚫 No decay (adapter): {name}")
-                    else:
-                        decay_params.append(param)
-                        logger.debug(f"✅ With decay (adapter): {name}")
         
         logger.info(f"[AdamW Groups] decay: {len(decay_params)} params, no_decay: {len(no_decay_params)} params")
         logger.info(f"📊 Parameter Groups (CRITICAL for transformer training):")
@@ -788,41 +755,16 @@ class Stage2Trainer:
             dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
             with autocast(dtype=dtype):
                 if TRAIN_STAGE2_LATENT_ONLY:
-                    # LATENT-ONLY TRAINING MODE WITH ADAPTER
+                    # LATENT-ONLY TRAINING MODE
                     # Forward pass only through encoder to get student latent
-                    student_latent_raw = self.model.encode(nir_measurements, tissue_patches)
-                    
-                    # Apply latent adapter for better teacher alignment (if enabled)
-                    if self.latent_adapter is not None:
-                        student_latent = self.latent_adapter(student_latent_raw)
-                    else:
-                        student_latent = student_latent_raw
+                    student_latent = self.model.encode(nir_measurements, tissue_patches)
                     
                     # Get teacher latent from standardized ground truth (NOT NIR measurements)
                     with torch.no_grad():
                         teacher_latent = self.teacher.encode_from_gt_std(targets)
                     
-                    # Compute composite latent loss or simple RMSE
-                    if self.use_composite_loss:
-                        from .latent_ops import composite_latent_loss
-                        loss, loss_dict = composite_latent_loss(
-                            student_latent, teacher_latent, 
-                            w_cos=LATENT_LOSS_W_COS, 
-                            w_mag=LATENT_LOSS_W_MAG
-                        )
-                        # Log individual loss components
-                        if self.use_wandb:
-                            wandb.log({
-                                'train/latent_rmse': loss_dict['latent_rmse'].item(),
-                                'train/latent_cosine_sim': loss_dict['latent_cosine_sim'].item(), 
-                                'train/latent_mag': loss_dict['latent_mag'].item(),
-                                'train/student_magnitude': student_latent.norm(dim=1).mean().item(),
-                                'train/teacher_magnitude': teacher_latent.norm(dim=1).mean().item()
-                            })
-                    else:
-                        # Simple RMSE loss (fallback)
-                        from .latent_ops import latent_rmse
-                        loss = latent_rmse(student_latent, teacher_latent)
+                    # Compute latent RMSE loss
+                    loss = self.criterion(student_latent, teacher_latent)
                     
                     # Update latent statistics
                     batch_latent_stats = self.latent_stats.update(teacher_latent, student_latent)
@@ -841,7 +783,6 @@ class Stage2Trainer:
                                    f"min={teacher_latent.min():.4f}, max={teacher_latent.max():.4f}, norm={teacher_latent.norm():.4f}")
                         logger.debug(f"📊 Student latent: mean={student_latent.mean():.4f}, std={student_latent.std():.4f}, "
                                    f"min={student_latent.min():.4f}, max={student_latent.max():.4f}, norm={student_latent.norm():.4f}")
-                        logger.debug(f"📊 Adapter gamma: {self.latent_adapter.gamma.item():.6f}" if self.latent_adapter else "📊 No adapter")
                 else:
                     # STANDARD END-TO-END TRAINING MODE
                     outputs = self.model(nir_measurements, tissue_patches)
@@ -969,24 +910,6 @@ class Stage2Trainer:
             if targets.shape[-1] == 2:  # Check if channels-last
                 targets = targets.permute(0, 4, 1, 2, 3).contiguous()  # [B,D,H,W,2] -> [B,2,D,H,W]
             
-            # Generate teacher reconstruction if available (for sanity trio visualization)
-            teacher_raw = None
-            if TRAIN_STAGE2_LATENT_ONLY and hasattr(self, 'teacher') and self.teacher is not None:
-                try:
-                    with torch.no_grad():
-                        # Get teacher latent from standardized ground truth
-                        teacher_latent = self.teacher.encode_from_gt_std(targets)
-                        # Decode using frozen decoder
-                        teacher_reconstruction = self.teacher.decode_from_latent(teacher_latent)
-                        # Prepare teacher reconstruction for visualization
-                        teacher_raw, _ = prepare_raw_DHW(
-                            teacher_reconstruction, targets,
-                            standardizer=self.standardizers.ground_truth_standardizer
-                        )
-                        self.logger.debug(f"✅ Generated teacher reconstruction for visualization")
-                except Exception as e:
-                    self.logger.warning(f"⚠️ Failed to generate teacher reconstruction: {e}")
-            
             # Prepare raw mm^-1 volumes with strict [B,2,D,H,W] format
             pred_raw, tgt_raw = prepare_raw_DHW(
                 predictions, targets,
@@ -996,9 +919,8 @@ class Stage2Trainer:
             # Acceptance check
             assert pred_raw[:,0].max() > 1e-5 and pred_raw[:,1].max() > 1e-3, "Zeros after prep; abort recon logging."
             
-            # Log images with teacher reconstruction if available (creates sanity trio)
-            log_recon_slices_raw(pred_raw, tgt_raw, epoch, phantom_ids=phantom_ids, 
-                               prefix="Reconstructions", teacher_raw=teacher_raw)
+            # Log exactly 24 images
+            log_recon_slices_raw(pred_raw, tgt_raw, epoch, phantom_ids=phantom_ids, prefix="Reconstructions")
             
         except Exception as e:
             self.logger.warning(f"⚠️ Failed to log reconstruction images: {e}")
@@ -1046,7 +968,7 @@ class Stage2Trainer:
         
         # Initialize latent statistics if in latent mode
         if TRAIN_STAGE2_LATENT_ONLY:
-            from .latent_ops import LatentStats
+            from .latent_stats import LatentStats
             val_latent_stats = LatentStats()
         
         # Add transformer metrics for Stage 2

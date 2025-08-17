@@ -36,16 +36,6 @@ DEBUG_VERBOSE = False                   # Set to True to enable verbose debug lo
 TRAIN_STAGE2_LATENT_ONLY = True         # Train on latent RMSE only (no decoder during training)
 LATENT_DIM = 256                        # Latent dimension for teacher-student matching
 
-# Latent Adapter Configuration
-USE_LATENT_ADAPTER = True               # Enable LatentAdapter for student-teacher alignment
-LATENT_ADAPTER_HIDDEN = 512             # Hidden layer dimension for adapter MLP
-LATENT_ADAPTER_GAMMA = 0.1              # Initial gamma for residual scaling
-
-# Latent Loss Configuration
-USE_COMPOSITE_LATENT_LOSS = True        # Use composite loss (RMSE + cosine + magnitude)
-LATENT_LOSS_W_COS = 0.5                 # Weight for cosine similarity loss
-LATENT_LOSS_W_MAG = 0.05                # Weight for magnitude loss
-
 # Validation cadence for end-to-end metrics
 VAL_E2E_EVERY_K_EPOCHS = 1              # Decode + raw metrics every K epochs
 
