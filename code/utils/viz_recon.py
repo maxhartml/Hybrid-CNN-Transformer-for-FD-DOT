@@ -1,18 +1,19 @@
 # code/utils/viz_recon.py
 """
-Strict visualization system for NIR-DOT reconstruction logging to W&B.
+RAW-only visualization system for NIR-DOT reconstruction logging to W&B.
 
 This module provides a hardened, physics-aware visualization pipeline that:
-- All functions expect RAW mm^-1, channel-first [B,2,D,H,W]. No standardised inputs here.
-- Applies proper physics-based normalization
+- All functions expect RAW mm⁻¹, channel-first [B,2,D,H,W]. No standardized inputs here.
+- Applies proper physics-based normalization only
 - Logs exactly 2 phantoms × 3 planes × 2 channels × (pred+target) = 24 images
-- Removes all viz_stats noise and autocontrast complexity
+- Removes all standardizer dependencies and legacy conversion paths
 
 Key Design Principles:
-1. Raw physical units only - no standardized/normalized inputs
+1. Raw physical units only - no standardized/normalized inputs accepted
 2. Channel-first tensor layout [B, 2, D, H, W] assumed throughout
-3. Physics-based color mapping with known tissue property ranges
+3. Physics-based color mapping using fixed tissue property ranges
 4. Strict validation with guardrails against degenerate cases
+5. VALIDATION-ONLY usage - never called during training loops
 """
 import torch, numpy as np, wandb
 
@@ -27,7 +28,7 @@ def _physics_norm(arr2d: np.ndarray, vmax: float, adaptive: bool = False) -> np.
     Convert a 2D array in physical units to 8-bit grayscale for visualization.
     
     Args:
-        arr2d: 2D numpy array in physical units (mm^-1)
+        arr2d: 2D numpy array in physical units (mm⁻¹)
         vmax: Maximum physical value for normalization
         adaptive: If True, use data range; if False, use physics-based range
         
@@ -35,11 +36,10 @@ def _physics_norm(arr2d: np.ndarray, vmax: float, adaptive: bool = False) -> np.
         8-bit grayscale image array [0-255]
     """
     if adaptive:
-        data_min = float(arr2d.min())
-        data_max = float(arr2d.max())
-        if data_max - data_min < 1e-8:
+        a0, a1 = float(arr2d.min()), float(arr2d.max())
+        if a1 - a0 < 1e-8:
             return np.full_like(arr2d, 128, dtype=np.uint8)
-        scaled = (arr2d - data_min) / (data_max - data_min)
+        scaled = (arr2d - a0) / (a1 - a0)
     else:
         clipped = np.clip(arr2d, 0.0, vmax)
         scaled = clipped / (vmax + 1e-12)
@@ -77,24 +77,17 @@ def _center_slices(vol_ch_first: np.ndarray):
 
 def prepare_raw_DHW(pred_raw: torch.Tensor, tgt_raw: torch.Tensor):
     """
-    Validate that both tensors are RAW mm^-1 in [B,2,D,H,W] channel-first.
-    Returns (pred_raw_cpu_f32, tgt_raw_cpu_f32).
+    Validate that both tensors are RAW mm⁻¹ in [B,2,D,H,W], channel-first.
+    Returns CPU float32 copies for imaging.
     """
     assert pred_raw.ndim == 5 and tgt_raw.ndim == 5 and pred_raw.shape[1] == 2 and tgt_raw.shape[1] == 2, \
         f"Expected [B,2,D,H,W]; got pred={tuple(pred_raw.shape)}, tgt={tuple(tgt_raw.shape)}"
     pred_raw = pred_raw.float().cpu()
     tgt_raw  = tgt_raw.float().cpu()
-
-    # Sanity: must be finite
     assert torch.isfinite(pred_raw).all() and torch.isfinite(tgt_raw).all(), "NaN/Inf in raw volumes"
-
-    # Sanity: values should be in plausible physical ranges (allow 5% slack)
-    PHYS_MAX = {"mu_a": 0.0245, "mu_s": 2.95}
-    assert float(pred_raw[:,0].max()) <= PHYS_MAX["mu_a"] * 1.05 + 1e-6, "pred μₐ out of range"
-    assert float(pred_raw[:,1].max()) <= PHYS_MAX["mu_s"] * 1.05 + 1e-6, "pred μ′ₛ out of range"
-    assert float(tgt_raw[:,0].max())  <= PHYS_MAX["mu_a"] * 1.05 + 1e-6, "tgt μₐ out of range"
-    assert float(tgt_raw[:,1].max())  <= PHYS_MAX["mu_s"] * 1.05 + 1e-6, "tgt μ′ₛ out of range"
-
+    # Loose physical sanity (allow slight slack)
+    assert float(pred_raw[:,0].max()) <= PHYS_MAX["mu_a"]*1.05 + 1e-6 and float(pred_raw[:,1].max()) <= PHYS_MAX["mu_s"]*1.05 + 1e-6, "pred out of phys range"
+    assert float(tgt_raw[:,0].max())  <= PHYS_MAX["mu_a"]*1.05 + 1e-6 and float(tgt_raw[:,1].max())  <= PHYS_MAX["mu_s"]*1.05 + 1e-6, "tgt out of phys range"
     return pred_raw, tgt_raw
 
 def log_recon_slices_raw(pred_raw: torch.Tensor,
@@ -157,11 +150,11 @@ def log_recon_slices_raw(pred_raw: torch.Tensor,
         # Layout: target on top, prediction directly below for easy comparison
         for plane in ("xy", "xz", "yz"):
             for channel, ch_name in [("mu_a", "μₐ"), ("mu_s", "μ′ₛ")]:
-                # Target on top
+                # Target on top - uses physics-based normalization (adaptive=False)
                 logs[f"{tag}/tgt_{plane}_{channel}"] = wandb.Image(
                     _physics_norm(ts[f"{plane}_{channel}"], PHYS_MAX[channel], adaptive=False)
                 )
-                # Prediction directly below target
+                # Prediction directly below target - uses physics-based normalization (adaptive=False)
                 logs[f"{tag}/pred_{plane}_{channel}"] = wandb.Image(
                     _physics_norm(ps[f"{plane}_{channel}"], PHYS_MAX[channel], adaptive=False)
                 )
