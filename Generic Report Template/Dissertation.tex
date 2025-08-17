@@ -1,4 +1,11 @@
-\documentclass[pdftex,10pt,a4paper,oneside]{report}
+\documentclass[pdftex,11pt,a4paper,oneside]{report}
+
+\usepackage[a4paper, top=25mm, bottom=25mm, left=30mm, right=20mm]{geometry} % margins
+\usepackage{setspace}
+\onehalfspacing   % 1.5 line spacing
+\usepackage[hyphens]{url}
+\usepackage{microtype} % better text spacing
+
 
 \usepackage{amsmath}
 \usepackage{algorithm}
@@ -15,7 +22,7 @@
 \renewcommand{\headrulewidth}{0.2pt}
 
 % Styles can be Sonny, Lenny, Glenn, Conny, Rejne, Bjarne and Bjornstrup
-\usepackage[Conny]{fncychap}
+\usepackage[Sonny]{fncychap} 
 
 \begin{document}
 
@@ -40,7 +47,7 @@
 \include{Chapter7/Chapter7}
 \include{Chapter8/Chapter8}
 
-% Bibliography - uncomment when you start adding citations
+
 \bibliographystyle{abbrv}
 \bibliography{bibliography}
 

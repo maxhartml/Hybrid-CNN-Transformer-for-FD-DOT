@@ -585,10 +585,21 @@ class Stage1Trainer:
                 targets = targets.permute(0, 4, 1, 2, 3).contiguous()  # [B,D,H,W,2] -> [B,2,D,H,W]
             
             # Prepare raw mm^-1 volumes with strict [B,2,D,H,W] format
+            # Target is already raw from dataloader, only inverse-standardize prediction
             pred_raw, tgt_raw = prepare_raw_DHW(
                 predictions, targets,
-                standardizer=self.standardizer
+                standardizer=self.standardizer,
+                tgt_is_std=False  # Target is already raw from dataloader
             )
+            
+            # Log absorption and scattering ranges for visualization insight
+            pred_mu_a_min, pred_mu_a_max = float(pred_raw[:,0].min()), float(pred_raw[:,0].max())
+            pred_mu_s_min, pred_mu_s_max = float(pred_raw[:,1].min()), float(pred_raw[:,1].max())
+            tgt_mu_a_min, tgt_mu_a_max = float(tgt_raw[:,0].min()), float(tgt_raw[:,0].max())
+            tgt_mu_s_min, tgt_mu_s_max = float(tgt_raw[:,1].min()), float(tgt_raw[:,1].max())
+            
+            logger.info(f"[VIZ PRED] μₐ: {pred_mu_a_min:.4f}..{pred_mu_a_max:.4f} mm⁻¹, μ′ₛ: {pred_mu_s_min:.3f}..{pred_mu_s_max:.3f} mm⁻¹")
+            logger.info(f"[VIZ TGT]  μₐ: {tgt_mu_a_min:.4f}..{tgt_mu_a_max:.4f} mm⁻¹, μ′ₛ: {tgt_mu_s_min:.3f}..{tgt_mu_s_max:.3f} mm⁻¹")
             
             # Acceptance check
             assert pred_raw[:,0].max() > 1e-5 and pred_raw[:,1].max() > 1e-3, "Zeros after prep; abort recon logging."
@@ -792,7 +803,8 @@ class Stage1Trainer:
                     # Prepare raw mm^-1 volumes (predictions need inverse transform, targets are already raw)
                     pred_raw, tgt_raw = prepare_raw_DHW(
                         outputs['reconstructed'], raw_ground_truth,
-                        standardizer=self.standardizer
+                        standardizer=self.standardizer,
+                        tgt_is_std=False  # Target is already raw
                     )
                     
                     # Acceptance check

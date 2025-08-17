@@ -79,7 +79,7 @@ WEIGHT_DECAY = 7e-4             # CNN weight decay - higher (↑) = less overfit
 WEIGHT_DECAY_TRANSFORMER = 0.01  # Reduced transformer weight decay - less shrinkage for better capacity
 
 # Dropout Rates (prevent overfitting)
-DROPOUT_CNN = 0.18              # CNN dropout rate - higher (↑) = stronger regularization, lower (↓) = more model capacity
+DROPOUT_CNN = 0.12              # CNN dropout rate - higher (↑) = stronger regularization, lower (↓) = more model capacity
 DROPOUT_TRANSFORMER = 0.05      # Reduced dropout - more capacity since not overfitting
 DROPOUT_NIR_PROCESSOR = 0.08    # Reduced NIR dropout - less input masking for better signal learning
 

@@ -911,10 +911,21 @@ class Stage2Trainer:
                 targets = targets.permute(0, 4, 1, 2, 3).contiguous()  # [B,D,H,W,2] -> [B,2,D,H,W]
             
             # Prepare raw mm^-1 volumes with strict [B,2,D,H,W] format
+            # Target is already raw from dataloader, only inverse-standardize prediction
             pred_raw, tgt_raw = prepare_raw_DHW(
                 predictions, targets,
-                standardizer=self.standardizers.ground_truth_standardizer
+                standardizer=self.standardizers.ground_truth_standardizer,
+                tgt_is_std=False  # Target is already raw from dataloader
             )
+            
+            # Log absorption and scattering ranges for visualization insight
+            pred_mu_a_min, pred_mu_a_max = float(pred_raw[:,0].min()), float(pred_raw[:,0].max())
+            pred_mu_s_min, pred_mu_s_max = float(pred_raw[:,1].min()), float(pred_raw[:,1].max())
+            tgt_mu_a_min, tgt_mu_a_max = float(tgt_raw[:,0].min()), float(tgt_raw[:,0].max())
+            tgt_mu_s_min, tgt_mu_s_max = float(tgt_raw[:,1].min()), float(tgt_raw[:,1].max())
+            
+            self.logger.info(f"[VIZ PRED] μₐ: {pred_mu_a_min:.4f}..{pred_mu_a_max:.4f} mm⁻¹, μ′ₛ: {pred_mu_s_min:.3f}..{pred_mu_s_max:.3f} mm⁻¹")
+            self.logger.info(f"[VIZ TGT]  μₐ: {tgt_mu_a_min:.4f}..{tgt_mu_a_max:.4f} mm⁻¹, μ′ₛ: {tgt_mu_s_min:.3f}..{tgt_mu_s_max:.3f} mm⁻¹")
             
             # Acceptance check
             assert pred_raw[:,0].max() > 1e-5 and pred_raw[:,1].max() > 1e-3, "Zeros after prep; abort recon logging."
@@ -952,7 +963,7 @@ class Stage2Trainer:
         if TRAIN_STAGE2_LATENT_ONLY:
             do_e2e_validation = (epoch % VAL_E2E_EVERY_K_EPOCHS == 0)
             if do_e2e_validation:
-                logger.info(f"🎯 E2E validation epoch {epoch} (every {VAL_E2E_EVERY_K_EPOCHS} epochs)")
+                logger.debug(f"🎯 E2E validation epoch {epoch} (every {VAL_E2E_EVERY_K_EPOCHS} epochs)")
             else:
                 logger.debug(f"🎯 Latent-only validation epoch {epoch}")
         else:
@@ -1251,8 +1262,20 @@ class Stage2Trainer:
                         tissue_patches = tissue_patches.to(self.device)
                     
                     with torch.no_grad():
-                        outputs = self.model(measurements, tissue_patches)
-                    self._log_reconstruction_images(outputs['reconstructed'], targets, measurements, epoch, phantom_ids=phantom_ids)
+                        # Always use teacher decoder for visualization to avoid zero tensors
+                        # Standardize inputs for proper model forward
+                        nir_measurements = self.standardizers.transform_nir_inputs(measurements)
+                        tissue_patches_std = None
+                        if tissue_patches is not None:
+                            tissue_patches_std = self.standardizers.transform_tissue_patches(tissue_patches)
+                        
+                        # Get student latent encoding
+                        student_latent = self.model.encode(nir_measurements, tissue_patches_std)
+                        
+                        # Decode with teacher to get standardized reconstruction
+                        pred_std = self.teacher.decode_from_latent(student_latent)
+                        
+                    self._log_reconstruction_images(pred_std, targets, measurements, epoch, phantom_ids=phantom_ids)
                 except Exception as e:
                     logger.warning(f"⚠️ Failed to log Stage 2 images at epoch {epoch + 1}: {e}")
             

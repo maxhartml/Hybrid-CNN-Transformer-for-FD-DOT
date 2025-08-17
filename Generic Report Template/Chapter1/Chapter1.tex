@@ -3,18 +3,66 @@
 \chapter{Introduction}
 
 \section{Background and Motivation}
-% Background content about NIR-DOT and its importance in medical imaging
-Near-Infrared Diffuse Optical Tomography is an important technique \cite{sample2024}.
+
+Diffuse Optical Tomography (DOT) is a non-invasive imaging modality that uses near-infrared (NIR) light to probe tissue optical properties, particularly absorption ($\mu_a$) and reduced scattering coefficients ($\mu'_s$). By measuring how NIR photons migrate through tissue, DOT can provide valuable structural and functional information about biological tissue, including haemodynamic changes and tumour localisation \cite{dale2021, dale2022}. In recent years, Near-Infrared Diffuse Optical Tomography (NIR-DOT) has gained prominence in biomedical imaging due to its non-ionising nature, low cost, and ability to provide unique functional contrast compared to conventional modalities such as MRI or CT.
+
+However, the potential of NIR-DOT has not yet been fully realised in clinical applications. One of the central challenges is the reconstruction of three-dimensional tissue optical property maps from boundary NIR measurements. This inverse problem is severely ill-posed: many different internal tissue configurations can give rise to similar surface measurements. The result is that reconstructions are often noisy, blurred, and highly sensitive to measurement error or modelling assumptions. Overcoming these challenges requires methodological innovation in both data-driven learning and physics-aware modelling.
+
+Recent advances in deep learning, particularly convolutional neural networks (CNNs) and transformers, have revolutionised inverse imaging tasks across modalities. Inspired by these developments, our research leverages a hybrid CNN–transformer architecture for NIR-DOT reconstruction, building upon and extending the work of Robin Dale and colleagues \cite{dale2023hybrid}. Dale’s work demonstrated the feasibility of combining convolutional feature extraction with transformer-based long-range dependency modelling to improve optical imaging reconstruction. Our research pushes this line further by developing a two-stage, student–teacher training paradigm that integrates synthetic phantom generation, robust standardisation, and physics-aware evaluation to achieve state-of-the-art reconstructions in raw optical units.
 
 \section{Near-Infrared Diffuse Optical Tomography}
-% Introduction to NIR-DOT technology and principles
+
+NIR-DOT operates on the principle of photon migration in highly scattering media. When NIR light in the range of 650–950 nm is introduced into tissue, photons undergo multiple scattering events and absorption before being detected at surface detectors. By modelling this transport, typically with the diffusion approximation to the radiative transfer equation, it is possible to infer the internal distribution of absorption and scattering coefficients.
+
+The forward problem in NIR-DOT consists of solving the diffusion equation given known tissue optical properties and boundary conditions, producing boundary fluxes or detector measurements. The inverse problem, however, is the reconstruction of tissue properties from these measurements. This inversion is complicated by the exponential attenuation of light, the limited number of source–detector pairs, and the inherent ambiguity of mapping low-dimensional measurements back to high-dimensional volumes. Consequently, the problem is both underdetermined and ill-conditioned.
+
+Traditional reconstruction approaches rely on iterative optimisation with regularisation, often requiring prior assumptions about smoothness or sparsity. These methods are computationally expensive and can yield unstable solutions. Data-driven methods, by contrast, can learn mappings directly from simulated or empirical data, enabling faster and more robust reconstructions. In particular, CNNs are adept at learning spatial hierarchies from volumetric data, while transformers excel at capturing long-range dependencies across measurements. Combining these paradigms offers a powerful new direction for NIR-DOT.
 
 \section{Challenges in NIR-DOT Reconstruction}
-% Discussion of the ill-posed nature of the inverse problem
+
+The central challenge in NIR-DOT is the ill-posed nature of the inverse problem. Specifically:
+
+\begin{itemize}
+    \item \textbf{Non-uniqueness:} Different tissue structures can yield nearly identical boundary measurements.
+    \item \textbf{Instability:} Small perturbations in measurements can lead to disproportionately large errors in reconstructions.
+    \item \textbf{High dimensionality:} Reconstructing $64^3$ voxel volumes from relatively few measurements (typically 1000 per phantom) represents an extreme underdetermined problem.
+    \item \textbf{Noise sensitivity:} Instrumental noise, modelling errors, and physiological variability further degrade reconstruction accuracy.
+\end{itemize}
+
+From a computational standpoint, another challenge lies in balancing fidelity to physical principles with the flexibility of data-driven learning. Purely physics-based models are slow and fragile, while purely data-driven models risk producing reconstructions that violate known physics. Hybrid approaches must therefore enforce physical consistency while still benefiting from the representational power of deep networks.
 
 \section{Research Objectives and Contributions}
-% Clear statement of research goals and key contributions
+
+The goal of this dissertation is to design, implement, and evaluate a hybrid CNN–transformer pipeline for NIR-DOT reconstruction that addresses the above challenges through a principled two-stage training framework. The specific objectives are:
+
+\begin{enumerate}
+    \item \textbf{Data Simulation:} Develop a high-fidelity synthetic phantom generation and forward-modelling pipeline to create realistic training datasets with controllable optical properties.
+    \item \textbf{Stage 1 Training:} Pre-train a 3D CNN autoencoder on ground truth volumes to learn robust spatial representations of tissue optical properties.
+    \item \textbf{Stage 2 Training:} Introduce a transformer encoder to process NIR measurements, integrating spatial embeddings and sequence modelling to produce latent codes compatible with the Stage 1 decoder.
+    \item \textbf{Student–Teacher Learning:} Employ a teacher–student paradigm where the frozen CNN encoder provides latent targets to guide the transformer-based student network.
+    \item \textbf{Physics-Aware Evaluation:} Evaluate reconstructions in raw physical units (mm$^{-1}$) with metrics such as Dice coefficient, RMSE, and contrast ratio, ensuring interpretability and clinical relevance.
+    \item \textbf{End-to-End System Integration:} Build a modular, extensible codebase with clean separation of data generation, training, and evaluation, enabling reproducibility and future extensions.
+\end{enumerate}
+
+The main contributions of this work are as follows:
+
+\begin{itemize}
+    \item A novel hybrid CNN–transformer architecture for NIR-DOT reconstruction.
+    \item A two-stage training pipeline combining autoencoder pre-training with transformer-based measurement encoding.
+    \item Integration of synthetic phantom simulation with physics-consistent data preprocessing and standardisation.
+    \item A teacher–student learning paradigm for latent-space alignment across stages.
+    \item A comprehensive evaluation framework in raw optical units, ensuring clinically meaningful assessment of reconstructions.
+\end{itemize}
 
 \section{Dissertation Structure}
-% Overview of the dissertation organization
 
+The remainder of this dissertation is organised as follows:
+
+\begin{itemize}
+    \item \textbf{Chapter 2: Literature Review} surveys prior work in NIR-DOT reconstruction, deep learning for inverse problems, and hybrid architectures combining CNNs and transformers.
+    \item \textbf{Chapter 3: Methods} details the data simulation pipeline, model architectures, training strategies, and evaluation metrics used in this research.
+    \item \textbf{Chapter 4: Experiments} presents experimental design, training protocols, and validation strategies.
+    \item \textbf{Chapter 5: Results} reports quantitative and qualitative results for both Stage 1 and Stage 2 training, including ablation studies and comparison with baseline methods.
+    \item \textbf{Chapter 6: Discussion} interprets the findings, analyses limitations, and explores implications for clinical translation.
+    \item \textbf{Chapter 7: Conclusion} summarises the contributions, highlights potential future research directions, and reflects on the broader impact of this work.
+\end{itemize}

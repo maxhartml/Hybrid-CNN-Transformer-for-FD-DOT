@@ -15,6 +15,10 @@ Key Design Principles:
 4. Strict validation with guardrails against degenerate cases
 """
 import torch, numpy as np, wandb
+from code.utils.logging_config import get_training_logger
+
+# Initialize module logger
+logger = get_training_logger(__name__)
 
 # Physical property ranges for tissue at NIR wavelengths (mm^-1)
 PHYS_MAX = {
@@ -98,7 +102,7 @@ def _center_slices(vol_ch_first: np.ndarray):
         "yz_mu_s": vol_ch_first[1, :, :, x],
     }
 
-def prepare_raw_DHW(pred, tgt, standardizer=None):
+def prepare_raw_DHW(pred, tgt, standardizer=None, tgt_is_std=False):
     """
     Prepare prediction and target tensors for visualization by ensuring they are
     in raw physical units (mm^-1) with strict [B,2,D,H,W] layout.
@@ -111,8 +115,9 @@ def prepare_raw_DHW(pred, tgt, standardizer=None):
     
     Args:
         pred: Prediction tensor [B, 2, D, H, W] (may be standardized)
-        tgt: Target tensor [B, 2, D, H, W] (may be standardized) 
+        tgt: Target tensor [B, 2, D, H, W] (raw from dataloader by default) 
         standardizer: Optional standardizer object with inverse_transform method
+        tgt_is_std: If True, also inverse-standardize target (default: False)
         
     Returns:
         Tuple of (pred_raw, tgt_raw) both as CPU float32 tensors with shape
@@ -126,10 +131,16 @@ def prepare_raw_DHW(pred, tgt, standardizer=None):
     assert pred.ndim == 5 and tgt.ndim == 5 and pred.shape[1] == 2 and tgt.shape[1] == 2, \
         f"Expected [B,2,D,H,W]; got pred={tuple(pred.shape)}, tgt={tuple(tgt.shape)}"
 
-    # Apply inverse standardization with correct channel axis handling
+    # Early warning if prediction looks like standardized zeros
+    if pred.abs().max() < 1e-6:  # standardized zeros
+        logger.warning("Viz: standardized prediction is ~all zeros — likely latent-only forward or placeholder recon.")
+
+    # Apply inverse standardization ONLY to prediction by default
+    # Target from dataloader is already in raw units
     if standardizer is not None:
-        pred = _inv_std_chlast(pred, standardizer)     # Correct axis handling
-        tgt  = _inv_std_chlast(tgt, standardizer)
+        pred = _inv_std_chlast(pred, standardizer)     # Always inverse-standardize prediction
+        if tgt_is_std:  # Only inverse-standardize target if explicitly requested
+            tgt = _inv_std_chlast(tgt, standardizer)
 
     # Move to CPU and ensure float32 for consistent processing
     pred = pred.float().cpu()
@@ -184,10 +195,6 @@ def log_recon_slices_raw(pred_raw: torch.Tensor,
     B = pred_raw.shape[0]
     n = min(2, B)  # Log exactly 2 phantoms (or fewer if batch smaller)
 
-    # Debug print to check value ranges (keep minimal output)
-    print(f"viz ranges: μₐ {float(pred_raw[:,0].min()):.4f}-{float(pred_raw[:,0].max()):.4f}, "
-          f"μ′ₛ {float(pred_raw[:,1].min()):.4f}-{float(pred_raw[:,1].max()):.4f}")
-    
     # Abort if any channel appears to be all zeros (indicates preprocessing bug)
     if pred_raw[:,0].max() < 1e-6 or pred_raw[:,1].max() < 1e-4:
         raise ValueError(f"Prediction values too small - preprocessing failed. "

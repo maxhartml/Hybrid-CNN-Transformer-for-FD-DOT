@@ -418,7 +418,7 @@ class HybridCNNTransformer(nn.Module):
             raise ValueError(f"Invalid stage: {stage}. Must be '{STAGE1}' or '{STAGE2}'")
         
         self.training_stage = stage
-        logger.info(f"🎯 Setting training stage to: {stage}")
+        logger.debug(f"🎯 Setting training stage to: {stage}")
         
         if stage == STAGE1:
             # Stage 1: Train CNN autoencoder end-to-end
@@ -438,7 +438,7 @@ class HybridCNNTransformer(nn.Module):
             self.transformer_encoder.train()
             self.spatially_aware_encoder.train()
                 
-            logger.info("🔒 CNN decoder frozen, transformer components enabled for training")
+            logger.debug("🔒 CNN decoder frozen, transformer components enabled for training")
     
     def toggle_tissue_patches(self, use_tissue_patches: bool):
         """

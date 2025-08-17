@@ -5,86 +5,86 @@
 \contentsline {chapter}{List of Tables}{ix}{}%
 \contentsline {chapter}{\numberline {1}Introduction}{1}{}%
 \contentsline {section}{\numberline {1.1}Background and Motivation}{1}{}%
-\contentsline {section}{\numberline {1.2}Near-Infrared Diffuse Optical Tomography}{1}{}%
-\contentsline {section}{\numberline {1.3}Challenges in NIR-DOT Reconstruction}{1}{}%
-\contentsline {section}{\numberline {1.4}Research Objectives and Contributions}{1}{}%
-\contentsline {section}{\numberline {1.5}Dissertation Structure}{1}{}%
-\contentsline {chapter}{\numberline {2}Literature Review}{2}{}%
-\contentsline {section}{\numberline {2.1}Physics of NIR Light Propagation}{2}{}%
-\contentsline {section}{\numberline {2.2}Classical NIR-DOT Reconstruction Methods}{2}{}%
-\contentsline {section}{\numberline {2.3}Deep Learning for Medical Image Reconstruction}{2}{}%
-\contentsline {section}{\numberline {2.4}CNN Approaches in NIR-DOT}{2}{}%
-\contentsline {section}{\numberline {2.5}Transformers in Medical Imaging}{2}{}%
-\contentsline {section}{\numberline {2.6}Hybrid Architectures and Multi-Stage Training}{2}{}%
-\contentsline {section}{\numberline {2.7}Contextual Integration in Medical Imaging}{2}{}%
-\contentsline {section}{\numberline {2.8}Research Gap and Opportunity}{2}{}%
-\contentsline {chapter}{\numberline {3}Synthetic Phantom Data Generation}{3}{}%
-\contentsline {section}{\numberline {3.1}Physics-Based Forward Modeling}{3}{}%
-\contentsline {section}{\numberline {3.2}Geometric Phantom Construction}{3}{}%
-\contentsline {section}{\numberline {3.3}Optical Property Assignment}{3}{}%
-\contentsline {section}{\numberline {3.4}Surface Extraction and Probe Placement}{3}{}%
-\contentsline {section}{\numberline {3.5}Frequency-Domain Measurement Simulation}{3}{}%
-\contentsline {section}{\numberline {3.6}Dataset Composition and Statistics}{3}{}%
-\contentsline {section}{\numberline {3.7}Validation of Simulated Data}{3}{}%
-\contentsline {chapter}{\numberline {4}Hybrid CNN-Transformer Architecture}{4}{}%
-\contentsline {section}{\numberline {4.1}Architectural Overview}{4}{}%
-\contentsline {section}{\numberline {4.2}CNN Autoencoder Design}{4}{}%
-\contentsline {subsection}{\numberline {4.2.1}Encoder Architecture}{4}{}%
-\contentsline {subsection}{\numberline {4.2.2}Decoder Architecture}{4}{}%
-\contentsline {subsection}{\numberline {4.2.3}Residual Connections and Feature Extraction}{4}{}%
-\contentsline {section}{\numberline {4.3}NIR Measurement Processing}{4}{}%
-\contentsline {subsection}{\numberline {4.3.1}Spatial Awareness in Measurement Processing}{4}{}%
-\contentsline {subsection}{\numberline {4.3.2}Tissue Patch Extraction and Encoding}{4}{}%
-\contentsline {section}{\numberline {4.4}Transformer Encoder Design}{4}{}%
-\contentsline {subsection}{\numberline {4.4.1}Self-Attention Mechanism}{4}{}%
-\contentsline {subsection}{\numberline {4.4.2}Token-Type Embeddings}{4}{}%
-\contentsline {subsection}{\numberline {4.4.3}Feature Enhancement}{4}{}%
-\contentsline {section}{\numberline {4.5}Integration Strategy}{4}{}%
-\contentsline {subsection}{\numberline {4.5.1}Information Flow Between Components}{4}{}%
-\contentsline {subsection}{\numberline {4.5.2}Tissue Context Integration}{4}{}%
-\contentsline {chapter}{\numberline {5}Two-Stage Training Methodology}{5}{}%
-\contentsline {section}{\numberline {5.1}Training Strategy Overview}{5}{}%
-\contentsline {section}{\numberline {5.2}Stage 1: CNN Autoencoder Pre-Training}{5}{}%
-\contentsline {subsection}{\numberline {5.2.1}Identity Mapping Objective}{5}{}%
-\contentsline {subsection}{\numberline {5.2.2}AdamW with OneCycleLR Optimization}{5}{}%
-\contentsline {subsection}{\numberline {5.2.3}Hyperparameter Selection}{5}{}%
-\contentsline {section}{\numberline {5.3}Stage 2: Transformer Enhancement Training}{5}{}%
-\contentsline {subsection}{\numberline {5.3.1}Frozen Decoder Approach}{5}{}%
-\contentsline {subsection}{\numberline {5.3.2}Linear Warmup with Cosine Decay}{5}{}%
-\contentsline {subsection}{\numberline {5.3.3}Differential Weight Decay}{5}{}%
-\contentsline {section}{\numberline {5.4}Data Augmentation Strategy}{5}{}%
-\contentsline {section}{\numberline {5.5}Implementation Details}{5}{}%
-\contentsline {subsection}{\numberline {5.5.1}Hardware Optimization}{5}{}%
-\contentsline {subsection}{\numberline {5.5.2}Experiment Tracking}{5}{}%
-\contentsline {chapter}{\numberline {6}Experimental Results and Analysis}{6}{}%
-\contentsline {section}{\numberline {6.1}Experimental Setup}{6}{}%
-\contentsline {subsection}{\numberline {6.1.1}Dataset Preparation}{6}{}%
-\contentsline {subsection}{\numberline {6.1.2}Evaluation Metrics}{6}{}%
-\contentsline {subsection}{\numberline {6.1.3}Baseline Methods}{6}{}%
-\contentsline {section}{\numberline {6.2}Stage 1 Results: CNN Autoencoder Performance}{6}{}%
-\contentsline {subsection}{\numberline {6.2.1}Reconstruction Quality Metrics}{6}{}%
-\contentsline {subsection}{\numberline {6.2.2}Feature Learning Analysis}{6}{}%
-\contentsline {section}{\numberline {6.3}Stage 2 Results: Transformer Enhancement}{6}{}%
-\contentsline {subsection}{\numberline {6.3.1}Baseline Mode Performance}{7}{}%
-\contentsline {subsection}{\numberline {6.3.2}Enhanced Mode with Tissue Context}{7}{}%
-\contentsline {subsection}{\numberline {6.3.3}Comparative Analysis}{7}{}%
-\contentsline {section}{\numberline {6.4}Ablation Studies}{7}{}%
-\contentsline {subsection}{\numberline {6.4.1}Impact of Tissue Patch Size}{8}{}%
-\contentsline {subsection}{\numberline {6.4.2}Effect of Transformer Layers and Heads}{8}{}%
-\contentsline {subsection}{\numberline {6.4.3}Sensitivity to Tissue Context Quality}{8}{}%
-\contentsline {section}{\numberline {6.5}Visualization and Interpretation}{8}{}%
-\contentsline {subsection}{\numberline {6.5.1}Attention Map Analysis}{8}{}%
-\contentsline {subsection}{\numberline {6.5.2}Reconstruction Quality Visualization}{8}{}%
-\contentsline {subsection}{\numberline {6.5.3}Error Distribution Analysis}{8}{}%
-\contentsline {chapter}{\numberline {7}Discussion}{9}{}%
-\contentsline {section}{\numberline {7.1}Key Findings and Insights}{9}{}%
-\contentsline {section}{\numberline {7.2}Clinical Implications}{9}{}%
-\contentsline {section}{\numberline {7.3}Limitations of Current Approach}{9}{}%
-\contentsline {section}{\numberline {7.4}Computational Efficiency Considerations}{9}{}%
-\contentsline {chapter}{\numberline {8}Conclusion and Future Work}{10}{}%
-\contentsline {section}{\numberline {8.1}Summary of Contributions}{10}{}%
-\contentsline {section}{\numberline {8.2}Future Research Directions}{10}{}%
-\contentsline {section}{\numberline {8.3}Potential Clinical Applications}{10}{}%
-\contentsline {chapter}{\numberline {A}Implementation Details}{12}{}%
-\contentsline {chapter}{\numberline {B}Additional Experimental Results}{13}{}%
-\contentsline {chapter}{\numberline {C}Mathematical Derivations}{14}{}%
+\contentsline {section}{\numberline {1.2}Near-Infrared Diffuse Optical Tomography}{2}{}%
+\contentsline {section}{\numberline {1.3}Challenges in NIR-DOT Reconstruction}{2}{}%
+\contentsline {section}{\numberline {1.4}Research Objectives and Contributions}{3}{}%
+\contentsline {section}{\numberline {1.5}Dissertation Structure}{3}{}%
+\contentsline {chapter}{\numberline {2}Literature Review}{5}{}%
+\contentsline {section}{\numberline {2.1}Physics of NIR Light Propagation}{5}{}%
+\contentsline {section}{\numberline {2.2}Classical NIR-DOT Reconstruction Methods}{5}{}%
+\contentsline {section}{\numberline {2.3}Deep Learning for Medical Image Reconstruction}{5}{}%
+\contentsline {section}{\numberline {2.4}CNN Approaches in NIR-DOT}{5}{}%
+\contentsline {section}{\numberline {2.5}Transformers in Medical Imaging}{5}{}%
+\contentsline {section}{\numberline {2.6}Hybrid Architectures and Multi-Stage Training}{5}{}%
+\contentsline {section}{\numberline {2.7}Contextual Integration in Medical Imaging}{5}{}%
+\contentsline {section}{\numberline {2.8}Research Gap and Opportunity}{5}{}%
+\contentsline {chapter}{\numberline {3}Synthetic Phantom Data Generation}{6}{}%
+\contentsline {section}{\numberline {3.1}Physics-Based Forward Modeling}{6}{}%
+\contentsline {section}{\numberline {3.2}Geometric Phantom Construction}{6}{}%
+\contentsline {section}{\numberline {3.3}Optical Property Assignment}{6}{}%
+\contentsline {section}{\numberline {3.4}Surface Extraction and Probe Placement}{6}{}%
+\contentsline {section}{\numberline {3.5}Frequency-Domain Measurement Simulation}{6}{}%
+\contentsline {section}{\numberline {3.6}Dataset Composition and Statistics}{6}{}%
+\contentsline {section}{\numberline {3.7}Validation of Simulated Data}{6}{}%
+\contentsline {chapter}{\numberline {4}Hybrid CNN-Transformer Architecture}{7}{}%
+\contentsline {section}{\numberline {4.1}Architectural Overview}{7}{}%
+\contentsline {section}{\numberline {4.2}CNN Autoencoder Design}{7}{}%
+\contentsline {subsection}{\numberline {4.2.1}Encoder Architecture}{7}{}%
+\contentsline {subsection}{\numberline {4.2.2}Decoder Architecture}{7}{}%
+\contentsline {subsection}{\numberline {4.2.3}Residual Connections and Feature Extraction}{7}{}%
+\contentsline {section}{\numberline {4.3}NIR Measurement Processing}{7}{}%
+\contentsline {subsection}{\numberline {4.3.1}Spatial Awareness in Measurement Processing}{7}{}%
+\contentsline {subsection}{\numberline {4.3.2}Tissue Patch Extraction and Encoding}{7}{}%
+\contentsline {section}{\numberline {4.4}Transformer Encoder Design}{7}{}%
+\contentsline {subsection}{\numberline {4.4.1}Self-Attention Mechanism}{7}{}%
+\contentsline {subsection}{\numberline {4.4.2}Token-Type Embeddings}{7}{}%
+\contentsline {subsection}{\numberline {4.4.3}Feature Enhancement}{7}{}%
+\contentsline {section}{\numberline {4.5}Integration Strategy}{7}{}%
+\contentsline {subsection}{\numberline {4.5.1}Information Flow Between Components}{7}{}%
+\contentsline {subsection}{\numberline {4.5.2}Tissue Context Integration}{7}{}%
+\contentsline {chapter}{\numberline {5}Two-Stage Training Methodology}{8}{}%
+\contentsline {section}{\numberline {5.1}Training Strategy Overview}{8}{}%
+\contentsline {section}{\numberline {5.2}Stage 1: CNN Autoencoder Pre-Training}{8}{}%
+\contentsline {subsection}{\numberline {5.2.1}Identity Mapping Objective}{8}{}%
+\contentsline {subsection}{\numberline {5.2.2}AdamW with OneCycleLR Optimization}{8}{}%
+\contentsline {subsection}{\numberline {5.2.3}Hyperparameter Selection}{8}{}%
+\contentsline {section}{\numberline {5.3}Stage 2: Transformer Enhancement Training}{8}{}%
+\contentsline {subsection}{\numberline {5.3.1}Frozen Decoder Approach}{8}{}%
+\contentsline {subsection}{\numberline {5.3.2}Linear Warmup with Cosine Decay}{8}{}%
+\contentsline {subsection}{\numberline {5.3.3}Differential Weight Decay}{8}{}%
+\contentsline {section}{\numberline {5.4}Data Augmentation Strategy}{8}{}%
+\contentsline {section}{\numberline {5.5}Implementation Details}{8}{}%
+\contentsline {subsection}{\numberline {5.5.1}Hardware Optimization}{8}{}%
+\contentsline {subsection}{\numberline {5.5.2}Experiment Tracking}{8}{}%
+\contentsline {chapter}{\numberline {6}Experimental Results and Analysis}{9}{}%
+\contentsline {section}{\numberline {6.1}Experimental Setup}{9}{}%
+\contentsline {subsection}{\numberline {6.1.1}Dataset Preparation}{9}{}%
+\contentsline {subsection}{\numberline {6.1.2}Evaluation Metrics}{9}{}%
+\contentsline {subsection}{\numberline {6.1.3}Baseline Methods}{9}{}%
+\contentsline {section}{\numberline {6.2}Stage 1 Results: CNN Autoencoder Performance}{9}{}%
+\contentsline {subsection}{\numberline {6.2.1}Reconstruction Quality Metrics}{9}{}%
+\contentsline {subsection}{\numberline {6.2.2}Feature Learning Analysis}{9}{}%
+\contentsline {section}{\numberline {6.3}Stage 2 Results: Transformer Enhancement}{9}{}%
+\contentsline {subsection}{\numberline {6.3.1}Baseline Mode Performance}{10}{}%
+\contentsline {subsection}{\numberline {6.3.2}Enhanced Mode with Tissue Context}{10}{}%
+\contentsline {subsection}{\numberline {6.3.3}Comparative Analysis}{10}{}%
+\contentsline {section}{\numberline {6.4}Ablation Studies}{10}{}%
+\contentsline {subsection}{\numberline {6.4.1}Impact of Tissue Patch Size}{11}{}%
+\contentsline {subsection}{\numberline {6.4.2}Effect of Transformer Layers and Heads}{11}{}%
+\contentsline {subsection}{\numberline {6.4.3}Sensitivity to Tissue Context Quality}{11}{}%
+\contentsline {section}{\numberline {6.5}Visualization and Interpretation}{11}{}%
+\contentsline {subsection}{\numberline {6.5.1}Attention Map Analysis}{11}{}%
+\contentsline {subsection}{\numberline {6.5.2}Reconstruction Quality Visualization}{11}{}%
+\contentsline {subsection}{\numberline {6.5.3}Error Distribution Analysis}{11}{}%
+\contentsline {chapter}{\numberline {7}Discussion}{12}{}%
+\contentsline {section}{\numberline {7.1}Key Findings and Insights}{12}{}%
+\contentsline {section}{\numberline {7.2}Clinical Implications}{12}{}%
+\contentsline {section}{\numberline {7.3}Limitations of Current Approach}{12}{}%
+\contentsline {section}{\numberline {7.4}Computational Efficiency Considerations}{12}{}%
+\contentsline {chapter}{\numberline {8}Conclusion and Future Work}{13}{}%
+\contentsline {section}{\numberline {8.1}Summary of Contributions}{13}{}%
+\contentsline {section}{\numberline {8.2}Future Research Directions}{13}{}%
+\contentsline {section}{\numberline {8.3}Potential Clinical Applications}{13}{}%
+\contentsline {chapter}{\numberline {A}Implementation Details}{15}{}%
+\contentsline {chapter}{\numberline {B}Additional Experimental Results}{16}{}%
+\contentsline {chapter}{\numberline {C}Mathematical Derivations}{17}{}%
