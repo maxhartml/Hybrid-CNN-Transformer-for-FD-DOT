@@ -152,6 +152,18 @@ class Stage1Trainer:
         elif USE_MODEL_COMPILATION:
             logger.warning("⚠️ PyTorch 2.0+ required for model compilation - skipping")
         
+        # EMA for evaluation only (optional quality improvement)
+        self.use_ema = globals().get("USE_EMA_EVAL", False)
+        self.ema_decay = globals().get("EMA_DECAY", 0.999)
+        self.ema = None
+        if self.use_ema:
+            from torch.optim.swa_utils import AveragedModel
+            # EMA with exponential decay
+            avg_fn = (lambda avg_p, p, n:
+                      avg_p.mul_(self.ema_decay).add_(p.data, alpha=1.0 - self.ema_decay))
+            self.ema = AveragedModel(self.model, avg_fn=avg_fn)
+            logger.info(f"🎯 EMA enabled for evaluation with decay={self.ema_decay}")
+        
         # Loss function - Standard RMSE loss
         self.criterion = RMSELoss()
         logger.info("📊 Using standard RMSE loss")
@@ -513,6 +525,11 @@ class Stage1Trainer:
                 
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
+                
+                # Update EMA after successful optimizer step (mixed precision)
+                took_step = True  # In mixed precision, step may be skipped on overflow, but we assume success for simplicity
+                if self.use_ema and took_step and self.ema is not None:
+                    self.ema.update_parameters(self.model)
             else:  # Standard precision training (CPU fallback)
                 outputs = self.model(standardized_ground_truth, tissue_patches=None)
                 logger.debug(f"📤 Model output shape: {outputs['reconstructed'].shape}")
@@ -532,6 +549,11 @@ class Stage1Trainer:
                     logger.warning(f"⚠️ High gradient norm detected: {grad_norm:.4f} > {GRADIENT_MONITOR_THRESHOLD}")
                 
                 self.optimizer.step()
+                
+                # Update EMA after successful optimizer step (standard precision)
+                took_step = True
+                if self.use_ema and took_step and self.ema is not None:
+                    self.ema.update_parameters(self.model)
                 
             # OneCycleLR updates per-batch (essential for proper LR scheduling)
             self.scheduler.step()
@@ -578,34 +600,39 @@ class Stage1Trainer:
         return avg_standardized_loss
     
     def _log_reconstruction_images(self, predictions, targets, epoch, phantom_ids=None, step=None):
-        """Log 3D reconstruction slices to W&B for visualization."""
+        """
+        Log 3D reconstruction slices to W&B for visualization.
+        
+        VALIDATION-ONLY METHOD: This method must only be called during validation,
+        never during training loops, to prevent training set leakage in visualizations.
+        """
         if not self.use_wandb:
             return
             
         try:
             from code.utils import viz_recon as viz
 
-            # Ensure channel-first
+            # Ensure channel-first [B,2,D,H,W]
             pred_std = predictions
-            if pred_std.shape[-1] == 2:  # channels-last
+            if pred_std.shape[-1] == 2:  # channels-last to channels-first
                 pred_std = pred_std.permute(0, 4, 1, 2, 3).contiguous()
             tgt_raw = targets
             if tgt_raw.shape[-1] == 2:
                 tgt_raw = tgt_raw.permute(0, 4, 1, 2, 3).contiguous()
 
-            # Inverse predictions to RAW
+            # Convert predictions from standardized to RAW mm⁻¹
             pred_raw = self.standardizer.inverse_transform_gt_chfirst(pred_std)
 
-            # Sanity asserts
+            # Safety assertions for RAW channel-first format
             _assert_raw_chfirst(pred_raw)
             _assert_raw_chfirst(tgt_raw)
 
-            # Log telemetry
+            # Log telemetry for debugging
             mu_a_rng = (float(pred_raw[:,0].min()), float(pred_raw[:,0].max()))
             mu_s_rng = (float(pred_raw[:,1].min()), float(pred_raw[:,1].max()))
             logger.info(f"[VIZ RAW] pred μₐ {mu_a_rng[0]:.4f}..{mu_a_rng[1]:.4f}, μ′ₛ {mu_s_rng[0]:.3f}..{mu_s_rng[1]:.3f}")
 
-            # Viz (raw-only)
+            # Call RAW-only visualization (no standardizer dependency)
             pred_raw, tgt_raw = viz.prepare_raw_DHW(pred_raw, tgt_raw)
             viz.log_recon_slices_raw(pred_raw, tgt_raw, epoch, phantom_ids=phantom_ids, prefix="Reconstructions")
             
@@ -636,7 +663,14 @@ class Stage1Trainer:
             raise RuntimeError("Standardizer must be fitted before validation. Call _fit_standardizer_on_train_data() first.")
         
         logger.debug("🔍 Starting validation epoch with standardized targets...")
-        self.model.eval()
+        
+        # Mark as validation phase - ensures visualization is validation-only
+        is_validation_phase = True  # makes intent explicit for future contributors
+        
+        # Use EMA model for evaluation if available, otherwise use training model
+        model_for_eval = self.ema.module if (self.use_ema and self.ema is not None) else self.model
+        model_for_eval.eval()
+        
         total_standardized_loss = 0
         num_batches = 0
         
@@ -661,11 +695,11 @@ class Stage1Trainer:
                 logger.debug("⚡ Forward pass on standardized targets (no gradients)...")
                 if self.scaler:  # Mixed precision validation
                     with autocast():
-                        outputs = self.model(standardized_ground_truth, tissue_patches=None)
+                        outputs = model_for_eval(standardized_ground_truth, tissue_patches=None)
                         # Loss computed in STANDARDIZED space (consistency with training)
                         standardized_loss = self.criterion(outputs['reconstructed'], standardized_ground_truth)
                 else:  # Standard precision validation
-                    outputs = self.model(standardized_ground_truth, tissue_patches=None)
+                    outputs = model_for_eval(standardized_ground_truth, tissue_patches=None)
                     # Loss computed in STANDARDIZED space (consistency with training) 
                     standardized_loss = self.criterion(outputs['reconstructed'], standardized_ground_truth)
                 
@@ -708,6 +742,33 @@ class Stage1Trainer:
         logger.info(f"📊 VALID SUMMARY | Raw_RMSE: {raw_metrics['raw_rmse_total']:.4f} | "
                    f"Dice: {raw_metrics['raw_dice']:.4f} | Contrast: {raw_metrics['raw_contrast']:.4f} | "
                    f"μₐ: {raw_metrics['raw_rmse_mu_a']:.4f} | μ′ₛ: {raw_metrics['raw_rmse_mu_s']:.4f}")
+        
+        # Log reconstruction images during validation only
+        if hasattr(self, '_current_epoch') and self.use_wandb:
+            try:
+                # Use EMA model for visualization if available
+                model_for_viz = self.ema.module if (self.use_ema and self.ema is not None) else self.model
+                model_for_viz.eval()
+                
+                # Get a sample batch for visualization
+                sample_batch = next(iter(data_loader))
+                raw_ground_truth = sample_batch['ground_truth'].to(self.device)
+                phantom_ids = sample_batch.get('phantom_id', torch.arange(raw_ground_truth.shape[0])).cpu().numpy()
+                
+                # Forward pass on standardized input using EMA model if available
+                standardized_ground_truth = self.standardizer.transform(raw_ground_truth)
+                with torch.no_grad():
+                    outputs = model_for_viz(standardized_ground_truth, tissue_patches=None)
+                
+                # Use the centralized logging method with RAW targets
+                self._log_reconstruction_images(
+                    predictions=outputs['reconstructed'], 
+                    targets=raw_ground_truth, 
+                    epoch=self._current_epoch, 
+                    phantom_ids=phantom_ids
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to log validation images: {e}")
         
         return avg_standardized_loss, raw_metrics
     
@@ -766,6 +827,7 @@ class Stage1Trainer:
             
             # Validate: Evaluate on STANDARDIZED targets, compute RAW metrics
             logger.debug(f"🔍 Beginning validation phase for epoch {epoch+1}")
+            self._current_epoch = epoch  # Store current epoch for visualization
             val_std_loss, val_raw_metrics = self.validate(data_loaders['val'])
             logger.info(f"🔍 VALID COMPLETE | Std_RMSE: {val_std_loss:.4f} | Raw_RMSE: {val_raw_metrics['raw_rmse_total']:.4f}")
             
@@ -788,26 +850,7 @@ class Stage1Trainer:
                     "Analysis/Std_Train_Val_Ratio": train_std_loss / val_std_loss if val_std_loss > 0 else 1.0,
                 })
                 
-                # Log reconstruction images every epoch (always)
-                try:
-                    sample_batch = next(iter(data_loaders['val']))
-                    raw_ground_truth = sample_batch['ground_truth'].to(self.device)
-                    phantom_ids = sample_batch.get('phantom_id', torch.arange(raw_ground_truth.shape[0])).cpu().numpy()
-                    
-                    # Forward pass on standardized input
-                    standardized_ground_truth = self.standardizer.transform(raw_ground_truth)
-                    with torch.no_grad():
-                        outputs = self.model(standardized_ground_truth, tissue_patches=None)
-                    
-                    # Use the centralized logging method
-                    self._log_reconstruction_images(
-                        predictions=outputs['reconstructed'], 
-                        targets=raw_ground_truth, 
-                        epoch=epoch, 
-                        phantom_ids=phantom_ids
-                    )
-                except Exception as e:
-                    logger.warning(f"⚠️ Failed to log images at epoch {epoch + 1}: {e}")            # Print epoch summary every epoch for important milestones
+            # Print epoch summary every epoch for important milestones
             logger.info(f"")
             logger.info(f"{'='*80}")
             logger.info(f"🚀 EPOCH {epoch+1:3d}/{epochs} SUMMARY")
@@ -826,9 +869,10 @@ class Stage1Trainer:
                 except:
                     pass
             
-            # Early stopping based on STANDARDIZED validation loss
-            if val_std_loss < self.best_val_loss:
-                improvement = self.best_val_loss - val_std_loss
+            # Early stopping based on STANDARDIZED validation loss with min_delta
+            improvement = self.best_val_loss - val_std_loss
+            improved = improvement > EARLY_STOPPING_MIN_DELTA  # NEW: minimum improvement threshold
+            if improved:
                 self.best_val_loss = val_std_loss
                 self.patience_counter = 0  # Reset patience counter
                 checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_STAGE1}"
@@ -836,13 +880,13 @@ class Stage1Trainer:
                 self.save_checkpoint(checkpoint_path, epoch, val_std_loss, val_raw_metrics)
             else:
                 self.patience_counter += 1
-                logger.debug(f"📊 No improvement. Current: {val_std_loss:.6f}, Best: {self.best_val_loss:.6f}, Patience: {self.patience_counter}/{self.early_stopping_patience}")
+                logger.debug(f"📊 No significant improvement. Current: {val_std_loss:.6f}, Best: {self.best_val_loss:.6f}, Improvement: {improvement:.6f} < {EARLY_STOPPING_MIN_DELTA:.6f}, Patience: {self.patience_counter}/{self.early_stopping_patience}")
                 
                 # Check for early stopping
                 if self.patience_counter >= self.early_stopping_patience:
                     logger.info(f"")
                     logger.info(f"🛑 EARLY STOPPING TRIGGERED")
-                    logger.info(f"🔄 No improvement for {self.early_stopping_patience} epochs")
+                    logger.info(f"🔄 No significant improvement (>{EARLY_STOPPING_MIN_DELTA:.6f}) for {self.early_stopping_patience} epochs")
                     logger.info(f"🏆 Best Std_RMSE achieved: {self.best_val_loss:.4f}")
                     self.early_stopped = True
                     break
