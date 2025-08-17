@@ -905,44 +905,39 @@ class Stage2Trainer:
         return avg_loss
     
     def _log_reconstruction_images(self, predictions, targets, nir_measurements, epoch, step=None, phantom_ids=None):
-        """
-        Log 3D reconstruction slices to W&B for visualization.
-        
-        VALIDATION-ONLY METHOD: This method must only be called during validation,
-        never during training loops, to prevent training set leakage in visualizations.
-        """
+        """Log 3D reconstruction slices to W&B for visualization (using hardened function)."""
         if not self.use_wandb:
             return
             
         try:
             from code.utils import viz_recon as viz
             
-            # Ensure channel-first [B,2,D,H,W]
+            # Ensure channel-first
             pred_std = predictions
-            if pred_std.shape[-1] == 2:  # channels-last to channels-first
+            if pred_std.shape[-1] == 2:  # channels-last
                 pred_std = pred_std.permute(0, 4, 1, 2, 3).contiguous()
             tgt_raw = targets
             if tgt_raw.shape[-1] == 2:
                 tgt_raw = tgt_raw.permute(0, 4, 1, 2, 3).contiguous()
 
-            # Convert predictions from standardized to RAW mm⁻¹
+            # Inverse predictions to RAW
             pred_raw = self.standardizers.ground_truth_standardizer.inverse_transform_gt_chfirst(pred_std)
 
-            # Safety assertions for RAW channel-first format
+            # Sanity asserts
             _assert_raw_chfirst(pred_raw)
             _assert_raw_chfirst(tgt_raw)
 
-            # Log telemetry for debugging
+            # Log telemetry
             mu_a_rng = (float(pred_raw[:,0].min()), float(pred_raw[:,0].max()))
             mu_s_rng = (float(pred_raw[:,1].min()), float(pred_raw[:,1].max()))
             logger.info(f"[VIZ RAW] pred μₐ {mu_a_rng[0]:.4f}..{mu_a_rng[1]:.4f}, μ′ₛ {mu_s_rng[0]:.3f}..{mu_s_rng[1]:.3f}")
 
-            # Call RAW-only visualization (no standardizer dependency)
+            # Viz (raw-only)
             pred_raw, tgt_raw = viz.prepare_raw_DHW(pred_raw, tgt_raw)
             viz.log_recon_slices_raw(pred_raw, tgt_raw, epoch, phantom_ids=phantom_ids, prefix="Reconstructions")
             
         except Exception as e:
-            logger.warning(f"⚠️ Failed to log reconstruction images: {e}")
+            self.logger.warning(f"⚠️ Failed to log reconstruction images: {e}")
     
     def validate(self, data_loader, epoch=0):
         """
@@ -963,10 +958,6 @@ class Stage2Trainer:
             raise RuntimeError("Standardizers must be fitted before validation.")
         
         logger.debug("🔍 Starting validation epoch...")
-        
-        # Mark as validation phase - ensures visualization is validation-only
-        is_validation_phase = True  # makes intent explicit for future contributors
-        
         self.model.eval()
         total_loss = 0
         num_batches = 0
@@ -1161,32 +1152,6 @@ class Stage2Trainer:
         # Combine metrics for return (maintain Stage 1 compatibility but add transformer metrics)
         combined_metrics = {**raw_metrics, **transformer_metrics}
         
-        # Log reconstruction images during validation only (for end-to-end validation epochs)
-        if do_e2e_validation and self.use_wandb:
-            try:
-                # Get a sample batch for visualization
-                sample_batch = next(iter(data_loader))
-                measurements = sample_batch['nir_measurements'].to(self.device)
-                targets = sample_batch['ground_truth'].to(self.device)
-                phantom_ids = sample_batch.get('phantom_id', torch.arange(targets.shape[0])).cpu().numpy()
-                tissue_patches = sample_batch.get('tissue_patches', None)
-                if tissue_patches is not None:
-                    tissue_patches = tissue_patches.to(self.device)
-                
-                with torch.no_grad():
-                    outputs = self.model(measurements, tissue_patches)
-                
-                # Use the centralized logging method with RAW targets
-                self._log_reconstruction_images(
-                    predictions=outputs['reconstructed'], 
-                    targets=targets, 
-                    nir_measurements=measurements, 
-                    epoch=epoch, 
-                    phantom_ids=phantom_ids
-                )
-            except Exception as e:
-                logger.warning(f"⚠️ Failed to log validation images: {e}")
-        
         return avg_loss, combined_metrics
     
     def train(self, data_loaders, epochs=EPOCHS_STAGE2):
@@ -1287,6 +1252,23 @@ class Stage2Trainer:
                     # === LEARNING RATE TRACKING ===
                     "train/lr": self.optimizer.param_groups[0]['lr']
                 })
+                
+                # Log reconstruction images every epoch
+                try:
+                    sample_batch = next(iter(data_loaders['val']))
+                    # Stage 2 uses NIR measurements as input and ground truth as target
+                    measurements = sample_batch['nir_measurements'].to(self.device)  # Fixed key
+                    targets = sample_batch['ground_truth'].to(self.device)          # Fixed key
+                    phantom_ids = sample_batch['phantom_id'].cpu().numpy()          # Extract phantom IDs
+                    tissue_patches = sample_batch.get('tissue_patches', None)
+                    if tissue_patches is not None:
+                        tissue_patches = tissue_patches.to(self.device)
+                    
+                    with torch.no_grad():
+                        outputs = self.model(measurements, tissue_patches)
+                    self._log_reconstruction_images(outputs['reconstructed'], targets, measurements, epoch, phantom_ids=phantom_ids)
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to log Stage 2 images at epoch {epoch + 1}: {e}")
             
             # Print epoch summary with clear visual formatting - MATCH STAGE 1 EXACTLY
             if epoch % PROGRESS_LOG_INTERVAL == 0 or epoch == epochs - FINAL_EPOCH_OFFSET:
