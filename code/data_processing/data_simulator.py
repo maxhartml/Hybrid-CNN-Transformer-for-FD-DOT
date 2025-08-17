@@ -88,15 +88,16 @@ import nirfasterff as ff  # type: ignore
 
 # Project imports
 from code.utils.logging_config import get_data_logger, NIRDOTLogger
+from code.training.training_config import VOLUME_SHAPE, N_MEASUREMENTS
 
 # Constants for phantom generation
 MASTER_RANDOM_SEED = 123456                  # Master seed for EXTENDED dataset (different from original 42)
 DEFAULT_N_PHANTOMS = 5000                    # Number of phantoms to generate for EXTENDED dataset (phantoms 5001-10000)
-DEFAULT_PHANTOM_SHAPE = (64, 64, 64)        # Default cubic phantom dimensions in voxels (power of 2)
+DEFAULT_PHANTOM_SHAPE = VOLUME_SHAPE         # Default cubic phantom dimensions in voxels from config
 DEFAULT_TISSUE_RADIUS_RANGE = (25, 30)      # Healthy tissue ellipsoid semi-axis range (25-30mm with 1mm voxels)
 DEFAULT_TUMOR_RADIUS_RANGE = (5, 15)        # Tumor ellipsoid semi-axis range (5-15mm with 1mm voxels)
 DEFAULT_MAX_TUMORS = 5                       # Maximum number of tumors per phantom
-DEFAULT_N_MEASUREMENTS = 256                # Number of measurements for training (subsampled from generated 1000)
+DEFAULT_N_MEASUREMENTS = N_MEASUREMENTS     # Number of measurements for training from config
 DEFAULT_N_GENERATED_MEASUREMENTS = 1000      # Number of measurements generated per phantom (50 sources × 20 detectors)
 DEFAULT_N_TRAINING_MEASUREMENTS = 256        # Number of measurements subsampled for training
 DEFAULT_MIN_PROBE_DISTANCE = 10              # Minimum source-detector separation [mm] for diffusive regime validity

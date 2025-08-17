@@ -673,31 +673,3 @@ def calculate_batch_metrics(metrics: NIRDOTMetrics, outputs: Dict[str, torch.Ten
         return metrics.calculate_all_metrics(
             pred, targets, enhanced_features, cnn_features, attention_weights
         )
-
-
-if __name__ == "__main__":
-    # Test metrics with dummy data
-    logger.info("🧪 Testing NIR-DOT metrics...")
-    
-    # Create test data
-    batch_size, channels, depth, height, width = 2, 2, 32, 32, 32
-    pred = torch.randn(batch_size, channels, depth, height, width)
-    target = torch.randn(batch_size, channels, depth, height, width)
-    
-    # Test Stage 1 metrics
-    stage1_metrics = NIRDOTMetrics("stage1")
-    recon_metrics = stage1_metrics.calculate_reconstruction_metrics(pred, target)
-    logger.info(f"📊 Stage 1 metrics: {recon_metrics}")
-    
-    # Test Stage 2 metrics
-    stage2_metrics = NIRDOTMetrics("stage2")
-    enhanced_features = torch.randn(batch_size, 256)
-    cnn_features = torch.randn(batch_size, 256)
-    attention_weights = torch.randn(batch_size, 4, 8, 2, 2)  # [B, L, H, S, S]
-    
-    all_metrics = stage2_metrics.calculate_all_metrics(
-        pred, target, enhanced_features, cnn_features, attention_weights
-    )
-    logger.info(f"📊 Stage 2 metrics: {all_metrics}")
-    
-    logger.info("✅ Metrics testing completed successfully")

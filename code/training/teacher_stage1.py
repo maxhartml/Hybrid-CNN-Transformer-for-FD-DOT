@@ -17,7 +17,11 @@ code_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(code_dir))
 
 from models.hybrid_model import HybridCNNTransformer
-from training.training_config import LATENT_DIM, TRAINING_STAGE1, CUDA_DEVICE
+from training.training_config import LATENT_DIM, TRAINING_STAGE1, CUDA_DEVICE, N_MEASUREMENTS
+from utils.logging_config import get_training_logger
+
+# Initialize module logger
+logger = get_training_logger(__name__)
 
 # Default device - can be overridden in constructor
 DEFAULT_DEVICE = torch.device(CUDA_DEVICE if torch.cuda.is_available() else "cpu")
@@ -29,7 +33,7 @@ class TeacherStage1:
     
     This class loads a pre-trained Stage 1 encoder-decoder and uses only
     the encoder portion to generate latent representations that serve as
-    ground truth targets for Stage 2 transformer training.
+    ground truth targets for Stage 2 latent-only training with affine alignment.
     """
     
     def __init__(self, checkpoint_path: str, device: torch.device = DEFAULT_DEVICE):
@@ -181,35 +185,17 @@ def load_teacher_stage1(checkpoint_path: str = None, device: torch.device = DEFA
         TeacherStage1 instance
     """
     if checkpoint_path is None:
-        # Default to the best Stage 1 checkpoint
-        default_path = "/home/ubuntu/NIR-DOT/checkpoints/stage1_best.pth"
-        if os.path.exists(default_path):
-            checkpoint_path = default_path
-        else:
+        # Automatically find the best Stage 1 checkpoint
+        from .training_utils import find_best_checkpoint
+        from .training_config import CHECKPOINT_BASE_DIR
+        
+        logger.info("🔍 No checkpoint path provided - searching for best Stage 1 checkpoint...")
+        checkpoint_path = find_best_checkpoint(CHECKPOINT_BASE_DIR, "stage1")
+        
+        if checkpoint_path is None:
             raise FileNotFoundError(
-                f"No checkpoint path provided and default not found: {default_path}"
+                f"No valid Stage 1 checkpoints found in {CHECKPOINT_BASE_DIR}. "
+                f"Please run Stage 1 training first or provide a specific checkpoint path."
             )
     
     return TeacherStage1(checkpoint_path, device)
-
-
-if __name__ == "__main__":
-    # Test the teacher model loading
-    try:
-        teacher = load_teacher_stage1()
-        print("✓ Teacher model loaded successfully")
-        
-        # Test with dummy NIR measurements (not image data)
-        dummy_input = torch.randn(2, 256, 8).to(DEFAULT_DEVICE)  # Batch of 2, 256 measurements, 8 features
-        latent = teacher.get_latent_representations(dummy_input)
-        print(f"✓ Generated latent shape: {latent.shape}")
-        print(f"✓ Expected latent dim: {LATENT_DIM}")
-        
-        # Test full reconstruction
-        latent_full, reconstruction = teacher.get_full_reconstruction(dummy_input)
-        print(f"✓ Full reconstruction shapes: latent={latent_full.shape}, recon={reconstruction.shape}")
-        
-    except Exception as e:
-        print(f"✗ Teacher model test failed: {e}")
-        import traceback
-        traceback.print_exc()

@@ -48,6 +48,7 @@ from code.utils.metrics import NIRDOTMetrics, create_metrics_for_stage, calculat
 from code.utils.standardizers import PerChannelZScore, fit_standardizer_on_dataloader
 from code.utils.viz_recon import log_recon_slices_raw
 from .training_config import *  # Import all training config
+from .training_utils import save_checkpoint
 
 # =============================================================================
 # STAGE-SPECIFIC CONFIGURATION
@@ -385,7 +386,7 @@ class Stage1Trainer:
                 ground_truth = batch['ground_truth'].cpu()  # Keep on CPU for memory efficiency
                 all_volumes.append(ground_truth)
                 
-                if (batch_idx + 1) % 20 == 0:
+                if (batch_idx + 1) % STANDARDIZER_BATCH_LOG_INTERVAL == 0:
                     logger.info(f"   Processed {batch_idx + 1}/{len(train_loader)} batches...")
         
         # Concatenate all volumes and fit standardizer
@@ -559,7 +560,7 @@ class Stage1Trainer:
             logger.debug(f"🔧 Batch {batch_idx + 1} | Gradient Norm: {grad_norm:.3f}")
             
             # Additional detailed logging at DEBUG level
-            if batch_idx % 10 == 0:  # Log every 10 batches for stability monitoring
+            if batch_idx % TRAINING_BATCH_LOG_INTERVAL == 0:  # Log every N batches for stability monitoring
                 logger.debug(f"🔍 Detailed: Batch {batch_idx}: Std_Loss = {loss.item():.6f}, "
                            f"Running Avg = {total_standardized_loss/num_batches:.6f}")
         
@@ -825,7 +826,7 @@ class Stage1Trainer:
             logger.info(f"{'='*80}")
             
             # Log GPU stats every 5 epochs
-            if epoch % 5 == 0 and torch.cuda.is_available():
+            if epoch % GPU_MEMORY_LOG_INTERVAL == 0 and torch.cuda.is_available():
                 try:
                     gpu_memory = torch.cuda.max_memory_allocated() / 1024**3
                     logger.debug(f"🖥️ GPU Memory: {gpu_memory:.1f}GB")
@@ -837,9 +838,11 @@ class Stage1Trainer:
                 improvement = self.best_val_loss - val_std_loss
                 self.best_val_loss = val_std_loss
                 self.patience_counter = 0  # Reset patience counter
-                checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_STAGE1}"
+                
+                # Save checkpoint with timestamped filename
+                checkpoint_base_path = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_STAGE1}"
                 logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best Std_RMSE: {self.best_val_loss:.4f}")
-                self.save_checkpoint(checkpoint_path, epoch, val_std_loss, val_raw_metrics)
+                actual_path = self.save_checkpoint(checkpoint_base_path, epoch, val_std_loss, val_raw_metrics)
             else:
                 self.patience_counter += 1
                 logger.debug(f"📊 No improvement. Current: {val_std_loss:.6f}, Best: {self.best_val_loss:.6f}, Patience: {self.patience_counter}/{self.early_stopping_patience}")
@@ -900,27 +903,26 @@ class Stage1Trainer:
         """
         logger.debug(f"💾 Saving Stage 1 checkpoint: epoch={epoch}, val_loss={val_loss:.6f}")
         
-        # Only create directory if path has a directory component
-        dir_path = os.path.dirname(path)
-        if dir_path:  # Only create directory if it's not empty (i.e., not current directory)
-            os.makedirs(dir_path, exist_ok=True)
-            logger.debug(f"📁 Created checkpoint directory: {dir_path}")
-        
-        checkpoint_data = {
-            'epoch': epoch,
-            'model_state_dict': self.model.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict(),
-            'val_loss': val_loss,  # Standardized validation loss
+        # Prepare Stage 1 specific data
+        extra_data = {
             'standardizer': self.standardizer.state_dict() if self.standardizer_fitted else None,
             'standardizer_fitted': self.standardizer_fitted,
         }
         
         # Add raw metrics if provided
         if val_raw_metrics is not None:
-            checkpoint_data['val_raw_metrics'] = val_raw_metrics
-        
-        torch.save(checkpoint_data, path)
-        logger.info(f"💾 ✅ CHECKPOINT SAVED | Path: {path} | Epoch: {epoch+1} | Std_Loss: {val_loss:.6f}")
-        if val_raw_metrics:
+            extra_data['val_raw_metrics'] = val_raw_metrics
             logger.info(f"📊 Raw metrics saved: RMSE={val_raw_metrics.get('raw_rmse_total', 0):.4f}, Dice={val_raw_metrics.get('raw_dice', 0):.4f}")
-        logger.debug(f"📊 Checkpoint data keys: {list(checkpoint_data.keys())}")
+        
+        # Use common checkpoint saving function with timestamped filename
+        actual_path = save_checkpoint(
+            path=path,
+            epoch=epoch,
+            model_state=self.model.state_dict(),
+            optimizer_state=self.optimizer.state_dict(),
+            val_loss=val_loss,
+            stage_name="Stage 1",
+            extra_data=extra_data
+        )
+        
+        return actual_path

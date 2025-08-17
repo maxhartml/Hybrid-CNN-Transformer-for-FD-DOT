@@ -1288,6 +1288,4 @@ def main_menu():
         return None
 
 
-if __name__ == "__main__":
-    # Run the main dual-mode menu
-    main_menu()
+

@@ -203,9 +203,3 @@ performance and enhancement capabilities.
 The implementation is production-ready and will provide valuable quantitative
 evidence for the dissertation's claims about the enhanced hybrid approach.
 """
-
-if __name__ == "__main__":
-    print("📊 Enhanced Metrics Implementation Summary")
-    print("✅ Step 2: Core Metrics (SSIM, PSNR, Channel RMSE) - COMPLETE")
-    print("✅ Step 3: Feature Analysis (Enhancement Ratio, Attention Entropy) - COMPLETE")
-    print("🎯 Ready for production training and evaluation!")

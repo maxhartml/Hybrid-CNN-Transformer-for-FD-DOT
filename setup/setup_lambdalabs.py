@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-🚀 Simple GPU Test Script
+🚀 Simple GP        return False
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return Falseipt
 
 Just tests if PyTorch and GPU are working properly.
 

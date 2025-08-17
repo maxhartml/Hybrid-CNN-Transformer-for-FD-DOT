@@ -26,14 +26,15 @@ from typing import Optional
 import logging
 
 from code.utils.logging_config import get_model_logger
+from code.training.training_config import N_MEASUREMENTS, EMBED_DIM, ENCODED_SCAN_DIM
 
 # =============================================================================
 # CONSTANTS
 # =============================================================================
 
-# Default dimensions
-DEFAULT_EMBED_DIM = 256                 # Input from transformer
-DEFAULT_ENCODED_SCAN_DIM = 256          # Output dimension for CNN decoder
+# Default dimensions - use centralized config values
+DEFAULT_EMBED_DIM = EMBED_DIM                    # Input from transformer
+DEFAULT_ENCODED_SCAN_DIM = ENCODED_SCAN_DIM     # Output dimension for CNN decoder
 
 # Weight initialization
 WEIGHT_INIT_STD = 0.02
@@ -104,14 +105,14 @@ class GlobalPoolingEncoder(nn.Module):
     
     def forward(self, transformer_output: torch.Tensor) -> torch.Tensor:
         """
-        SIMPLIFIED forward pass for fixed 256-measurement sequences (Option C).
+        SIMPLIFIED forward pass for fixed N_MEASUREMENTS-measurement sequences (Option C).
         
-        Applies simple global average pooling across all 256 tokens since we eliminated
+        Applies simple global average pooling across all {N_MEASUREMENTS} tokens since we eliminated
         attention masking complexity with fixed sequence lengths.
         
         Args:
-            transformer_output (torch.Tensor): Shape [batch_size, 256, embed_dim]
-                Output from transformer encoder (always 256 tokens)
+            transformer_output (torch.Tensor): Shape [batch_size, {N_MEASUREMENTS}, embed_dim]
+                Output from transformer encoder (always {N_MEASUREMENTS} tokens)
         
         Returns:
             torch.Tensor: Encoded scan of shape [batch_size, encoded_scan_dim]
@@ -119,9 +120,9 @@ class GlobalPoolingEncoder(nn.Module):
         """
         batch_size, seq_len, embed_dim = transformer_output.shape
         assert embed_dim == self.embed_dim, f"Expected {self.embed_dim}D input, got {embed_dim}D"
-        assert seq_len == 256, f"Expected exactly 256 tokens, got {seq_len}"
+        assert seq_len == N_MEASUREMENTS, f"Expected exactly {N_MEASUREMENTS} tokens, got {seq_len}"
         
-        # Simple global average pooling across all 256 tokens
+        # Simple global average pooling across all N_MEASUREMENTS tokens
         pooled = transformer_output.mean(dim=1)  # [batch, embed_dim]
         
         # Project to encoded scan dimension

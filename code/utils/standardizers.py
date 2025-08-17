@@ -1263,30 +1263,4 @@ def fit_standardizer_on_dataloader(dataloader, device: Optional[torch.device] = 
     return standardizer
 
 
-if __name__ == "__main__":
-    # Simple test
-    logger.info("🧪 Testing PerChannelZScore standardizer...")
-    
-    # Create synthetic test data
-    torch.manual_seed(42)
-    test_data = torch.randn(10, 2, 8, 8, 8) * 2 + 1  # [N, C, D, H, W]
-    
-    # Test standardizer
-    standardizer = PerChannelZScore()
-    standardizer.fit(test_data)
-    
-    # Transform and inverse transform
-    standardized = standardizer.transform(test_data)
-    recovered = standardizer.inverse_transform(standardized)
-    
-    # Check recovery accuracy
-    recovery_error = torch.mean(torch.abs(test_data - recovered))
-    logger.info(f"Recovery error: {recovery_error:.8f} (should be ~0)")
-    
-    # Check standardization properties
-    std_means = torch.mean(standardized, dim=[0, 2, 3, 4])
-    std_stds = torch.std(standardized, dim=[0, 2, 3, 4])
-    logger.info(f"Standardized means: {std_means} (should be ~0)")
-    logger.info(f"Standardized stds: {std_stds} (should be ~1)")
-    
-    logger.info("✅ Standardizer test completed!")
+

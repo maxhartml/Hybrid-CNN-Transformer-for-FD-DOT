@@ -49,6 +49,7 @@ from code.utils.metrics import NIRDOTMetrics, create_metrics_for_stage, calculat
 from code.utils.standardizers import Stage2StandardizerCollection
 from code.data_processing.data_loader import create_phantom_dataloaders  # For standardizer fitting
 from .training_config import *  # Import all training config
+from .training_utils import save_checkpoint, find_best_checkpoint
 
 # =============================================================================
 # PERFORMANCE OPTIMIZATIONS
@@ -108,15 +109,16 @@ class Stage2Trainer:
         >>> trainer.train(data_loaders, epochs=EPOCHS_STAGE2)
     """
     
-    def __init__(self, stage1_checkpoint_path, use_tissue_patches=USE_TISSUE_PATCHES_STAGE2, 
+    def __init__(self, stage1_checkpoint_path=None, use_tissue_patches=USE_TISSUE_PATCHES_STAGE2, 
                  learning_rate=STAGE2_BASE_LR, device=CPU_DEVICE, use_wandb=True,
-                 early_stopping_patience=EARLY_STOPPING_PATIENCE):
+                 early_stopping_patience=EARLY_STOPPING_PATIENCE, checkpoint_dir=None):
         """
         Initialize the Stage 2 trainer with pre-trained CNN components.
         
         Args:
-            stage1_checkpoint_path (str): Path to Stage 1 checkpoint file containing
-                                        pre-trained CNN autoencoder weights
+            stage1_checkpoint_path (str, optional): Path to Stage 1 checkpoint file containing
+                                        pre-trained CNN autoencoder weights. If None, 
+                                        automatically selects the best Stage 1 checkpoint
             use_tissue_patches (bool): Whether to enable tissue patch integration
                                      for enhanced spatial modeling. Default from constants
             learning_rate (float): Learning rate for transformer optimization.
@@ -124,12 +126,26 @@ class Stage2Trainer:
             device (str): Training device ('cpu' or 'cuda'). Default from constants
             use_wandb (bool): Whether to use Weights & Biases logging. Default: True
             early_stopping_patience (int): Early stopping patience in epochs. Default: 25
+            checkpoint_dir (str, optional): Directory to search for Stage 1 checkpoints.
+                                          Default: uses CHECKPOINT_BASE_DIR from config
         """
         self.device = torch.device(device)
         self.learning_rate = learning_rate
         self.use_tissue_patches = use_tissue_patches
         self.use_wandb = use_wandb
         self.early_stopping_patience = early_stopping_patience
+        
+        # Automatic checkpoint selection if path not provided
+        if stage1_checkpoint_path is None:
+            checkpoint_search_dir = checkpoint_dir or CHECKPOINT_BASE_DIR
+            logger.info("🔍 No Stage 1 checkpoint path provided - searching for best checkpoint...")
+            stage1_checkpoint_path = find_best_checkpoint(checkpoint_search_dir, "stage1")
+            
+            if stage1_checkpoint_path is None:
+                raise FileNotFoundError(
+                    f"No valid Stage 1 checkpoints found in {checkpoint_search_dir}. "
+                    f"Please run Stage 1 training first or provide a specific checkpoint path."
+                )
         
         # Initialize logger for this trainer instance
         self.logger = get_training_logger(__name__)
@@ -587,7 +603,7 @@ class Stage2Trainer:
             if step < warmup_steps:
                 # Linear warmup: Start at 1% of base LR, grow to 100% of base LR
                 # This prevents the learning rate from being too small at the start
-                min_lr_factor = 0.01  # Start at 1% of base LR instead of 0%
+                min_lr_factor = MIN_LR_FACTOR  # Start at 1% of base LR instead of 0%
                 warmup_factor = min_lr_factor + (1.0 - min_lr_factor) * (step / max(1, warmup_steps))
                 logger.debug(f"LR Schedule - Step {step}: Warmup factor = {warmup_factor:.6f}")
                 return warmup_factor
@@ -812,15 +828,15 @@ class Stage2Trainer:
                     # DEBUGGING: Log transformer activity details only at the final batch of epoch
                     if (batch_idx + 1) == len(data_loader):
                         attn_weights = outputs['attention_weights']
-                        logger.info(f"🧠 Transformer attention stats: shape={attn_weights.shape}, "
-                                  f"min={attn_weights.min():.4f}, max={attn_weights.max():.4f}, "
-                                  f"mean={attn_weights.mean():.4f}")
+                        logger.debug(f"🧠 Transformer attention stats: shape={attn_weights.shape}, "
+                                   f"min={attn_weights.min():.4f}, max={attn_weights.max():.4f}, "
+                                   f"mean={attn_weights.mean():.4f}")
                     
                     if (batch_idx + 1) == len(data_loader) and 'enhanced_features' in outputs and outputs['enhanced_features'] is not None:
                         features = outputs['enhanced_features']
-                        logger.info(f"✨ Enhanced features stats: shape={features.shape}, "
-                                  f"min={features.min():.4f}, max={features.max():.4f}, "
-                                  f"mean={features.mean():.4f}, std={features.std():.4f}")
+                        logger.debug(f"✨ Enhanced features stats: shape={features.shape}, "
+                                   f"min={features.min():.4f}, max={features.max():.4f}, "
+                                   f"mean={features.mean():.4f}, std={features.std():.4f}")
                     
                     # SAFETY: Check for NaN values immediately after forward pass
                     if torch.isnan(outputs['reconstructed']).any():
@@ -888,7 +904,7 @@ class Stage2Trainer:
                 logger.debug(f"🔧 Batch {batch_idx + 1} | Gradient Norm: {grad_norm:.3f}")
             
             # Additional detailed logging at DEBUG level
-            if DEBUG_VERBOSE and batch_idx % 10 == 0:
+            if DEBUG_VERBOSE and batch_idx % TRAINING_BATCH_LOG_INTERVAL == 0:
                 logger.debug(f"🔍 Detailed: Batch {batch_idx}: Loss = {loss.item():.6f}, "
                            f"Running Avg = {total_loss/num_batches:.6f}")
         
@@ -1323,7 +1339,7 @@ class Stage2Trainer:
                 
                 
             # Log GPU stats every 5 epochs
-            if epoch % 5 == 0 and torch.cuda.is_available():
+            if epoch % GPU_MEMORY_LOG_INTERVAL == 0 and torch.cuda.is_available():
                 log_gpu_stats()
             
             # Learning rate scheduling (Linear Warmup + Cosine Decay updates per-batch)
@@ -1334,9 +1350,9 @@ class Stage2Trainer:
                 improvement = best_val_loss - val_std_loss
                 best_val_loss = val_std_loss
                 checkpoint_filename = CHECKPOINT_STAGE2_ENHANCED if self.use_tissue_patches else CHECKPOINT_STAGE2_BASELINE
-                checkpoint_path = f"{CHECKPOINT_BASE_DIR}/{checkpoint_filename}"
+                checkpoint_base_path = f"{CHECKPOINT_BASE_DIR}/{checkpoint_filename}"
                 logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best Std_RMSE: {best_val_loss:.4f}")
-                self.save_checkpoint(checkpoint_path, epoch, val_std_loss)
+                actual_path = self.save_checkpoint(checkpoint_base_path, epoch, val_std_loss)
             else:
                 logger.debug(f"📊 Stage 2 no improvement. Current: {val_std_loss:.6f}, Best: {best_val_loss:.6f}")
         
@@ -1377,18 +1393,23 @@ class Stage2Trainer:
         - Training metadata and configuration
         - Tissue patch usage flag for proper restoration
         """
-        import os
-        # Only create directory if path has a directory component
-        dir_path = os.path.dirname(path)
-        if dir_path:  # Only create directory if it's not empty (i.e., not current directory)
-            os.makedirs(dir_path, exist_ok=True)
-        
-        torch.save({
-            'epoch': epoch,
-            'model_state_dict': self.model.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict(),
-            'val_loss': val_loss,
+        # Prepare Stage 2 specific data
+        extra_data = {
             'use_tissue_patches': self.use_tissue_patches
-        }, path)
+        }
+        
         mode = "Enhanced" if self.use_tissue_patches else "Baseline"
-        logger.info(f"💾 ✅ CHECKPOINT SAVED | Mode: {mode} | Path: {path} | Epoch: {epoch+1} | Val Loss: {val_loss:.6f}")
+        stage_name = f"Stage 2 ({mode})"
+        
+        # Use common checkpoint saving function with timestamped filename
+        actual_path = save_checkpoint(
+            path=path,
+            epoch=epoch,
+            model_state=self.model.state_dict(),
+            optimizer_state=self.optimizer.state_dict(),
+            val_loss=val_loss,
+            stage_name=stage_name,
+            extra_data=extra_data
+        )
+        
+        return actual_path

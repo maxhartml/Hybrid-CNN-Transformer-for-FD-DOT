@@ -6,7 +6,7 @@ This module provides PyTorch DataLoader classes for NIR phantom datasets with
 phantom-level loading and data augmentation through measurement subsampling.
 
 Key Features:
-- Phantom-level loading (complete phantoms with 256 subsampled measurements)
+- Phantom-level loading (complete phantoms with {N_MEASUREMENTS} subsampled measurements)
 - Data augmentation via random measurement subsampling from 1000 generated measurements
 - Efficient multi-CPU data loading with hardware optimization
 - Train/val/test splits at phantom level to prevent data leakage
@@ -28,7 +28,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 
 # Import tissue patch config flag
-from code.training.training_config import USE_TISSUE_PATCHES_STAGE2
+from code.training.training_config import USE_TISSUE_PATCHES_STAGE2, VOLUME_SHAPE, N_MEASUREMENTS
 
 # ===============================================================================
 # CONFIGURATION AND CONSTANTS
@@ -37,7 +37,7 @@ from code.training.training_config import USE_TISSUE_PATCHES_STAGE2
 # Data structure configuration
 DEFAULT_NIR_FEATURE_DIMENSION = 8      # [log_amp, phase, src_x, src_y, src_z, det_x, det_y, det_z]
 DEFAULT_OPTICAL_CHANNELS = 2            # [μ_a, μ_s] absorption and scattering
-DEFAULT_PHANTOM_SHAPE = (64, 64, 64)    # Volume dimensions
+DEFAULT_PHANTOM_SHAPE = VOLUME_SHAPE    # Volume dimensions - centralized from training_config
 DEFAULT_N_GENERATED_MEASUREMENTS = 1000 # Generated measurements per phantom
 # Note: Removed DEFAULT_N_TRAINING_MEASUREMENTS for dynamic undersampling at model level
 
@@ -256,7 +256,7 @@ class NIRPhantomDataset(Dataset):
     """
     Dataset for NIR phantom data with phantom-level loading and measurement subsampling.
     
-    This dataset loads complete phantoms (1000 measurements) and subsamples to 256 
+    This dataset loads complete phantoms (1000 measurements) and subsamples to {N_MEASUREMENTS} 
     measurements for training to enable data augmentation. Each phantom contains
     ground truth optical properties and NIR measurements from optimized probe placement.
     """
@@ -369,11 +369,11 @@ class NIRPhantomDataset(Dataset):
         Load complete phantom data with subsampled measurements for training.
         
         This method loads phantom data (1000 generated measurements from optimized probe placement)
-        and randomly subsamples 256 measurements for training to enable data augmentation.
+        and randomly subsamples {N_MEASUREMENTS} measurements for training to enable data augmentation.
         
         🎯 **Data Augmentation Strategy:**
         • Generate 1000 measurements per phantom (50 sources × 20 detectors)
-        • Randomly subsample 256 measurements for each training batch
+        • Randomly subsample {N_MEASUREMENTS} measurements for each training batch
         • Different subsets provide 3.9x more training combinations
         • Maintains consistent training pipeline dimensions
         
@@ -382,7 +382,7 @@ class NIRPhantomDataset(Dataset):
             
         Returns:
             Dict[str, torch.Tensor]: Complete phantom data containing:
-                - 'nir_measurements': Subsampled NIR measurements (256, 8) - 8D features per measurement
+                - 'nir_measurements': Subsampled NIR measurements ({N_MEASUREMENTS}, 8) - 8D features per measurement
                 - 'ground_truth': Target volume (2, 64, 64, 64) - same for all measurements
                 - 'phantom_id': Phantom identifier for tracking
         """
@@ -554,39 +554,4 @@ def create_phantom_dataloaders(data_dir: str = "../data",
     return dataloaders
 
 
-# ===============================================================================
-# MAIN FUNCTION FOR TESTING
-# ===============================================================================
 
-def main():
-    """Test the cleaned data loader."""
-    import logging
-    
-    # Set up logging
-    logging.basicConfig(level=logging.INFO)
-    
-    # Test data loader creation
-    try:
-        dataloaders = create_phantom_dataloaders(
-            data_dir="../data",
-            batch_size=2,
-            num_workers=2
-        )
-        
-        # Test loading a single batch
-        train_loader = dataloaders['train']
-        for batch in train_loader:
-            print(f"Batch shapes:")
-            print(f"  NIR measurements: {batch['nir_measurements'].shape}")
-            print(f"  Ground truth: {batch['ground_truth'].shape}")
-            print(f"  Phantom IDs: {batch['phantom_id'].shape}")
-            break
-            
-        print("✅ Data loader test successful!")
-        
-    except Exception as e:
-        print(f"❌ Data loader test failed: {e}")
-
-
-if __name__ == "__main__":
-    main()

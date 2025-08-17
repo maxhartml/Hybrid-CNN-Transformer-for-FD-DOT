@@ -41,6 +41,7 @@ import torch.nn.functional as F
 
 # Project imports
 from code.utils.logging_config import get_model_logger
+from code.training.training_config import VOLUME_SHAPE, LATENT_DIM
 
 # =============================================================================
 # HYPERPARAMETERS AND CONSTANTS
@@ -48,9 +49,9 @@ from code.utils.logging_config import get_model_logger
 
 # Model Architecture Parameters
 INPUT_CHANNELS = 2                      # Absorption and scattering coefficients
-OUTPUT_SIZE = (64, 64, 64)              # Target volume dimensions (power of 2)
+OUTPUT_SIZE = VOLUME_SHAPE              # Target volume dimensions from config
 BASE_CHANNELS = 16                      # Base number of CNN channels (optimized for ~7M params)
-FEATURE_DIM = 256                       # Encoder output feature dimension (required by supervisor)
+FEATURE_DIM = LATENT_DIM                # Encoder output feature dimension - matches latent dimension
 
 # Encoder Architecture Configuration
 ENCODER_KERNEL_INITIAL = 7              # Initial convolution kernel size

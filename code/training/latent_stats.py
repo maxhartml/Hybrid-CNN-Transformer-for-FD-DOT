@@ -8,6 +8,7 @@ cosine similarity, and distribution metrics between teacher and student.
 
 import torch
 import torch.nn.functional as F
+from .training_config import LATENT_DIM
 import numpy as np
 from typing import Dict, Tuple, Optional
 
@@ -233,36 +234,3 @@ def analyze_latent_distribution(latent: torch.Tensor, prefix: str = "") -> Dict[
         return stats
 
 
-if __name__ == "__main__":
-    # Test latent statistics
-    print("Testing latent statistics...")
-    
-    # Create dummy teacher and student latents
-    batch_size, latent_dim = 32, 256
-    teacher_latent = torch.randn(batch_size, latent_dim)
-    student_latent = teacher_latent + 0.1 * torch.randn(batch_size, latent_dim)  # Similar but not identical
-    
-    # Test LatentStats class
-    stats_tracker = LatentStats()
-    batch_stats = stats_tracker.update(teacher_latent, student_latent)
-    epoch_stats = stats_tracker.compute_epoch_stats()
-    
-    print("✓ Batch stats:", {k: f"{v:.4f}" for k, v in batch_stats.items()})
-    print("✓ Epoch stats:", {k: f"{v:.4f}" for k, v in epoch_stats.items()})
-    
-    # Test detailed stats
-    detailed_stats = stats_tracker.compute_detailed_stats(teacher_latent, student_latent)
-    print("✓ Detailed stats keys:", list(detailed_stats.keys()))
-    
-    # Test individual functions
-    rmse = compute_latent_rmse(teacher_latent, student_latent)
-    cosine_sim = compute_latent_cosine_similarity(teacher_latent, student_latent)
-    print(f"✓ RMSE: {rmse:.4f}, Cosine sim: {cosine_sim:.4f}")
-    
-    # Test distribution analysis
-    teacher_dist = analyze_latent_distribution(teacher_latent, "teacher_")
-    student_dist = analyze_latent_distribution(student_latent, "student_")
-    print("✓ Teacher distribution keys:", list(teacher_dist.keys()))
-    print("✓ Student distribution keys:", list(student_dist.keys()))
-    
-    print("✓ All latent statistics tests passed!")

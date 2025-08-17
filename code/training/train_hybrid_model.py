@@ -249,7 +249,7 @@ def main():
         
         logger.debug("🏗️  Initializing Stage 2 trainer...")
         trainer = Stage2Trainer(
-            stage1_checkpoint_path=STAGE1_CHECKPOINT_PATH,
+            stage1_checkpoint_path=None,  # Auto-select best Stage 1 checkpoint
             use_tissue_patches=use_tissue_patches,
             learning_rate=learning_rate,
             device=DEVICE,

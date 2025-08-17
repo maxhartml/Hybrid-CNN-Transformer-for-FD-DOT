@@ -34,7 +34,15 @@ DEBUG_VERBOSE = False                   # Set to True to enable verbose debug lo
 
 # Latent-only training control (Stage 2)
 TRAIN_STAGE2_LATENT_ONLY = True         # Train on latent RMSE only (no decoder during training)
+
+# Architecture dimensions (consistent across pipeline)
 LATENT_DIM = 256                        # Latent dimension for teacher-student matching
+EMBED_DIM = 256                         # Transformer embedding dimension  
+ENCODED_SCAN_DIM = 256                  # Global pooling output dimension
+
+# Volume and measurement dimensions
+VOLUME_SHAPE = (64, 64, 64)             # Volume dimensions (D, H, W) in voxels
+N_MEASUREMENTS = 256                    # Number of measurements per phantom (subsampled from 1000)
 
 # Validation cadence for end-to-end metrics
 VAL_E2E_EVERY_K_EPOCHS = 1              # Decode + raw metrics every K epochs
@@ -132,13 +140,27 @@ ADAMW_EPS_STAGE2 = 1e-8            # Numerical stability epsilon - prevents opti
 # CHECKPOINT AND LOGGING CONFIGURATION
 # =============================================================================
 
-# Checkpoint Paths
+# Checkpoint Management System
+# The new checkpoint system saves timestamped files to prevent overwrites and
+# automatically selects the best model based on validation loss.
+#
+# Filename Format: checkpoint_{stage}_{timestamp}_loss{val_loss:.4f}.pt
+# Example: checkpoint_stage1_20250817-201530_loss0.3917.pt
+#
+# Benefits:
+# - No accidental overwrites of good checkpoints
+# - Automatic best model selection for Stage 2 initialization
+# - Complete training history preservation
+# - Robust filename parsing for loss extraction
+
 CHECKPOINT_BASE_DIR = "checkpoints"
+
+# Legacy checkpoint names (used as base for timestamped generation)
 CHECKPOINT_STAGE1 = "stage1_best.pth"
 CHECKPOINT_STAGE2_BASELINE = "stage2_baseline_best.pth"
 CHECKPOINT_STAGE2_ENHANCED = "stage2_enhanced_best.pth"
 
-# Full checkpoint paths (for easy import)
+# Full checkpoint paths (used as base paths for timestamped generation)
 STAGE1_CHECKPOINT_PATH = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_STAGE1}"
 STAGE2_BASELINE_CHECKPOINT_PATH = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_STAGE2_BASELINE}"
 STAGE2_ENHANCED_CHECKPOINT_PATH = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_STAGE2_ENHANCED}"
@@ -147,6 +169,14 @@ STAGE2_ENHANCED_CHECKPOINT_PATH = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_STAGE2_ENH
 LOG_LR_EVERY_N_BATCHES = 5      # Log learning rate every N batches
 PROGRESS_LOG_INTERVAL = 5       # Log detailed epoch summary every N epochs
 FINAL_EPOCH_OFFSET = 1          # Always log final epoch
+
+# Training loop constants
+STANDARDIZER_BATCH_LOG_INTERVAL = 20    # Log every N batches during standardizer fitting
+TRAINING_BATCH_LOG_INTERVAL = 10       # Log training stats every N batches  
+GPU_MEMORY_LOG_INTERVAL = 5            # Log GPU memory every N epochs
+
+# Scheduler constants
+MIN_LR_FACTOR = 0.01                   # Cosine scheduler starts at 1% of base LR (not 0%)
 
 # Weights & Biases Configuration
 WANDB_PROJECT = "nir-dot-reconstruction"
