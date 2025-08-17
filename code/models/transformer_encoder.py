@@ -263,12 +263,13 @@ class TransformerLayer(nn.Module):
                 - Attention weights of shape (batch_size, num_heads, seq_len, seq_len)
         """
         # Self-attention with residual connection and pre-norm
-        attn_out, attn_weights = self.attention(x, x, x, mask)
-        x = self.norm1(x + attn_out)
+        y = self.norm1(x)
+        attn_out, attn_weights = self.attention(y, y, y, mask)
+        x = x + attn_out
         
         # Feed-forward network with residual connection and pre-norm
-        mlp_out = self.mlp(x)
-        x = self.norm2(x + mlp_out)
+        y = self.norm2(x)
+        x = x + self.mlp(y)
         
         return x, attn_weights
 
@@ -349,8 +350,7 @@ class TransformerEncoder(nn.Module):
             nn.Linear(embed_dim, embed_dim * 2),
             nn.GELU(),
             nn.Dropout(dropout),
-            nn.Linear(embed_dim * 2, cnn_feature_dim),  # Project back to CNN feature space
-            nn.ReLU()
+            nn.Linear(embed_dim * 2, cnn_feature_dim)  # Project back to CNN feature space, no activation
         )
         
         # Initialize network weights
@@ -487,7 +487,7 @@ class TransformerEncoder(nn.Module):
         This simplified approach:
         1. Expects exactly 256 measurements (no padding/truncation needed)
         2. Projects all measurements to embedding space in one batch operation
-        3. Adds positional embeddings for all 256 positions
+        3. No explicit positional encoding (positions are embedded in tokens)
         4. Processes through transformer layers without attention masking
         5. Returns raw transformer output for global pooling
         

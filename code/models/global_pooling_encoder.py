@@ -106,12 +106,13 @@ class GlobalPoolingEncoder(nn.Module):
         """
         SIMPLIFIED forward pass for fixed 256-measurement sequences (Option C).
         
-        Applies simple global average pooling across all 256 tokens since we eliminated
-        attention masking complexity with fixed sequence lengths.
+        Applies simple global average pooling across measurement tokens. If tissue
+        tokens are present, they are ignored and only the first 256 measurement
+        tokens are pooled.
         
         Args:
-            transformer_output (torch.Tensor): Shape [batch_size, 256, embed_dim]
-                Output from transformer encoder (always 256 tokens)
+            transformer_output (torch.Tensor): Shape [batch_size, seq_len, embed_dim]
+                Output from transformer encoder (256+ tokens)
         
         Returns:
             torch.Tensor: Encoded scan of shape [batch_size, encoded_scan_dim]
@@ -119,10 +120,11 @@ class GlobalPoolingEncoder(nn.Module):
         """
         batch_size, seq_len, embed_dim = transformer_output.shape
         assert embed_dim == self.embed_dim, f"Expected {self.embed_dim}D input, got {embed_dim}D"
-        assert seq_len == 256, f"Expected exactly 256 tokens, got {seq_len}"
+        if seq_len < 256:
+            raise AssertionError(f"Expected ≥256 tokens, got {seq_len}")
         
-        # Simple global average pooling across all 256 tokens
-        pooled = transformer_output.mean(dim=1)  # [batch, embed_dim]
+        # Pool only the first 256 measurement tokens (ignore any tissue tokens)
+        pooled = transformer_output[:, :256, :].mean(dim=1)  # [batch, embed_dim]
         
         # Project to encoded scan dimension
         encoded_scan = self.encoded_scan_projection(pooled)  # [batch, encoded_scan_dim]

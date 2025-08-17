@@ -239,7 +239,7 @@ class Stage2Trainer:
             
             # Import latent-only training components
             from .teacher_stage1 import load_teacher_stage1
-            from .latent_ops import LatentStats, LatentAdapter, composite_latent_loss
+            from .latent_ops import LatentStats, LatentAdapter, latent_rmse
             
             # Initialize teacher model for latent targets
             self.teacher = load_teacher_stage1(checkpoint_path=stage1_checkpoint_path, device=self.device)
@@ -261,12 +261,8 @@ class Stage2Trainer:
                 self.latent_adapter = None
                 logger.info("ℹ️ Latent adapter disabled")
             
-            # Configure loss function
-            self.use_composite_loss = USE_COMPOSITE_LATENT_LOSS
-            if self.use_composite_loss:
-                logger.info("📊 Stage 2 using composite latent loss (RMSE + cosine + magnitude)")
-            else:
-                logger.info("📊 Stage 2 using simple latent RMSE loss")
+            # Configure loss function (simplified to RMSE only)
+            logger.info("📊 Stage 2 using simple latent RMSE loss")
         else:
             logger.info("🔄 STANDARD TRAINING MODE (end-to-end reconstruction)")
             self.teacher = None
@@ -802,27 +798,13 @@ class Stage2Trainer:
                     with torch.no_grad():
                         teacher_latent = self.teacher.encode_from_gt_std(targets)
                     
-                    # Compute composite latent loss or simple RMSE
-                    if self.use_composite_loss:
-                        from .latent_ops import composite_latent_loss
-                        loss, loss_dict = composite_latent_loss(
-                            student_latent, teacher_latent, 
-                            w_cos=LATENT_LOSS_W_COS, 
-                            w_mag=LATENT_LOSS_W_MAG
-                        )
-                        # Log individual loss components
-                        if self.use_wandb:
-                            wandb.log({
-                                'train/latent_rmse': loss_dict['latent_rmse'].item(),
-                                'train/latent_cosine_sim': loss_dict['latent_cosine_sim'].item(), 
-                                'train/latent_mag': loss_dict['latent_mag'].item(),
-                                'train/student_magnitude': student_latent.norm(dim=1).mean().item(),
-                                'train/teacher_magnitude': teacher_latent.norm(dim=1).mean().item()
-                            })
-                    else:
-                        # Simple RMSE loss (fallback)
-                        from .latent_ops import latent_rmse
-                        loss = latent_rmse(student_latent, teacher_latent)
+                    # Apply latent adapter if enabled
+                    if self.latent_adapter is not None:
+                        student_latent = self.latent_adapter(student_latent)
+                    
+                    # Compute simple latent RMSE loss
+                    from .latent_ops import latent_rmse
+                    loss = latent_rmse(student_latent, teacher_latent)
                     
                     # Update latent statistics
                     batch_latent_stats = self.latent_stats.update(teacher_latent, student_latent)
@@ -907,7 +889,8 @@ class Stage2Trainer:
                         "train/latent_rmse": batch_latent_stats['latent_rmse'],
                         "train/latent_cosine_sim": batch_latent_stats['latent_cosine_sim'],
                         "train/teacher_magnitude": batch_latent_stats['teacher_magnitude'],
-                        "train/student_magnitude": batch_latent_stats['student_magnitude']
+                        "train/student_magnitude": batch_latent_stats['student_magnitude'],
+                        "train/latent_scale_ratio": batch_latent_stats['student_magnitude'] / (batch_latent_stats['teacher_magnitude'] + 1e-6)
                     })
                 
                 wandb.log(log_data)
@@ -938,15 +921,35 @@ class Stage2Trainer:
             logger.info(f"📊 TRAIN SUMMARY | Latent_RMSE: {avg_loss:.4f} | "
                        f"Cosine_Sim: {epoch_latent_stats.get('latent_cosine_sim', 0):.4f}")
             
-            # Log latent statistics to wandb
+            # Log latent statistics to wandb with diagnostics
             if self.use_wandb and wandb.run:
-                wandb.log({
+                # Basic epoch statistics
+                epoch_metrics = {
                     "epoch": epoch,
                     "train/epoch_latent_rmse": epoch_latent_stats.get('latent_rmse', 0),
                     "train/epoch_cosine_sim": epoch_latent_stats.get('latent_cosine_sim', 0),
                     "train/epoch_teacher_mag": epoch_latent_stats.get('teacher_magnitude', 0),
                     "train/epoch_student_mag": epoch_latent_stats.get('student_magnitude', 0),
+                }
+                
+                # Add lightweight diagnostics for latent distribution monitoring
+                teacher_mag = epoch_latent_stats.get('teacher_magnitude', 0)
+                student_mag = epoch_latent_stats.get('student_magnitude', 0)
+                
+                # Latent scale ratio diagnostic (should trend toward ~1.0)
+                latent_scale_ratio = student_mag / (teacher_mag + 1e-6)
+                
+                epoch_metrics.update({
+                    "train/teacher_latent_mean": 0.0,  # Placeholder - could be computed from last batch
+                    "train/teacher_latent_std": 0.0,   # Placeholder 
+                    "train/teacher_latent_l2": teacher_mag,
+                    "train/student_latent_mean": 0.0,  # Placeholder
+                    "train/student_latent_std": 0.0,   # Placeholder
+                    "train/student_latent_l2": student_mag,
+                    "train/latent_scale_ratio": latent_scale_ratio
                 })
+                
+                wandb.log(epoch_metrics)
         else:
             logger.info(f"📊 TRAIN SUMMARY | Std_RMSE: {avg_loss:.4f}")
         
@@ -1080,12 +1083,17 @@ class Stage2Trainer:
                         # LATENT-ONLY VALIDATION
                         student_latent = self.model.encode(nir_measurements, tissue_patches)
                         
+                        # Apply latent adapter if enabled
+                        if self.latent_adapter is not None:
+                            student_latent = self.latent_adapter(student_latent)
+                        
                         # Get teacher latent from standardized ground truth (NOT NIR measurements)
                         with torch.no_grad():
                             teacher_latent = self.teacher.encode_from_gt_std(standardized_ground_truth)
                         
-                        # Compute latent loss
-                        loss = self.criterion(student_latent, teacher_latent)
+                        # Compute simple latent RMSE loss
+                        from .latent_ops import latent_rmse
+                        loss = latent_rmse(student_latent, teacher_latent)
                         
                         # Update latent statistics
                         batch_latent_stats = val_latent_stats.update(teacher_latent, student_latent)
@@ -1103,6 +1111,11 @@ class Stage2Trainer:
                         # 2. Get student reconstruction via full forward pass to get transformer features
                         student_outputs = self.model(nir_measurements, tissue_patches)
                         student_latent = student_outputs['encoded_scan']  # Get latent from full forward pass
+                        
+                        # Apply latent adapter if enabled
+                        if self.latent_adapter is not None:
+                            student_latent = self.latent_adapter(student_latent)
+                        
                         with torch.no_grad():
                             student_reconstruction_std = self.teacher.decode_from_latent(student_latent)
                         

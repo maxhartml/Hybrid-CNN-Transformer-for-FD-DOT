@@ -267,8 +267,7 @@ class TissueFeatureExtractor(nn.Module):
             nn.Linear(embed_dim + TISSUE_COMBINED_DIM, FUSION_HIDDEN_DIM),  # [512D → 384D]
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(FUSION_HIDDEN_DIM, embed_dim),  # [384D → 256D]
-            nn.LayerNorm(embed_dim)  # Stabilize output
+            nn.Linear(FUSION_HIDDEN_DIM, embed_dim)  # [384D → 256D] - no final norm
         )
         
         # Initialize weights
@@ -311,29 +310,18 @@ class TissueFeatureExtractor(nn.Module):
         assert n_channels == 2, f"Expected 2 channels (μ_a+μ_s), got {n_channels}"
         assert d == h == w == self.patch_size, f"Expected {self.patch_size}³ patches, got {d}×{h}×{w}"
         
-        # Process each measurement's patches separately to maintain correspondence
-        measurement_tissue_features = []
+        # Vectorized processing: reshape to merge batch and measurement dimensions
+        # [B, N, 2, 2, 16, 16, 16] -> [B*N*2, 2, 16, 16, 16]
+        x = tissue_patches.view(batch_size * n_measurements * n_patches, n_channels, d, h, w)
         
-        for i in range(n_measurements):
-            # Get patches for measurement i: [batch, 2_patches, 2_channels, 16, 16, 16]
-            measurement_patches = tissue_patches[:, i, :, :, :, :, :]
-            
-            # Process source patch: [batch, 2_channels, 16, 16, 16]
-            source_patch = measurement_patches[:, 0, :, :, :, :]
-            source_features = self.patch_cnn(source_patch)  # [batch, 128]
-            
-            # Process detector patch: [batch, 2_channels, 16, 16, 16]  
-            detector_patch = measurement_patches[:, 1, :, :, :, :]
-            detector_features = self.patch_cnn(detector_patch)  # [batch, 128]
-            
-            # Combine source + detector features for measurement i
-            combined_features = torch.cat([source_features, detector_features], dim=-1)  # [batch, 256]
-            measurement_tissue_features.append(combined_features)
+        # Single CNN pass for all patches
+        feat = self.patch_cnn(x)  # [B*N*2, 128]
         
-        # Stack all measurement features: [batch, n_measurements, 256]
-        tissue_features = torch.stack(measurement_tissue_features, dim=1)
+        # Reshape back and combine source+detector features
+        feat = feat.view(batch_size, n_measurements, n_patches, -1)  # [B, N, 2, 128]
+        combined_features = torch.cat([feat[:, :, 0, :], feat[:, :, 1, :]], dim=-1)  # [B, N, 256]
         
-        return tissue_features
+        return combined_features
     
     def fuse_with_measurements(self, hi_tokens: torch.Tensor, 
                               tissue_features: torch.Tensor) -> torch.Tensor:

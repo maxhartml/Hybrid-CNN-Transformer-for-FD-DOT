@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Training Stage Control - Set which stage to run
-CURRENT_TRAINING_STAGE = "stage1"  # "stage1" or "stage2"
+CURRENT_TRAINING_STAGE = "stage2"  # "stage1" or "stage2"
 
 # Weights & Biases Logging
 USE_WANDB_LOGGING = True
@@ -39,12 +39,10 @@ LATENT_DIM = 256                        # Latent dimension for teacher-student m
 # Latent Adapter Configuration
 USE_LATENT_ADAPTER = True               # Enable LatentAdapter for student-teacher alignment
 LATENT_ADAPTER_HIDDEN = 512             # Hidden layer dimension for adapter MLP
-LATENT_ADAPTER_GAMMA = 0.1              # Initial gamma for residual scaling
+LATENT_ADAPTER_GAMMA = 0.01             # Initial gamma for residual scaling (very small for near-identity)
 
-# Latent Loss Configuration
-USE_COMPOSITE_LATENT_LOSS = True        # Use composite loss (RMSE + cosine + magnitude)
-LATENT_LOSS_W_COS = 0.5                 # Weight for cosine similarity loss
-LATENT_LOSS_W_MAG = 0.05                # Weight for magnitude loss
+# Latent Loss Configuration (simplified to RMSE only)
+USE_SIMPLE_LATENT_LOSS = True           # Use simple RMSE loss only (no composite/cosine/magnitude)
 
 # Validation cadence for end-to-end metrics
 VAL_E2E_EVERY_K_EPOCHS = 1              # Decode + raw metrics every K epochs
@@ -63,7 +61,7 @@ USE_CHANNELS_LAST_MEMORY_FORMAT = True  # Efficient memory layout for 3D convolu
 
 # Training Duration
 EPOCHS_STAGE1 = 150  # Stage 1 CNN training epochs - more (↑) = better feature learning, less (↓) = faster training
-EPOCHS_STAGE2 = 200   # Stage 2 transformer epochs - more (↑) = better fine-tuning, less (↓) = faster completion
+EPOCHS_STAGE2 = 100   # Stage 2 transformer epochs - more (↑) = better fine-tuning, less (↓) = faster completion
 
 # Batch Sizes - Hard-coded for stability
 BATCH_SIZE = 128  # Increased for better utilization - lower gradient noise and better GPU usage
