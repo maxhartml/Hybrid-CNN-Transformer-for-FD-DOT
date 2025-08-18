@@ -95,12 +95,12 @@ PERSISTENT_WORKERS = True # Keep workers alive between epochs - True = faster ep
 # =============================================================================
 
 # Weight Decay (L2 regularization)
-WEIGHT_DECAY = 7e-4             # CNN weight decay - higher (↑) = less overfitting but may underfit, lower (↓) = more capacity but overfitting risk
+WEIGHT_DECAY = 1e-3             # CNN weight decay - higher (↑) = less overfitting but may underfit, lower (↓) = more capacity but overfitting risk
 WEIGHT_DECAY_TRANSFORMER = 0.01  # Further reduced transformer weight decay for better capacity
 
 # Dropout Rates (prevent overfitting)
 DROPOUT_CNN = 0.05              # CNN dropout rate - higher (↑) = stronger regularization, lower (↓) = more model capacity
-DROPOUT_TRANSFORMER = 0.02      # Further reduced dropout for more capacity since not overfitting
+DROPOUT_TRANSFORMER = 0.05      # Further reduced dropout for more capacity since not overfitting
 DROPOUT_NIR_PROCESSOR = 0.04    # Further reduced NIR dropout for better signal learning
 
 # Gradient Clipping (training stability)
@@ -119,7 +119,7 @@ GRADSCALER_GROWTH_INTERVAL = 200        # Shorter interval for quicker scale gro
 # Based on "Super-Convergence" paper (Smith, 2018) for optimal CNN training
 
 # Learning Rate Schedule
-STAGE1_MAX_LR = 3e-3          # Peak learning rate - higher values speed up training but risk instability
+STAGE1_MAX_LR = 2e-3          # Peak learning rate - higher values speed up training but risk instability
 STAGE1_BASE_LR = 1.0e-4         # Starting/ending learning rate - lower values provide smoother convergence
 STAGE1_DIV_FACTOR = 20          # Initial LR division factor - controls how low we start (max_lr/div_factor)
 STAGE1_FINAL_DIV_FACTOR = 200   # Final LR reduction factor - higher values give gentler final decay
