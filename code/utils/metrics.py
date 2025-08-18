@@ -603,10 +603,13 @@ def dice_per_channel(pred_raw: torch.Tensor, gt_raw: torch.Tensor, channel: int)
     return dice
 
 
+# Contrast ratio per channel, computed identically to overall contrast_ratio for consistency.
+# Returns per-channel values on the same scale as global contrast.
 def contrast_ratio_per_channel(pred_raw: torch.Tensor, gt_raw: torch.Tensor, channel: int) -> torch.Tensor:
     """
     Compute contrast ratio for a single channel in raw physical units.
-    CR = mean(pred in tumor) / mean(pred in background), mask from GT.
+    Uses the same formula as ContrastRatio class: CR = (pred_contrast) / (gt_contrast)
+    where contrast = anomaly_mean / background_mean.
     
     Args:
         pred_raw: Predicted volumes [B, 2, D, H, W] in physical units
@@ -617,12 +620,44 @@ def contrast_ratio_per_channel(pred_raw: torch.Tensor, gt_raw: torch.Tensor, cha
         torch.Tensor: Mean contrast ratio over batch for the selected channel
     """
     pred_ch = pred_raw[:, channel]  # [B,D,H,W]
-    gt_ch   = gt_raw[:, channel]
-    mask    = _tumor_mask_from_gt(gt_ch)
-    inv     = 1.0 - mask
-    tumor   = (pred_ch * mask).sum(dim=[1,2,3]) / (mask.sum(dim=[1,2,3]) + 1e-6)
-    backg   = (pred_ch * inv ).sum(dim=[1,2,3]) / (inv.sum(dim=[1,2,3]) + 1e-6)
-    return (tumor / (backg + 1e-6)).mean()
+    gt_ch = gt_raw[:, channel]  # [B,D,H,W]
+    
+    batch_size = pred_ch.shape[0]
+    batch_ratios = []
+    
+    for b in range(batch_size):
+        pred_b = pred_ch[b]  # [D,H,W]
+        gt_b = gt_ch[b]  # [D,H,W]
+        
+        # Create anomaly mask from normalized ground truth (same as ContrastRatio class)
+        gt_norm = (gt_b - gt_b.min()) / (gt_b.max() - gt_b.min() + CONTRAST_EPS)
+        anomaly_mask = (gt_norm > DICE_THRESHOLD).float()
+        background_mask = 1.0 - anomaly_mask
+        
+        # Check if there are any anomaly and background voxels
+        if anomaly_mask.sum() > 0 and background_mask.sum() > 0:
+            # Calculate mean values in anomaly and background regions for both pred and gt
+            pred_anomaly_mean = (pred_b * anomaly_mask).sum() / (anomaly_mask.sum() + CONTRAST_EPS)
+            pred_background_mean = (pred_b * background_mask).sum() / (background_mask.sum() + CONTRAST_EPS)
+            
+            gt_anomaly_mean = (gt_b * anomaly_mask).sum() / (anomaly_mask.sum() + CONTRAST_EPS)
+            gt_background_mean = (gt_b * background_mask).sum() / (background_mask.sum() + CONTRAST_EPS)
+            
+            # Calculate contrast ratios (same formula as ContrastRatio class)
+            pred_contrast = pred_anomaly_mean / (pred_background_mean + CONTRAST_EPS)
+            gt_contrast = gt_anomaly_mean / (gt_background_mean + CONTRAST_EPS)
+            
+            # Calculate contrast ratio: pred_contrast / gt_contrast
+            contrast_ratio = pred_contrast / (gt_contrast + CONTRAST_EPS)
+            batch_ratios.append(contrast_ratio)
+        else:
+            # If no anomalies detected, set contrast ratio to 1.0
+            batch_ratios.append(torch.tensor(1.0, device=pred_raw.device))
+    
+    if batch_ratios:
+        return torch.stack(batch_ratios).mean()
+    else:
+        return torch.tensor(1.0, device=pred_raw.device)
 
 
 # =============================================================================

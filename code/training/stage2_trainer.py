@@ -1407,7 +1407,7 @@ class Stage2Trainer:
             logger.info(f"📊 VALID SUMMARY | Raw_RMSE: {raw_metrics['raw_rmse_total']:.4f} | "
                        f"Dice: {raw_metrics['raw_dice']:.4f} | Contrast: {raw_metrics['raw_contrast']:.4f} | "
                        f"μₐ: {raw_metrics['raw_rmse_mu_a']:.4f} | μ′ₛ: {raw_metrics['raw_rmse_mu_s']:.4f}")
-            logger.info(f"📊 VALID CHAN | Dice μₐ: {raw_metrics['raw_dice_mu_a']:.4f} | Dice μ′ₛ: {raw_metrics['raw_dice_mu_s']:.4f} | "
+            logger.info(f"📊 VALID PER-CHANNEL | Dice μₐ: {raw_metrics['raw_dice_mu_a']:.4f} | Dice μ′ₛ: {raw_metrics['raw_dice_mu_s']:.4f} | "
                        f"CR μₐ: {raw_metrics['raw_contrast_mu_a']:.4f} | CR μ′ₛ: {raw_metrics['raw_contrast_mu_s']:.4f}")
             logger.info(f"🔮 TRANSFORMER | Feature Enhancement: {transformer_metrics['feature_enhancement_ratio']:.4f} | "
                        f"Attention Entropy: {transformer_metrics['attention_entropy']:.4f}")
@@ -1502,6 +1502,7 @@ class Stage2Trainer:
         logger.info(f"📅 AdamW + Linear Warmup + Cosine Decay | Steps per epoch: {len(data_loaders['train'])}")
         
         best_val_loss = float('inf')
+        best_metric_name = "Raw_RMSE"  # Default, will be updated based on final selection
         
         for epoch in range(epochs):
             logger.info(f"📅 Starting Transformer Epoch {epoch + 1}/{epochs}")
@@ -1509,21 +1510,37 @@ class Stage2Trainer:
             # Train: Update transformer parameters (CNN decoder frozen)
             logger.debug(f"🏋️  Beginning transformer training phase for epoch {epoch+1}")
             train_std_loss = self.train_epoch(data_loaders['train'], epoch)
-            logger.info(f"🏋️  TRAIN COMPLETE | Std_RMSE: {train_std_loss:.4f}")
+            logger.info(f"🏋️  TRAIN COMPLETE | {'Latent_RMSE' if TRAIN_STAGE2_LATENT_ONLY else 'Std_RMSE'}: {train_std_loss:.4f}")
             
             # Validate: Evaluate hybrid model on unseen data (no parameter updates)
             logger.debug(f"🔍 Beginning transformer validation phase for epoch {epoch+1}")
-            val_std_loss, val_raw_metrics = self.validate(data_loaders['val'])
-            logger.info(f"🔍 VALID COMPLETE | Std_RMSE: {val_std_loss:.4f} | Raw_RMSE: {val_raw_metrics['raw_rmse_total']:.4f}")
+            val_std_loss, val_raw_metrics = self.validate(data_loaders['val'], epoch)
+            
+            # Determine actual validation type performed (same logic as in validate())
+            if TRAIN_STAGE2_LATENT_ONLY:
+                was_e2e_validation = (epoch % VAL_E2E_EVERY_K_EPOCHS == 0)
+            else:
+                was_e2e_validation = True  # Always E2E in standard mode
+            
+            # Log with correct metric name based on actual validation performed
+            if was_e2e_validation:
+                val_loss_name = "Std_RMSE"  # E2E validation returns standardized RMSE
+            else:
+                val_loss_name = "Latent_RMSE"  # Latent-only validation returns latent RMSE
+                
+            logger.info(f"🔍 VALID COMPLETE | {val_loss_name}: {val_std_loss:.4f} | Raw_RMSE: {val_raw_metrics['raw_rmse_total']:.4f}")
             
             # Log enhanced metrics to W&B with proper separation of standardized vs raw - MATCH STAGE 1 EXACTLY
             if self.use_wandb and wandb.run:
+                # Use correct validation metric name based on actual validation performed
+                val_wandb_key = "val/std_rmse" if was_e2e_validation else "val/latent_rmse"
+                
                 wandb.log({
                     "epoch": epoch + 1,  # Custom x-axis for epoch metrics
                     
                     # === TRAINING LOSS ===
                     "train/latent_rmse" if TRAIN_STAGE2_LATENT_ONLY else "train/loss_std": train_std_loss,
-                    "val/loss_std": val_std_loss,               # Main validation metric for early stopping
+                    val_wandb_key: val_std_loss,               # Main validation metric labeled correctly
                     
                     # === RAW METRICS (human-interpretable) ===
                     "val/raw_rmse_total": val_raw_metrics['raw_rmse_total'],
@@ -1584,7 +1601,7 @@ class Stage2Trainer:
                 logger.info(f"{'='*80}")
                 logger.info(f"🚀 EPOCH {epoch+1:3d}/{epochs} SUMMARY")
                 logger.info(f"{'='*80}")
-                logger.info(f"📈 Train Std_RMSE: {train_std_loss:.4f} | Valid Std_RMSE: {val_std_loss:.4f} | LR: {self.optimizer.param_groups[0]['lr']:.2e}")
+                logger.info(f"📈 Train {'Latent_RMSE' if TRAIN_STAGE2_LATENT_ONLY else 'Std_RMSE'}: {train_std_loss:.4f} | Valid {'Latent_RMSE' if TRAIN_STAGE2_LATENT_ONLY else 'Std_RMSE'}: {val_std_loss:.4f} | LR: {self.optimizer.param_groups[0]['lr']:.2e}")
                 logger.info(f"📊 Valid Raw_RMSE: {val_raw_metrics['raw_rmse_total']:.4f} | "
                         f"Dice: {val_raw_metrics['raw_dice']:.4f} | Contrast: {val_raw_metrics['raw_contrast']:.4f}")
                 logger.info(f"📊 Raw μₐ: {val_raw_metrics['raw_rmse_mu_a']:.4f} | Raw μ′ₛ: {val_raw_metrics['raw_rmse_mu_s']:.4f}")
@@ -1603,17 +1620,33 @@ class Stage2Trainer:
             # Learning rate scheduling (Linear Warmup + Cosine Decay updates per-batch)
             # No epoch-level action needed - scheduler updates per-batch automatically
             
-            # Save best model - use standardized loss for consistency with Stage 1
-            if val_std_loss < best_val_loss:
-                improvement = best_val_loss - val_std_loss
-                best_val_loss = val_std_loss
-                logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best Std_RMSE: {best_val_loss:.4f}")
+            # Determine validation mode for metric selection
+            if TRAIN_STAGE2_LATENT_ONLY:
+                is_e2e_epoch = (epoch % VAL_E2E_EVERY_K_EPOCHS == 0)
+            else:
+                is_e2e_epoch = True  # Always E2E in standard mode
+            
+            # Save best model - use EMA Raw RMSE when available, otherwise standardized RMSE
+            if is_e2e_epoch and val_raw_metrics['raw_rmse_total'] != 0.0:
+                selection_metric = val_raw_metrics['raw_rmse_total']   # EMA path for E2E validation
+                metric_name = "Raw_RMSE"
+            else:
+                selection_metric = val_std_loss   # Fallback for latent-only validation
+                metric_name = "Latent_RMSE" if TRAIN_STAGE2_LATENT_ONLY else "Std_RMSE"
+                
+            if selection_metric < best_val_loss:
+                improvement = best_val_loss - selection_metric
+                best_val_loss = selection_metric
+                best_metric_name = metric_name  # Store for final summary
+                logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best {metric_name}: {best_val_loss:.4f}")
                 
                 # Prepare checkpoint data
                 metrics = {
-                    'val_std_rmse': val_std_loss,
+                    'val_std_rmse': val_std_loss,  # Always log for visibility
                     'epoch': epoch
                 }
+                if is_e2e_epoch:
+                    metrics['val_raw_rmse'] = val_raw_metrics['raw_rmse_total']  # Selection metric when available
                 
                 checkpoint_data = {
                     'model_state_dict': self.model.state_dict(),
@@ -1622,15 +1655,15 @@ class Stage2Trainer:
                     'use_tissue_patches': self.use_tissue_patches
                 }
                 
-                save_checkpoint(self.checkpoint_path, checkpoint_data, val_std_loss)
+                save_checkpoint(self.checkpoint_path, checkpoint_data, selection_metric)
             else:
-                logger.debug(f"📊 Stage 2 no improvement. Current: {val_std_loss:.6f}, Best: {best_val_loss:.6f}")
+                logger.debug(f"📊 Stage 2 no improvement. Current: {selection_metric:.6f}, Best: {best_val_loss:.6f}")
         
         mode = "Enhanced" if self.use_tissue_patches else "Baseline"
         logger.info(f"")
         logger.info(f"{'='*80}")
         logger.info(f"✅ TRANSFORMER TRAINING COMPLETED ({mode})")
-        logger.info(f"🏆 Best Std_RMSE Loss: {best_val_loss:.4f}")
+        logger.info(f"🏆 Best {best_metric_name}: {best_val_loss:.4f}")
         logger.info(f"📊 Total Epochs: {epochs}")
         logger.info(f"{'='*80}")
         
