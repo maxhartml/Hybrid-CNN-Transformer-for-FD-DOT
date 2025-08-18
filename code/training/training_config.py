@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Training Stage Control - Set which stage to run
-CURRENT_TRAINING_STAGE = "stage2"  # "stage1" or "stage2"
+CURRENT_TRAINING_STAGE = "stage1"  # "stage1" or "stage2"
 
 # Weights & Biases Logging
 USE_WANDB_LOGGING = True
@@ -98,7 +98,7 @@ WEIGHT_DECAY = 7e-4             # CNN weight decay - higher (↑) = less overfit
 WEIGHT_DECAY_TRANSFORMER = 0.001  # Further reduced transformer weight decay for better capacity
 
 # Dropout Rates (prevent overfitting)
-DROPOUT_CNN = 0.12              # CNN dropout rate - higher (↑) = stronger regularization, lower (↓) = more model capacity
+DROPOUT_CNN = 0.10              # CNN dropout rate - higher (↑) = stronger regularization, lower (↓) = more model capacity
 DROPOUT_TRANSFORMER = 0.02      # Further reduced dropout for more capacity since not overfitting
 DROPOUT_NIR_PROCESSOR = 0.04    # Further reduced NIR dropout for better signal learning
 
