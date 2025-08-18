@@ -523,7 +523,7 @@ class Stage2Trainer:
         logger.info("🚀 ENHANCED TRAINING FEATURES:")
         logger.info(f"   ├─ Attention Pooling: ✅ Active (learnable)")
         logger.info(f"   ├─ Range Calibrator: ✅ Active with L2 regularization")
-        logger.info(f"   ├─ Decoder: 🔒 Fully Frozen (Stage 1 features preserved)")
+        logger.info(f"   ├─ Decoder Unfreezing: {'✅ Enabled' if UNFREEZE_LAST_DECODER_BLOCK else '❌ Disabled'}")
         logger.info(f"   ├─ EMA Training: {'✅ Active (decay=' + str(EMA_DECAY) + ')' if USE_EMA else '❌ Disabled'}")
         logger.info(f"   ├─ Attention Entropy Reg: {'✅ Active (λ=' + str(ATTENTION_ENTROPY_LAMBDA) + ')' if ATTENTION_ENTROPY_LAMBDA > 0 else '❌ Disabled'}")
         logger.info(f"   └─ Training Schedule: Cosine decay with floor ({STAGE2_MIN_LR})")
@@ -607,7 +607,7 @@ class Stage2Trainer:
         LayerNorm weights, biases, and embeddings receive NO weight decay to prevent
         gradient flow issues and "frozen attention" problems.
         
-        The decoder remains fully frozen to preserve Stage 1 learned features.
+        Additionally supports decoder fine-tuning with reduced learning rate.
         
         Based on BERT, GPT, and ViT training procedures + ChatGPT recommendations.
         
@@ -616,6 +616,12 @@ class Stage2Trainer:
         """
         decay_params = []
         no_decay_params = []
+        decoder_params = []  # For unfrozen decoder parameters with reduced LR
+        decoder_no_decay_params = []
+        
+        # Unfreeze last decoder block if enabled
+        if UNFREEZE_LAST_DECODER_BLOCK:
+            self.model.unfreeze_last_decoder_block()
         
         # Add latent aligner parameters to no_decay group (if using latent-only training)
         if TRAIN_STAGE2_LATENT_ONLY and hasattr(self, 'latent_align'):
@@ -623,8 +629,20 @@ class Stage2Trainer:
             no_decay_params.append(self.latent_align.bias)
             logger.debug(f"🔧 Added latent aligner to no_decay group")
         
+        # Get unfrozen decoder parameters for separate group
+        unfrozen_decoder_params = []
+        if UNFREEZE_LAST_DECODER_BLOCK:
+            unfrozen_decoder_params = self.model.get_unfrozen_decoder_parameters()
+            unfrozen_param_names = {id(p) for p in unfrozen_decoder_params}
+            logger.info(f"🔓 Found {len(unfrozen_decoder_params)} unfrozen decoder parameters")
+        else:
+            unfrozen_param_names = set()
+        
         for name, param in self.model.named_parameters():
             if param.requires_grad:
+                # Check if this parameter is from unfrozen decoder
+                is_decoder_param = id(param) in unfrozen_param_names
+                
                 # NO weight decay for: biases, norms, and specific embedding parameters (critical for gradient flow)
                 if (name.endswith(".bias") or 
                     "norm" in name.lower() or 
@@ -634,21 +652,49 @@ class Stage2Trainer:
                     "pos_embed" in name.lower() or
                     "token_type_embedding" in name or
                     "range_calibrator" in name):  # Range calibrator gets no weight decay
-                    no_decay_params.append(param)
-                    logger.debug(f"🚫 No decay: {name}")
+                    if is_decoder_param:
+                        decoder_no_decay_params.append(param)
+                        logger.debug(f"🔓🚫 Decoder no decay: {name}")
+                    else:
+                        no_decay_params.append(param)
+                        logger.debug(f"🚫 No decay: {name}")
                 else:
-                    decay_params.append(param)
-                    logger.debug(f"✅ With decay: {name}")
+                    if is_decoder_param:
+                        decoder_params.append(param)
+                        logger.debug(f"🔓✅ Decoder with decay: {name}")
+                    else:
+                        decay_params.append(param)
+                        logger.debug(f"✅ With decay: {name}")
         
         param_groups = [
             {'params': decay_params, 'weight_decay': WEIGHT_DECAY_TRANSFORMER},
             {'params': no_decay_params, 'weight_decay': 0.0}
         ]
         
+        # Add decoder parameter groups with reduced LR if any unfrozen decoder params exist
+        if decoder_params or decoder_no_decay_params:
+            reduced_lr = STAGE2_BASE_LR * DECODER_FINETUNING_LR_SCALE
+            if decoder_params:
+                param_groups.append({
+                    'params': decoder_params, 
+                    'weight_decay': WEIGHT_DECAY_TRANSFORMER, 
+                    'lr': reduced_lr
+                })
+            if decoder_no_decay_params:
+                param_groups.append({
+                    'params': decoder_no_decay_params, 
+                    'weight_decay': 0.0, 
+                    'lr': reduced_lr
+                })
+            logger.info(f"🔓 Added {len(decoder_params + decoder_no_decay_params)} decoder params with {DECODER_FINETUNING_LR_SCALE}x LR")
+        
         logger.info(f"[AdamW Groups] decay: {len(decay_params)} params, no_decay: {len(no_decay_params)} params")
         logger.info(f"📊 Parameter Groups (CRITICAL for transformer training):")
         logger.info(f"   ├─ With weight decay: {len(decay_params)} params")
-        logger.info(f"   └─ No weight decay: {len(no_decay_params)} params (norms/biases/embeddings)")
+        logger.info(f"   ├─ No weight decay: {len(no_decay_params)} params (norms/biases/embeddings)")
+        if decoder_params or decoder_no_decay_params:
+            logger.info(f"   ├─ Decoder with decay: {len(decoder_params)} params")
+            logger.info(f"   └─ Decoder no decay: {len(decoder_no_decay_params)} params")
         
         return param_groups
     

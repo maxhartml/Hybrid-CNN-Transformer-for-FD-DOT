@@ -56,6 +56,10 @@ EMA_DECAY = 0.997                       # Baseline EMA decay factor (maintained 
 EMA_DECAY_START = 0.990                 # Starting EMA decay value (more aggressive early learning)
 EMA_DECAY_END = 0.9995                  # Final EMA decay value (more stable late training)
 
+# Decoder Fine-tuning Control - Increased for Preset B
+UNFREEZE_LAST_DECODER_BLOCK = True      # Allow fine-tuning of final decoder block in Stage 2
+DECODER_FINETUNING_LR_SCALE = 0.5       # Let decoder fine-tune a bit faster
+
 # Attention Entropy Regularization
 ATTENTION_ENTROPY_LAMBDA = 2e-4         # Regularization weight for attention entropy - encourages diverse attention patterns
 
