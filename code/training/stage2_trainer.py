@@ -51,6 +51,9 @@ from code.data_processing.data_loader import create_phantom_dataloaders  # For s
 from .training_config import *  # Import all training config
 from .training_utils import get_or_create_run_id, get_checkpoint_path, save_checkpoint, find_best_checkpoint
 
+# Initialize module logger
+logger = get_training_logger(__name__)
+
 # =============================================================================
 # PERFORMANCE OPTIMIZATIONS
 # =============================================================================
@@ -114,9 +117,6 @@ class EMAModel:
 # =============================================================================
 # STAGE-SPECIFIC CONFIGURATION
 # =============================================================================
-
-# Initialize module logger
-logger = get_training_logger(__name__)
 
 # =============================================================================
 # TRAINING CLASSES
@@ -792,7 +792,7 @@ class Stage2Trainer:
     
     def freeze_cnn_decoder(self):
         """
-        Freeze CNN decoder parameters to preserve Stage 1 learned features.
+        Freeze entire CNN autoencoder parameters to preserve Stage 1 learned features.
         
         This method implements the core strategy of the two-stage approach by
         freezing all CNN autoencoder parameters, ensuring that the robust
@@ -804,7 +804,7 @@ class Stage2Trainer:
         - Reduces the parameter space for efficient transformer optimization
         - Preserves stable feature extraction capabilities
         """
-        logger.debug("🔒 Starting CNN parameter freezing process...")
+        logger.debug("🔒 Starting CNN autoencoder freezing process...")
         
         # Freeze the entire CNN autoencoder
         frozen_params = 0
@@ -817,7 +817,7 @@ class Stage2Trainer:
         trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         total_params = sum(p.numel() for p in self.model.parameters())
         
-        logger.info(f"🔒 CNN autoencoder frozen. Frozen: {frozen_params:,}, "
+        logger.info(f"🔒 Entire CNN autoencoder frozen. Frozen: {frozen_params:,}, "
                    f"Trainable: {trainable_params:,}/{total_params:,} "
                    f"({100 * trainable_params / total_params:.1f}%)")
         
@@ -878,7 +878,7 @@ class Stage2Trainer:
             nir_measurements = self.standardizers.transform_nir_inputs(nir_measurements_raw)
             targets = self.standardizers.ground_truth_standardizer.transform(targets_raw)  # Train on standardized targets
             
-            logger.debug(f"� Standardized NIR measurements shape: {nir_measurements.shape}")
+            logger.debug(f"📦 Standardized NIR measurements shape: {nir_measurements.shape}")
             logger.debug(f"📦 Standardized ground truth targets shape: {targets.shape}")
             
             # Get and standardize tissue patches if using them
@@ -1005,21 +1005,22 @@ class Stage2Trainer:
                     raise ValueError(f"NaN loss detected - stopping training at batch {batch_idx}")
             
             # Backward pass and optimization (Mixed Precision enabled)
-            self.scaler.scale(loss).backward()
-            
-            # Gradient clipping (prevents exploding gradients in transformer training)
-            self.scaler.unscale_(self.optimizer)
-            grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), GRADIENT_CLIP_MAX_NORM)
+            if self.scaler is not None:
+                self.scaler.scale(loss).backward()
+                self.scaler.unscale_(self.optimizer)
+                grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), GRADIENT_CLIP_MAX_NORM)
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
+                loss.backward()
+                grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), GRADIENT_CLIP_MAX_NORM)
+                self.optimizer.step()
+            self.scheduler.step()  # Step-wise LR scheduling for linear warmup + cosine decay
             
             # SAFETY: Check for extreme gradient norms (sign of training instability)
             if grad_norm > GRADIENT_MONITOR_THRESHOLD:
                 if DEBUG_VERBOSE:
                     logger.warning(f"⚠️ High gradient norm detected: {grad_norm:.3f} (threshold: {GRADIENT_MONITOR_THRESHOLD})")
-            
-            # Optimizer step with gradient scaling
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
-            self.scheduler.step()  # Step-wise LR scheduling for linear warmup + cosine decay
             
             # Update EMA weights if enabled
             if self.ema is not None:
@@ -1047,7 +1048,6 @@ class Stage2Trainer:
                 # Add latent-specific metrics if in latent-only mode
                 if TRAIN_STAGE2_LATENT_ONLY:
                     log_data.update({
-                        "train/latent_rmse": batch_latent_stats['latent_rmse'],
                         "train/latent_cosine_sim": batch_latent_stats['latent_cosine_sim'],
                         "train/teacher_magnitude": batch_latent_stats['teacher_magnitude'],
                         "train/student_magnitude": batch_latent_stats['student_magnitude']
@@ -1138,6 +1138,62 @@ class Stage2Trainer:
         except Exception as e:
             logger.warning(f"⚠️ Failed to log reconstruction images: {e}")
     
+    def _compute_raw_rmse_total_only(self, data_loader) -> float:
+        """
+        Compute only raw RMSE total using current model weights (no EMA).
+        
+        This helper mirrors the E2E validation path but computes only
+        the raw_rmse_total metric for non-EMA sanity checking.
+        
+        Args:
+            data_loader: DataLoader containing validation batches
+            
+        Returns:
+            float: Average raw RMSE total across all batches
+        """
+        self.model.eval()
+        total_rmse = 0.0
+        count = 0
+        
+        # Use same AMP settings as main validation
+        use_amp = (self.device.type == "cuda")
+        dtype = torch.bfloat16 if (use_amp and torch.cuda.is_bf16_supported()) else torch.float16
+        
+        with torch.no_grad():
+            for batch in data_loader:
+                nir_measurements_raw = batch['nir_measurements'].to(self.device)
+                raw_ground_truth = batch['ground_truth'].to(self.device)
+                
+                nir_measurements = self.standardizers.transform_nir_inputs(nir_measurements_raw)
+                
+                # Get tissue patches if using them
+                tissue_patches = None
+                if self.use_tissue_patches and 'tissue_patches' in batch:
+                    tissue_patches_raw = batch['tissue_patches'].to(self.device)
+                    tissue_patches = self.standardizers.transform_tissue_patches(tissue_patches_raw)
+                
+                # Full forward for student (same as E2E path)
+                with autocast(enabled=use_amp, dtype=dtype):
+                    student_outputs = self.model(nir_measurements, tissue_patches)
+                    student_latent = student_outputs.get('encoded_scan')
+                    student_latent_aligned = self.latent_align(student_latent) if hasattr(self, 'latent_align') else student_latent
+                    with torch.no_grad():
+                        student_reconstruction_std = self.teacher.decode_from_latent(student_latent_aligned)
+                
+                # Inverse to RAW for RMSE calculation
+                raw_predictions = self.standardizers.inverse_transform_ground_truth(student_reconstruction_std)
+                
+                batch_metrics = calculate_batch_metrics(
+                    self.metrics,
+                    {'reconstructed': raw_predictions},
+                    raw_ground_truth,
+                    "stage2"
+                )
+                total_rmse += float(batch_metrics.get('rmse_overall', 0.0))
+                count += 1
+        
+        return total_rmse / max(count, 1)
+
     def validate(self, data_loader, epoch=0):
         """
         Evaluate the hybrid model on validation data.
@@ -1286,7 +1342,7 @@ class Stage2Trainer:
                 else:
                     raw_predictions = None
                 
-                logger.debug(f"� Standardized validation loss: {loss.item():.6f}")
+                logger.debug(f"📊 Standardized validation loss: {loss.item():.6f}")
                 
                 # Calculate RAW metrics in original μₐ/μ′ₛ space for human interpretation (only for E2E)
                 if raw_predictions is not None and 'outputs' in locals() and outputs is not None:
@@ -1351,9 +1407,9 @@ class Stage2Trainer:
             logger.info(f"📊 VALID SUMMARY | Raw_RMSE: {raw_metrics['raw_rmse_total']:.4f} | "
                        f"Dice: {raw_metrics['raw_dice']:.4f} | Contrast: {raw_metrics['raw_contrast']:.4f} | "
                        f"μₐ: {raw_metrics['raw_rmse_mu_a']:.4f} | μ′ₛ: {raw_metrics['raw_rmse_mu_s']:.4f}")
-            logger.info(f"� VALID CHAN | Dice μₐ: {raw_metrics['raw_dice_mu_a']:.4f} | Dice μ′ₛ: {raw_metrics['raw_dice_mu_s']:.4f} | "
+            logger.info(f"📊 VALID CHAN | Dice μₐ: {raw_metrics['raw_dice_mu_a']:.4f} | Dice μ′ₛ: {raw_metrics['raw_dice_mu_s']:.4f} | "
                        f"CR μₐ: {raw_metrics['raw_contrast_mu_a']:.4f} | CR μ′ₛ: {raw_metrics['raw_contrast_mu_s']:.4f}")
-            logger.info(f"�🔮 TRANSFORMER | Feature Enhancement: {transformer_metrics['feature_enhancement_ratio']:.4f} | "
+            logger.info(f"🔮 TRANSFORMER | Feature Enhancement: {transformer_metrics['feature_enhancement_ratio']:.4f} | "
                        f"Attention Entropy: {transformer_metrics['attention_entropy']:.4f}")
         else:
             # For latent-only validation
@@ -1362,6 +1418,22 @@ class Stage2Trainer:
         
         # Combine metrics for return (maintain Stage 1 compatibility but add transformer metrics)
         combined_metrics = {**raw_metrics, **transformer_metrics}
+        
+        # === Non-EMA sanity check: one metric, one log line ===
+        val_rmse_nonema = None
+        if self.ema is not None and do_e2e_validation:
+            # Switch to raw weights
+            self.ema.restore()
+            
+            try:
+                val_rmse_nonema = self._compute_raw_rmse_total_only(data_loader)
+                logger.info(f"📊 Validation RMSE (non-EMA): {val_rmse_nonema:.4f}")
+                if self.use_wandb and wandb.run:
+                    wandb.log({"val/rmse_nonema": val_rmse_nonema, "epoch": epoch})
+            finally:
+                # Re-apply EMA so the existing end-of-function restore()
+                # returns the model to raw weights as before.
+                self.ema.apply_shadow()
         
         # Restore original weights if EMA was used
         if self.ema is not None:
@@ -1523,7 +1595,10 @@ class Stage2Trainer:
                 
             # Log GPU stats every 5 epochs
             if epoch % GPU_MEMORY_LOG_INTERVAL == 0 and torch.cuda.is_available():
-                log_gpu_stats()
+                try:
+                    log_gpu_stats()
+                except NameError:
+                    logger.debug("log_gpu_stats() not available - skipping GPU memory logging")
             
             # Learning rate scheduling (Linear Warmup + Cosine Decay updates per-batch)
             # No epoch-level action needed - scheduler updates per-batch automatically
