@@ -92,9 +92,9 @@ logger = get_model_logger(__name__)
 
 class ResidualBlock(nn.Module):
     """
-    3D Residual block with skip connection.
+    3D Residual block with skip connection using GroupNorm.
     
-    Implements a residual block with two 3D convolutional layers, batch normalization,
+    Implements a residual block with two 3D convolutional layers, group normalization,
     and ReLU activation. The skip connection helps prevent vanishing gradients and 
     improves training stability in deeper networks.
     
@@ -110,12 +110,12 @@ class ResidualBlock(nn.Module):
         # First convolution with potential downsampling
         self.conv1 = nn.Conv3d(in_channels, out_channels, kernel_size=RESIDUAL_CONV_KERNEL, 
                                stride=stride, padding=RESIDUAL_CONV_PADDING, bias=False)
-        self.bn1 = nn.BatchNorm3d(out_channels)
+        self.gn1 = nn.GroupNorm(num_groups=8, num_channels=out_channels)
         
         # Second convolution maintains spatial dimensions
         self.conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=RESIDUAL_CONV_KERNEL,
                                stride=1, padding=RESIDUAL_CONV_PADDING, bias=False)
-        self.bn2 = nn.BatchNorm3d(out_channels)
+        self.gn2 = nn.GroupNorm(num_groups=8, num_channels=out_channels)
         
         # Skip connection projection when dimensions change
         self.shortcut = nn.Sequential()
@@ -123,7 +123,7 @@ class ResidualBlock(nn.Module):
             self.shortcut = nn.Sequential(
                 nn.Conv3d(in_channels, out_channels, kernel_size=RESIDUAL_SHORTCUT_KERNEL, 
                           stride=stride, bias=False),
-                nn.BatchNorm3d(out_channels)
+                nn.GroupNorm(num_groups=8, num_channels=out_channels)
             )
         
     
@@ -138,9 +138,9 @@ class ResidualBlock(nn.Module):
             torch.Tensor: Output tensor of shape (batch_size, out_channels, D', H', W')
         """
         
-        out = F.relu(self.bn1(self.conv1(x)))
+        out = F.relu(self.gn1(self.conv1(x)))
         
-        out = self.bn2(self.conv2(out))
+        out = self.gn2(self.conv2(out))
         
         shortcut = self.shortcut(x)
         
@@ -152,12 +152,12 @@ class ResidualBlock(nn.Module):
 
 class CNNEncoder(nn.Module):
     """
-    3D CNN Encoder for feature extraction from volumetric data.
+    3D CNN Encoder for feature extraction from volumetric data with skip connections.
     
     Progressive downsampling encoder that extracts hierarchical features from 3D volumes.
-    Uses residual blocks to maintain gradient flow and batch normalization for stable training.
+    Uses residual blocks to maintain gradient flow and group normalization for stable training.
     The architecture follows a typical CNN pattern with increasing channel depth and 
-    decreasing spatial resolution.
+    decreasing spatial resolution. Returns skip connection features for decoder integration.
     
     Args:
         input_channels (int, optional): Number of input channels. Defaults to 1.
@@ -174,7 +174,7 @@ class CNNEncoder(nn.Module):
         self.initial_conv = nn.Sequential(
             nn.Conv3d(input_channels, base_channels, kernel_size=ENCODER_KERNEL_INITIAL, 
                       stride=ENCODER_STRIDE_INITIAL, padding=ENCODER_PADDING_INITIAL, bias=False),
-            nn.BatchNorm3d(base_channels),
+            nn.GroupNorm(num_groups=8, num_channels=base_channels),
             nn.ReLU(inplace=True),
             nn.MaxPool3d(kernel_size=ENCODER_MAXPOOL_KERNEL, stride=ENCODER_MAXPOOL_STRIDE, 
                         padding=ENCODER_MAXPOOL_PADDING)
@@ -223,45 +223,57 @@ class CNNEncoder(nn.Module):
             layers.append(ResidualBlock(out_channels, out_channels))
         return nn.Sequential(*layers)
     
-    def forward(self, x):
+    def forward(self, x, return_skip_connections=False):
         """
-        Forward pass through encoder.
+        Forward pass through encoder with optional skip connections.
         
         Args:
             x (torch.Tensor): Input volume of shape (batch_size, channels, D, H, W)
+            return_skip_connections (bool): Whether to return skip connection features
             
         Returns:
             torch.Tensor: Encoded features of shape (batch_size, feature_dim)
+            or tuple: (features, skip_connections) if return_skip_connections=True
         """
         
         x = self.initial_conv(x)
         
-        x = self.layer1(x)
+        skip1 = self.layer1(x)  # After layer1 - channels: 16→32
         
-        x = self.layer2(x)
+        skip2 = self.layer2(skip1)  # After layer2 - channels: 32→64, spatial: /2
         
-        x = self.layer3(x)
+        skip3 = self.layer3(skip2)  # After layer3 - channels: 64→128, spatial: /2
         
-        x = self.layer4(x)
+        skip4 = self.layer4(skip3)  # After layer4 - channels: 128→256, spatial: /2
         
-        x = self.global_avg_pool(x)
+        x = self.global_avg_pool(skip4)
         
         x = x.view(x.size(0), -1)  # Flatten to [batch_size, base_channels * 16]
         
         x = self.dropout(x)  # Apply dropout for regularization
         
-        x = self.feature_projection(x)  # Project to configurable feature dimension
+        features = self.feature_projection(x)  # Project to configurable feature dimension
         
-        return x
+        if return_skip_connections:
+            skip_connections = {
+                'skip1': skip1,  # 32 channels
+                'skip2': skip2,  # 64 channels  
+                'skip3': skip3,  # 128 channels
+                'skip4': skip4   # 256 channels
+            }
+            return features, skip_connections
+        
+        return features
 
 
 class CNNDecoder(nn.Module):
     """
-    3D CNN Decoder for volume reconstruction from encoded features.
+    3D CNN Decoder for volume reconstruction with skip connections and refinement head.
     
     Progressive upsampling decoder that reconstructs 3D volumes from compact feature
-    representations. Uses transposed convolutions for learnable upsampling and skip
-    connections for detail preservation.
+    representations with skip connections from encoder for detail preservation.
+    Uses transposed convolutions for learnable upsampling, group normalization,
+    and a refinement head for high-quality output.
     
     Args:
         feature_dim (int, optional): Dimension of input features. Defaults to 512.
@@ -286,41 +298,92 @@ class CNNDecoder(nn.Module):
         # Linear projection to expand feature vector to initial 3D volume
         self.fc = nn.Linear(feature_dim, base_channels * ENCODER_CHANNEL_MULTIPLIERS[4] * (self.init_size ** 3))
         
-        # Progressive upsampling layers with transposed convolutions
-        # Perfectly symmetric to encoder: 2→4→8→16→32→64 (exact mirror of encoder path)
+        # Skip connection projection layers (1x1 conv to match channels if needed)
+        self.skip4_proj = nn.Conv3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[4], 
+                                   base_channels * ENCODER_CHANNEL_MULTIPLIERS[4], 
+                                   kernel_size=1)  # 256→256 (identity)
+        self.skip3_proj = nn.Conv3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[3], 
+                                   base_channels * ENCODER_CHANNEL_MULTIPLIERS[3], 
+                                   kernel_size=1)  # 128→128 (identity)
+        self.skip2_proj = nn.Conv3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[2], 
+                                   base_channels * ENCODER_CHANNEL_MULTIPLIERS[2], 
+                                   kernel_size=1)  # 64→64 (identity)
+        self.skip1_proj = nn.Conv3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[1], 
+                                   base_channels * ENCODER_CHANNEL_MULTIPLIERS[1], 
+                                   kernel_size=1)  # 32→32 (identity)
+        
+        # Progressive upsampling layers with transposed convolutions and skip connections
+        # Handle both skip connection and no-skip cases
         self.deconv1 = nn.Sequential(
-            nn.ConvTranspose3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[4], 
+            nn.ConvTranspose3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[4],  # 256 input (no skip concat)
                                base_channels * ENCODER_CHANNEL_MULTIPLIERS[3], 
                                kernel_size=DECODER_TRANSCONV_KERNEL, stride=DECODER_TRANSCONV_STRIDE, 
                                padding=DECODER_TRANSCONV_PADDING),
-            nn.BatchNorm3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[3]),
+            nn.GroupNorm(num_groups=8, num_channels=base_channels * ENCODER_CHANNEL_MULTIPLIERS[3]),
+            nn.ReLU(inplace=True)
+        )
+        
+        # Skip connection branch for deconv1
+        self.deconv1_with_skip = nn.Sequential(
+            nn.ConvTranspose3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[4] * 2,  # 512 input (with skip concat)
+                               base_channels * ENCODER_CHANNEL_MULTIPLIERS[3], 
+                               kernel_size=DECODER_TRANSCONV_KERNEL, stride=DECODER_TRANSCONV_STRIDE, 
+                               padding=DECODER_TRANSCONV_PADDING),
+            nn.GroupNorm(num_groups=8, num_channels=base_channels * ENCODER_CHANNEL_MULTIPLIERS[3]),
             nn.ReLU(inplace=True)
         )
         
         self.deconv2 = nn.Sequential(
-            nn.ConvTranspose3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[3], 
+            nn.ConvTranspose3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[3],  # 128 input (no skip)
                                base_channels * ENCODER_CHANNEL_MULTIPLIERS[2], 
                                kernel_size=DECODER_TRANSCONV_KERNEL, stride=DECODER_TRANSCONV_STRIDE, 
                                padding=DECODER_TRANSCONV_PADDING),
-            nn.BatchNorm3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[2]),
+            nn.GroupNorm(num_groups=8, num_channels=base_channels * ENCODER_CHANNEL_MULTIPLIERS[2]),
+            nn.ReLU(inplace=True)
+        )
+        
+        self.deconv2_with_skip = nn.Sequential(
+            nn.ConvTranspose3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[3] * 2,  # 256 input (with skip)
+                               base_channels * ENCODER_CHANNEL_MULTIPLIERS[2], 
+                               kernel_size=DECODER_TRANSCONV_KERNEL, stride=DECODER_TRANSCONV_STRIDE, 
+                               padding=DECODER_TRANSCONV_PADDING),
+            nn.GroupNorm(num_groups=8, num_channels=base_channels * ENCODER_CHANNEL_MULTIPLIERS[2]),
             nn.ReLU(inplace=True)
         )
         
         self.deconv3 = nn.Sequential(
-            nn.ConvTranspose3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[2], 
+            nn.ConvTranspose3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[2],  # 64 input (no skip)
                                base_channels * ENCODER_CHANNEL_MULTIPLIERS[1], 
                                kernel_size=DECODER_TRANSCONV_KERNEL, stride=DECODER_TRANSCONV_STRIDE, 
                                padding=DECODER_TRANSCONV_PADDING),
-            nn.BatchNorm3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[1]),
+            nn.GroupNorm(num_groups=8, num_channels=base_channels * ENCODER_CHANNEL_MULTIPLIERS[1]),
+            nn.ReLU(inplace=True)
+        )
+        
+        self.deconv3_with_skip = nn.Sequential(
+            nn.ConvTranspose3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[2] * 2,  # 128 input (with skip)
+                               base_channels * ENCODER_CHANNEL_MULTIPLIERS[1], 
+                               kernel_size=DECODER_TRANSCONV_KERNEL, stride=DECODER_TRANSCONV_STRIDE, 
+                               padding=DECODER_TRANSCONV_PADDING),
+            nn.GroupNorm(num_groups=8, num_channels=base_channels * ENCODER_CHANNEL_MULTIPLIERS[1]),
             nn.ReLU(inplace=True)
         )
         
         self.deconv4 = nn.Sequential(
-            nn.ConvTranspose3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[1], 
+            nn.ConvTranspose3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[1],  # 32 input (no skip)
                                base_channels * ENCODER_CHANNEL_MULTIPLIERS[0], 
                                kernel_size=DECODER_TRANSCONV_KERNEL, stride=DECODER_TRANSCONV_STRIDE, 
                                padding=DECODER_TRANSCONV_PADDING),
-            nn.BatchNorm3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[0]),
+            nn.GroupNorm(num_groups=8, num_channels=base_channels * ENCODER_CHANNEL_MULTIPLIERS[0]),
+            nn.ReLU(inplace=True)
+        )
+        
+        self.deconv4_with_skip = nn.Sequential(
+            nn.ConvTranspose3d(base_channels * ENCODER_CHANNEL_MULTIPLIERS[1] * 2,  # 64 input (with skip)
+                               base_channels * ENCODER_CHANNEL_MULTIPLIERS[0], 
+                               kernel_size=DECODER_TRANSCONV_KERNEL, stride=DECODER_TRANSCONV_STRIDE, 
+                               padding=DECODER_TRANSCONV_PADDING),
+            nn.GroupNorm(num_groups=8, num_channels=base_channels * ENCODER_CHANNEL_MULTIPLIERS[0]),
             nn.ReLU(inplace=True)
         )
         
@@ -329,23 +392,27 @@ class CNNDecoder(nn.Module):
             nn.ConvTranspose3d(base_channels, 16, 
                                kernel_size=DECODER_TRANSCONV_KERNEL, stride=DECODER_TRANSCONV_STRIDE, 
                                padding=DECODER_TRANSCONV_PADDING),
-            nn.BatchNorm3d(16),
+            nn.GroupNorm(num_groups=8, num_channels=16),
             nn.ReLU(inplace=True)
         )
         
-        # Final output layer to dual channel volume (absorption + scattering)
-        self.final_conv = nn.Conv3d(16, INPUT_CHANNELS, 
-                                   kernel_size=DECODER_FINAL_CONV_KERNEL, padding=DECODER_FINAL_CONV_PADDING)
+        # Refinement head for high-quality output (replaces final_conv)
+        self.refinement_head = nn.Sequential(
+            nn.Conv3d(16, 16, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(16, INPUT_CHANNELS, kernel_size=1)
+        )
         
-        logger.info(f"📊 CNNDecoder initialized: "
+        logger.info(f"📊 CNNDecoder initialized with skip connections and refinement head: "
                     f"feature_dim={feature_dim}, output_size={output_size}, base_channels={base_channels}")
     
-    def forward(self, x):
+    def forward(self, x, skip_connections=None):
         """
-        Forward pass through decoder.
+        Forward pass through decoder with optional skip connections.
         
         Args:
             x (torch.Tensor): Encoded features of shape (batch_size, feature_dim)
+            skip_connections (dict, optional): Skip connection features from encoder
             
         Returns:
             torch.Tensor: Reconstructed volume of shape (batch_size, 2, D, H, W)
@@ -357,19 +424,45 @@ class CNNDecoder(nn.Module):
         x = x.view(x.size(0), self.base_channels * ENCODER_CHANNEL_MULTIPLIERS[4], 
                    self.init_size, self.init_size, self.init_size)  # [batch, 256, 2, 2, 2] for base_channels=16
         
-        # Progressive upsampling through transposed convolutions
-        x = self.deconv1(x)  # 2x2x2 -> 4x4x4, channels: 256->128
+        # Progressive upsampling through transposed convolutions with skip connections
         
-        x = self.deconv2(x)  # 4x4x4 -> 8x8x8, channels: 128->64
+        # Deconv1: 2x2x2 -> 4x4x4, channels: 256->128 (with/without skip4 connection)
+        if skip_connections and 'skip4' in skip_connections:
+            skip4 = self.skip4_proj(skip_connections['skip4'])
+            x = torch.cat([x, skip4], dim=1)  # Concatenate along channel dimension: 256+256=512
+            x = self.deconv1_with_skip(x)  # Input: 512 -> Output: 128
+        else:
+            x = self.deconv1(x)  # Input: 256 -> Output: 128
         
-        x = self.deconv3(x)  # 8x8x8 -> 16x16x16, channels: 64->32
+        # Deconv2: 4x4x4 -> 8x8x8, channels: 128->64 (with/without skip3 connection) 
+        if skip_connections and 'skip3' in skip_connections:
+            skip3 = self.skip3_proj(skip_connections['skip3'])
+            x = torch.cat([x, skip3], dim=1)  # Concatenate along channel dimension: 128+128=256
+            x = self.deconv2_with_skip(x)  # Input: 256 -> Output: 64
+        else:
+            x = self.deconv2(x)  # Input: 128 -> Output: 64
         
-        x = self.deconv4(x)  # 16x16x16 -> 32x32x32, channels: 32->32
+        # Deconv3: 8x8x8 -> 16x16x16, channels: 64->32 (with/without skip2 connection)
+        if skip_connections and 'skip2' in skip_connections:
+            skip2 = self.skip2_proj(skip_connections['skip2'])
+            x = torch.cat([x, skip2], dim=1)  # Concatenate along channel dimension: 64+64=128
+            x = self.deconv3_with_skip(x)  # Input: 128 -> Output: 32
+        else:
+            x = self.deconv3(x)  # Input: 64 -> Output: 32
         
-        x = self.deconv5(x)  # 32x32x32 -> 64x64x64, channels: 32->16
+        # Deconv4: 16x16x16 -> 32x32x32, channels: 32->16 (with/without skip1 connection)
+        if skip_connections and 'skip1' in skip_connections:
+            skip1 = self.skip1_proj(skip_connections['skip1'])
+            x = torch.cat([x, skip1], dim=1)  # Concatenate along channel dimension: 32+32=64
+            x = self.deconv4_with_skip(x)  # Input: 64 -> Output: 16
+        else:
+            x = self.deconv4(x)  # Input: 32 -> Output: 16
         
-        # Generate final dual-channel output (μₐ + μ′s)
-        x = self.final_conv(x)  # 64x64x64 -> 64x64x64, channels: 16->2
+        # Deconv5: 32x32x32 -> 64x64x64, channels: 16->16 (no skip connection)
+        x = self.deconv5(x)
+        
+        # Apply refinement head for high-quality final output
+        x = self.refinement_head(x)  # 64x64x64 -> 64x64x64, channels: 16->2
         
         # Ensure exact output dimensions match target (should be exactly 64x64x64)
         if x.shape[2:] != self.output_size:
@@ -434,11 +527,11 @@ class CNNAutoEncoder(nn.Module):
         Initialize network weights using Xavier uniform initialization.
         
         Applies Xavier uniform initialization to convolutional and linear layers,
-        and standard initialization to batch normalization layers. This helps
+        and standard initialization to group normalization layers. This helps
         maintain stable gradients during training.
         """
         conv_count = 0
-        bn_count = 0
+        gn_count = 0
         linear_count = 0
         
         for name, m in self.named_modules():
@@ -447,20 +540,22 @@ class CNNAutoEncoder(nn.Module):
                 conv_count += 1
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm3d):
+            elif isinstance(m, nn.GroupNorm):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
-                bn_count += 1
+                gn_count += 1
             elif isinstance(m, nn.Linear):
                 nn.init.xavier_uniform_(m.weight)
                 linear_count += 1
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
         
+        logger.debug(f"🎲 Initialized weights: {conv_count} conv layers, {gn_count} GroupNorm layers, {linear_count} linear layers")
+        
     
     def forward(self, x):
         """
-        Complete forward pass through autoencoder.
+        Complete forward pass through autoencoder with skip connections.
         
         Args:
             x (torch.Tensor): Input volume of shape (batch_size, channels, D, H, W)
@@ -469,9 +564,11 @@ class CNNAutoEncoder(nn.Module):
             torch.Tensor: Reconstructed volume of shape (batch_size, 2, D, H, W)
         """
         
-        encoded = self.encoder(x)
+        # Encode with skip connections
+        encoded, skip_connections = self.encoder(x, return_skip_connections=True)
         
-        decoded = self.decoder(encoded)
+        # Decode with skip connections
+        decoded = self.decoder(encoded, skip_connections)
         
         return decoded
     
@@ -485,12 +582,12 @@ class CNNAutoEncoder(nn.Module):
         Returns:
             torch.Tensor: Encoded features of shape (batch_size, feature_dim)
         """
-        features = self.encoder(x)
+        features = self.encoder(x, return_skip_connections=False)  # Only return features for latent interface
         return features
     
     def decode(self, features):
         """
-        Decode feature representation back to volume.
+        Decode feature representation back to volume (without skip connections for Stage 2 compatibility).
         
         Args:
             features (torch.Tensor): Encoded features of shape (batch_size, feature_dim)
@@ -498,7 +595,7 @@ class CNNAutoEncoder(nn.Module):
         Returns:
             torch.Tensor: Reconstructed volume of shape (batch_size, 2, D, H, W)
         """
-        volume = self.decoder(features)
+        volume = self.decoder(features, skip_connections=None)  # No skip connections for Stage 2
         return volume
     
     def get_encoder(self):
