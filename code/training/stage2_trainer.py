@@ -1638,6 +1638,7 @@ class Stage2Trainer:
                 improvement = best_val_loss - selection_metric
                 best_val_loss = selection_metric
                 best_metric_name = metric_name  # Store for final summary
+                self.patience_counter = 0  # Reset patience counter on improvement
                 logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best {metric_name}: {best_val_loss:.4f}")
                 
                 # Prepare checkpoint data
@@ -1657,22 +1658,35 @@ class Stage2Trainer:
                 
                 save_checkpoint(self.checkpoint_path, checkpoint_data, selection_metric)
             else:
-                logger.debug(f"📊 Stage 2 no improvement. Current: {selection_metric:.6f}, Best: {best_val_loss:.6f}")
+                self.patience_counter += 1
+                logger.debug(f"📊 Stage 2 no improvement. Current: {selection_metric:.6f}, Best: {best_val_loss:.6f}, Patience: {self.patience_counter}/{self.early_stopping_patience}")
+                
+                # Check for early stopping
+                if self.patience_counter >= self.early_stopping_patience:
+                    logger.info(f"")
+                    logger.info(f"🛑 EARLY STOPPING TRIGGERED")
+                    logger.info(f"🔄 No improvement for {self.early_stopping_patience} epochs")
+                    logger.info(f"🏆 Best {metric_name}: {best_val_loss:.4f}")
+                    self.early_stopped = True
+                    break
         
         mode = "Enhanced" if self.use_tissue_patches else "Baseline"
         logger.info(f"")
         logger.info(f"{'='*80}")
-        logger.info(f"✅ TRANSFORMER TRAINING COMPLETED ({mode})")
+        if self.early_stopped:
+            logger.info(f"✅ TRANSFORMER TRAINING COMPLETED ({mode}) - Early Stopped")
+        else:
+            logger.info(f"✅ TRANSFORMER TRAINING COMPLETED ({mode}) - Full Training")
         logger.info(f"🏆 Best {best_metric_name}: {best_val_loss:.4f}")
-        logger.info(f"📊 Total Epochs: {epochs}")
+        logger.info(f"📊 Final Epoch: {epoch+1}/{epochs}")
         logger.info(f"{'='*80}")
         
-        logger.debug(f"🏁 Training summary: Completed epochs: {epochs}, Final best loss: {best_val_loss:.6f}")
+        logger.debug(f"🏁 Training summary: Completed epochs: {epoch+1}, Final best loss: {best_val_loss:.6f}")
         
         # Finish W&B run
         if self.use_wandb:
-            wandb.log({"System/final_best_val_loss": best_val_loss, "System/final_mode": mode}, commit=False)
+            wandb.log({"System/final_best_val_loss": best_val_loss, "System/final_mode": mode, "System/early_stopped": self.early_stopped}, commit=False)
             wandb.finish()
             logger.info("🔬 W&B experiment finished")
         
-        return {'best_val_loss': best_val_loss}
+        return {'best_val_loss': best_val_loss, 'early_stopped': self.early_stopped}
