@@ -972,8 +972,8 @@ class Stage2Trainer:
                         entropy = -(attn_probs * torch.log(attn_probs + 1e-8)).sum(dim=-1)  # [batch, seq_len]
                         mean_entropy = entropy.mean()  # Average across batch and positions
                         
-                        # Add entropy regularization to loss
-                        loss += ATTENTION_ENTROPY_LAMBDA * mean_entropy
+                        # Add entropy regularization to loss (non-in-place)
+                        loss = loss + ATTENTION_ENTROPY_LAMBDA * mean_entropy
                         
                         # Store for logging
                         if 'mean_entropy' not in locals():
@@ -1000,10 +1000,10 @@ class Stage2Trainer:
                         logger.error(f"🚨 NaN detected in model output at batch {batch_idx}")
                         raise ValueError(f"NaN detected in model output - stopping training at batch {batch_idx}")
                 
-                # Add range calibrator regularization
+                # Add range calibrator regularization (non-in-place)
                 if hasattr(self.model, 'get_calibrator_regularization'):
                     calibrator_reg = self.model.get_calibrator_regularization()
-                    loss += calibrator_reg
+                    loss = loss + calibrator_reg
                 
                 # SAFETY: Check for NaN loss immediately
                 if torch.isnan(loss):

@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Training Stage Control - Set which stage to run
-CURRENT_TRAINING_STAGE = "stage1"  # "stage1" or "stage2"
+CURRENT_TRAINING_STAGE = "stage2"  # "stage1" or "stage2"
 
 # Weights & Biases Logging
 USE_WANDB_LOGGING = True
@@ -166,15 +166,9 @@ ADAMW_EPS_STAGE2 = 1e-8            # Numerical stability epsilon - prevents opti
 
 CHECKPOINT_BASE_DIR = "checkpoints"
 
-# Legacy checkpoint names (used as base for timestamped generation)
-CHECKPOINT_STAGE1 = "stage1_best.pth"
-CHECKPOINT_STAGE2_BASELINE = "stage2_baseline_best.pth"
-CHECKPOINT_STAGE2_ENHANCED = "stage2_enhanced_best.pth"
-
-# Full checkpoint paths (used as base paths for timestamped generation)
-STAGE1_CHECKPOINT_PATH = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_STAGE1}"
-STAGE2_BASELINE_CHECKPOINT_PATH = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_STAGE2_BASELINE}"
-STAGE2_ENHANCED_CHECKPOINT_PATH = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_STAGE2_ENHANCED}"
+# New checkpoint system uses per-run filenames: checkpoint_{stage_id}_{run_id}.pt
+# Automatic selection by find_best_checkpoint() reads metrics from inside files
+# No more legacy path constants needed
 
 # Logging Configuration
 LOG_LR_EVERY_N_BATCHES = 5      # Log learning rate every N batches

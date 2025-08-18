@@ -246,7 +246,7 @@ class HybridCNNTransformer(nn.Module):
         nn.init.zeros_(self.range_calibrator.bias)
         
         # Store decoder unfreezing configuration
-        self.unfreeze_last_decoder_block = UNFREEZE_LAST_DECODER_BLOCK
+        self.decoder_unfreezing_enabled = UNFREEZE_LAST_DECODER_BLOCK
         
         # Initialize network weights
         self._init_weights()
@@ -289,7 +289,7 @@ class HybridCNNTransformer(nn.Module):
         logger.info("🚀 ENHANCED FEATURES:")
         logger.info(f"   ├─ Attention Pooling: {'✅ Active' if True else '❌ Disabled'}")
         logger.info(f"   ├─ Range Calibrator: {'✅ Active' if True else '❌ Disabled'}")
-        logger.info(f"   ├─ Decoder Unfreezing: {'✅ Enabled' if self.unfreeze_last_decoder_block else '❌ Disabled'}")
+        logger.info(f"   ├─ Decoder Unfreezing: {'✅ Enabled' if self.decoder_unfreezing_enabled else '❌ Disabled'}")
         logger.info(f"   └─ EMA Training: {'✅ Active' if hasattr(self, 'ema_enabled') else '⚙️  External Config'}")
         
         # Stage-specific parameter usage
@@ -310,7 +310,7 @@ class HybridCNNTransformer(nn.Module):
             logger.info(f"   ├─ Active: Range Calibrator ({calibrator_total:,} params)")
             logger.info(f"   └─ TOTAL ACTIVE: {stage2_active:,} params")
             logger.info(f"   └─ Discarded: CNN Encoder ({cnn_encoder:,} params)")
-            if self.unfreeze_last_decoder_block:
+            if self.decoder_unfreezing_enabled:
                 unfrozen_params = sum(p.numel() for p in self.get_unfrozen_decoder_parameters())
                 logger.info(f"   └─ Unfrozen Decoder Block: {unfrozen_params:,} params (fine-tuning)")
     
@@ -655,7 +655,7 @@ class HybridCNNTransformer(nn.Module):
         When UNFREEZE_LAST_DECODER_BLOCK is True, this method allows fine-tuning
         of the final decoder block with a reduced learning rate.
         """
-        if not self.unfreeze_last_decoder_block:
+        if not self.decoder_unfreezing_enabled:
             return
             
         # Get the last decoder block (assuming it's the final layers)
@@ -692,7 +692,7 @@ class HybridCNNTransformer(nn.Module):
         Returns:
             List of parameters that should be optimized with reduced LR
         """
-        if not self.unfreeze_last_decoder_block:
+        if not self.decoder_unfreezing_enabled:
             return []
             
         decoder_blocks = list(self.cnn_autoencoder.decoder.children())

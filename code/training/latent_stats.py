@@ -47,6 +47,10 @@ class LatentStats:
         Returns:
             batch_stats: Dictionary of statistics for this batch
         """
+        # Detach tensors to avoid interfering with gradient computation
+        teacher_latent = teacher_latent.detach()
+        student_latent = student_latent.detach()
+        
         batch_size = teacher_latent.shape[0]
         
         # Compute RMSE

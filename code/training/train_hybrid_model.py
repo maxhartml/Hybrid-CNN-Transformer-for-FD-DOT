@@ -100,7 +100,7 @@ def create_dataloaders(data_dir, batch_size, extract_tissue_patches, stage_name)
         prefetch_factor=PREFETCH_FACTOR,
         pin_memory=PIN_MEMORY,
         persistent_workers=PERSISTENT_WORKERS,
-        extract_tissue_patches=extract_tissue_patches,
+        use_tissue_patches=extract_tissue_patches,
         stage="stage1" if stage_name == "Stage 1" else "stage2"  # NEW: Pass stage
     )
     logger.info(f"✅ {stage_name} data loaders created successfully with training config settings")
@@ -238,14 +238,8 @@ def main():
         logger.info("🎯 Stage 1 training execution completed!")
         
     elif current_stage == TRAINING_STAGE2:
-        # Check if Stage 1 checkpoint exists
-        if not os.path.exists(STAGE1_CHECKPOINT_PATH):
-            raise ValueError(f"Stage 2 requires Stage 1 checkpoint at: {STAGE1_CHECKPOINT_PATH}")
-            
         mode = "Enhanced" if use_tissue_patches else "Baseline"
         logger.info(f"🏋️  Starting Stage 2: Transformer Training ({mode})")
-        logger.info(f"📂 Loading Stage 1 checkpoint: {STAGE1_CHECKPOINT_PATH}")
-        logger.debug(f"📁 Checkpoint file exists: {os.path.exists(STAGE1_CHECKPOINT_PATH)}")
         
         logger.debug("🏗️  Initializing Stage 2 trainer...")
         trainer = Stage2Trainer(
