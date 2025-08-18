@@ -77,7 +77,7 @@ EPOCHS_STAGE1 = 150  # Stage 1 CNN training epochs - more (↑) = better feature
 EPOCHS_STAGE2 = 400   # Stage 2 transformer epochs - increased for better convergence, more (↑) = better fine-tuning, less (↓) = faster completion
 
 # Batch Sizes - Hard-coded for stability
-BATCH_SIZE = 128  # Increased for enhanced model capacity (reduce if OOM)
+BATCH_SIZE = 192  # Increased for enhanced model capacity (reduce if OOM)
 
 # Early Stopping
 EARLY_STOPPING_PATIENCE = 35  # Epochs to wait without improvement - higher (↑) = more exploration, lower (↓) = faster stopping
