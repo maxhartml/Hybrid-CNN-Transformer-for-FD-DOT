@@ -47,12 +47,12 @@ MEASUREMENT_DIM = 2                     # [log_amplitude, phase] - xi
 POSITION_DIM = 6                        # [src_x, src_y, src_z, det_x, det_y, det_z] - pi
 NIR_INPUT_DIM = 8                       # Total: xi + pi
 
-# Embedding dimensions - New small MLP design
-MEASUREMENT_BRANCH_DIM = 8              # Small MLP output for measurements: 2 → 8 → 8
-POSITION_BRANCH_DIM = 8                 # Small MLP output for positions: 6 → 8 → 8  
-CONCAT_DIM = 16                         # Concatenated dimensions: 8 + 8 = 16
-FUSION_HIDDEN_DIM = 64                  # Hidden dimension for fusion: 16 → 64 → EMBED_DIM
-EMBED_DIM = 256                         # Final embedding dimension (divisible by NUM_HEADS=4)
+# Embedding dimensions - Enhanced MLP design for increased capacity
+MEASUREMENT_BRANCH_DIM = 32             # Enhanced MLP output for measurements: 2 → 16 → 32
+POSITION_BRANCH_DIM = 64                # Enhanced MLP output for positions: 6 → 32 → 64
+CONCAT_DIM = 96                         # Concatenated dimensions: 32 + 64 = 96
+FUSION_HIDDEN_DIM = 128                 # Enhanced hidden dimension for fusion: 96 → 128 → EMBED_DIM
+EMBED_DIM = 256                         # Final embedding dimension (divisible by NUM_HEADS=8)
 
 # Tissue processing
 TISSUE_PATCH_SIZE = 16                  # 16x16x16 tissue patches
@@ -98,40 +98,40 @@ class SpatiallyAwareEmbedding(nn.Module):
         
         self.embed_dim = embed_dim
         
-        # Measurement branch: 2 → 8 → 8
+        # Measurement branch: 2 → 16 → 32 (enhanced capacity)
         self.measurement_branch = nn.Sequential(
-            nn.Linear(MEASUREMENT_DIM, MEASUREMENT_BRANCH_DIM),    # 2 → 8
+            nn.Linear(MEASUREMENT_DIM, 16),                       # 2 → 16
             nn.GELU(),
-            nn.LayerNorm(MEASUREMENT_BRANCH_DIM),
-            nn.Linear(MEASUREMENT_BRANCH_DIM, MEASUREMENT_BRANCH_DIM),  # 8 → 8
+            nn.LayerNorm(16),
+            nn.Linear(16, MEASUREMENT_BRANCH_DIM),                # 16 → 32
             nn.GELU(),
             nn.LayerNorm(MEASUREMENT_BRANCH_DIM)
         )
         
-        # Position branch: 6 → 8 → 8  
+        # Position branch: 6 → 32 → 64 (enhanced capacity)
         self.position_branch = nn.Sequential(
-            nn.Linear(POSITION_DIM, POSITION_BRANCH_DIM),         # 6 → 8
+            nn.Linear(POSITION_DIM, 32),                          # 6 → 32
             nn.GELU(),
-            nn.LayerNorm(POSITION_BRANCH_DIM),
-            nn.Linear(POSITION_BRANCH_DIM, POSITION_BRANCH_DIM),  # 8 → 8
+            nn.LayerNorm(32),
+            nn.Linear(32, POSITION_BRANCH_DIM),                  # 32 → 64
             nn.GELU(),
             nn.LayerNorm(POSITION_BRANCH_DIM)
         )
         
-        # Fusion network: 16 → 64 → embed_dim
+        # Fusion network: 96 → 128 → embed_dim (enhanced capacity)
         self.fusion_network = nn.Sequential(
-            nn.Linear(CONCAT_DIM, FUSION_HIDDEN_DIM),             # 16 → 64
+            nn.Linear(CONCAT_DIM, FUSION_HIDDEN_DIM),             # 96 → 128
             nn.GELU(),
             nn.LayerNorm(FUSION_HIDDEN_DIM),
-            nn.Linear(FUSION_HIDDEN_DIM, embed_dim),              # 64 → 256
+            nn.Linear(FUSION_HIDDEN_DIM, embed_dim),              # 128 → 256
             nn.Dropout(dropout)
         )
         
         # Initialize weights
         self._init_weights()
         
-        logger.info(f"✅ Redesigned SpatiallyAwareEmbedding initialized with {self.count_parameters()} parameters")
-        logger.info(f"   Architecture: measurement[2→8→8] + position[6→8→8] → concat[16] → fusion[16→64→{embed_dim}]")
+        logger.info(f"✅ Enhanced SpatiallyAwareEmbedding initialized with {self.count_parameters()} parameters")
+        logger.info(f"   Architecture: measurement[2→16→32] + position[6→32→64] → concat[96] → fusion[96→128→{embed_dim}]")
     
     def count_parameters(self):
         """Count total parameters in the model."""
@@ -171,11 +171,11 @@ class SpatiallyAwareEmbedding(nn.Module):
         positions = nir_measurements[:, :, MEASUREMENT_DIM:]     # [batch, n_meas, 6] - scaled pi
         
         # Process through separate branches
-        measurement_features = self.measurement_branch(measurements)  # [batch, n_meas, 8]
-        position_features = self.position_branch(positions)          # [batch, n_meas, 8]
+        measurement_features = self.measurement_branch(measurements)  # [batch, n_meas, 32]
+        position_features = self.position_branch(positions)          # [batch, n_meas, 64]
         
         # Concatenate branch outputs
-        concatenated = torch.cat([measurement_features, position_features], dim=-1)  # [batch, n_meas, 16]
+        concatenated = torch.cat([measurement_features, position_features], dim=-1)  # [batch, n_meas, 96]
         
         # Process through fusion network
         hi_tokens = self.fusion_network(concatenated)  # [batch, n_meas, embed_dim]
