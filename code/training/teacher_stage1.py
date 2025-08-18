@@ -1,12 +1,9 @@
 """
-Stage 1 CNN Autoencoder Teacher for Latent-Only Stage 2 Training
+Stage 1 Teacher Model Wrapper for Latent-Only Stage 2 Training
 
-This module provides a wrapper around a pre-trained Stage 1 CNN autoencoder model
+This module provides a wrapper around a pre-trained Stage 1 encoder-decoder model
 to serve as an online teacher for Stage 2 latent-only training. The teacher
 generates ground truth latent representations for the student transformer to match.
-
-The teacher loads ONLY the CNN autoencoder weights from the Stage 1 checkpoint,
-ignoring any transformer-related parameters to avoid size mismatch issues.
 """
 
 import torch
@@ -20,7 +17,6 @@ code_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(code_dir))
 
 from models.hybrid_model import HybridCNNTransformer
-from models.cnn_autoencoder import CNNAutoEncoder
 from training.training_config import LATENT_DIM, TRAINING_STAGE1, CUDA_DEVICE, N_MEASUREMENTS
 from utils.logging_config import get_training_logger
 
@@ -33,11 +29,11 @@ DEFAULT_DEVICE = torch.device(CUDA_DEVICE if torch.cuda.is_available() else "cpu
 
 class TeacherStage1:
     """
-    Wrapper for pre-trained Stage 1 CNN autoencoder to generate latent targets.
+    Wrapper for pre-trained Stage 1 model to generate latent targets.
     
-    This class loads a pre-trained Stage 1 CNN autoencoder (not the full hybrid model)
-    and uses it to generate latent representations that serve as ground truth targets 
-    for Stage 2 latent-only training.
+    This class loads a pre-trained Stage 1 encoder-decoder and uses only
+    the encoder portion to generate latent representations that serve as
+    ground truth targets for Stage 2 latent-only training with affine alignment.
     """
     
     def __init__(self, checkpoint_path: str, device: torch.device = DEFAULT_DEVICE):
@@ -51,7 +47,7 @@ class TeacherStage1:
         self.device = torch.device(device) if isinstance(device, str) else device
         self.checkpoint_path = checkpoint_path
         
-        # Load the pre-trained Stage 1 CNN autoencoder
+        # Load the pre-trained Stage 1 model
         self.model = self._load_stage1_model(checkpoint_path)
         self.model.eval()  # Always in eval mode
         
@@ -59,11 +55,11 @@ class TeacherStage1:
         for param in self.model.parameters():
             param.requires_grad = False
             
-        logger.info(f"✅ Loaded Stage 1 CNN autoencoder teacher from: {checkpoint_path}")
-        logger.info(f"🔒 Teacher model parameters frozen: {sum(p.numel() for p in self.model.parameters()):,}")
+        print(f"Loaded Stage 1 teacher from: {checkpoint_path}")
+        print(f"Teacher model parameters frozen: {sum(p.numel() for p in self.model.parameters()):,}")
     
-    def _load_stage1_model(self, checkpoint_path: str) -> CNNAutoEncoder:
-        """Load only the CNN autoencoder weights from Stage 1 checkpoint."""
+    def _load_stage1_model(self, checkpoint_path: str) -> HybridCNNTransformer:
+        """Load the pre-trained Stage 1 model from checkpoint."""
         if not os.path.exists(checkpoint_path):
             raise FileNotFoundError(f"Stage 1 checkpoint not found: {checkpoint_path}")
         
@@ -72,43 +68,32 @@ class TeacherStage1:
         
         # Extract model state dict (handle different checkpoint formats)
         if 'model_state_dict' in checkpoint:
-            full_state_dict = checkpoint['model_state_dict']
+            state_dict = checkpoint['model_state_dict']
         elif 'state_dict' in checkpoint:
-            full_state_dict = checkpoint['state_dict']
+            state_dict = checkpoint['state_dict']
         else:
-            full_state_dict = checkpoint
+            state_dict = checkpoint
         
         # Handle compiled model state dict (remove _orig_mod. prefix)
-        if any(key.startswith('_orig_mod.') for key in full_state_dict.keys()):
-            full_state_dict = {k.replace('_orig_mod.', ''): v for k, v in full_state_dict.items()}
+        if any(key.startswith('_orig_mod.') for key in state_dict.keys()):
+            state_dict = {k.replace('_orig_mod.', ''): v for k, v in state_dict.items()}
         
-        # Filter only CNN autoencoder keys (ignore transformer-related keys)
-        cnn_state_dict = {}
-        cnn_prefix = 'cnn_autoencoder.'
+        # Initialize Stage 1 model with same architecture (without tissue patches for Stage 1)
+        model = HybridCNNTransformer(
+            use_tissue_patches=False,  # Stage 1 doesn't use tissue patches
+            training_stage=TRAINING_STAGE1
+        ).to(self.device)
         
-        for key, value in full_state_dict.items():
-            if key.startswith(cnn_prefix):
-                # Remove the 'cnn_autoencoder.' prefix to match CNNAutoEncoder structure
-                new_key = key[len(cnn_prefix):]
-                cnn_state_dict[new_key] = value
-        
-        logger.info(f"🔍 Extracted {len(cnn_state_dict)} CNN autoencoder parameters from checkpoint")
-        logger.info(f"🚫 Ignored {len(full_state_dict) - len(cnn_state_dict)} non-CNN parameters")
-        
-        # Initialize only the CNN autoencoder (not the full hybrid model)
-        model = CNNAutoEncoder().to(self.device)
-        
-        # Load the filtered CNN weights
-        model.load_state_dict(cnn_state_dict, strict=False)  # Allow partial loading
-        
-        logger.info("✅ Loaded CNN autoencoder weights from Stage 1 checkpoint (ignoring transformer parameters)")
+        # Load the pre-trained weights
+        model.load_state_dict(state_dict, strict=False)  # Allow missing parameters
         
         return model
     
     @torch.no_grad()
     def encode_from_gt_std(self, gt_std: torch.Tensor) -> torch.Tensor:
         """
-        Encode standardized ground truth using Stage 1 CNN encoder.
+        Exact Stage-1 encoder path used during Stage-1 training. 
+        Input is standardized ground truth.
         
         Args:
             gt_std: Standardized ground truth [batch_size, 2, 64, 64, 64]
@@ -118,15 +103,16 @@ class TeacherStage1:
         """
         self.model.eval()
         
-        # Use the CNN autoencoder encoder directly
+        # Stage 1 model expects ground truth as input, not NIR measurements
+        # This is the exact encoder path used during Stage 1 training
         with torch.no_grad():
-            latent = self.model.encoder(gt_std)
+            latent = self.model.cnn_autoencoder.encoder(gt_std)
             return latent
     
     @torch.no_grad()
     def decode_from_latent(self, z: torch.Tensor) -> torch.Tensor:
         """
-        Decode latent representation using Stage 1 CNN decoder.
+        Exact Stage-1 decoder entrypoint expected during Stage-1 training.
         
         Args:
             z: Latent representation [batch_size, 256]
@@ -136,9 +122,9 @@ class TeacherStage1:
         """
         self.model.eval()
         
-        # Use the CNN autoencoder decoder directly
+        # Use the exact decoder path from Stage 1 training
         with torch.no_grad():
-            pred_std = self.model.decoder(z)
+            pred_std = self.model.cnn_autoencoder.decoder(z)
             return pred_std
 
     @torch.no_grad()
@@ -189,14 +175,14 @@ class TeacherStage1:
 
 def load_teacher_stage1(checkpoint_path: str = None, device: torch.device = DEFAULT_DEVICE) -> TeacherStage1:
     """
-    Convenience function to load Stage 1 CNN autoencoder teacher model.
+    Convenience function to load Stage 1 teacher model.
     
     Args:
         checkpoint_path: Path to Stage 1 checkpoint. If None, uses default location.
         device: Device to load on
         
     Returns:
-        TeacherStage1 instance with CNN autoencoder loaded
+        TeacherStage1 instance
     """
     if checkpoint_path is None:
         # Automatically find the best Stage 1 checkpoint
