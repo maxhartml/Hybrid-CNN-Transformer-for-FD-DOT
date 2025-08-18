@@ -47,9 +47,6 @@ from .spatially_aware_embedding import SpatiallyAwareEmbedding, TissueFeatureExt
 from code.models.global_pooling_encoder import GlobalPoolingEncoder
 from code.utils.logging_config import get_model_logger
 
-# Import configuration constants
-from code.training.training_config import UNFREEZE_LAST_DECODER_BLOCK, DECODER_FINETUNING_LR_SCALE
-
 # Import configuration constants from component modules
 from code.models import cnn_autoencoder as cnn_config
 from code.models import transformer_encoder as transformer_config
@@ -245,9 +242,6 @@ class HybridCNNTransformer(nn.Module):
         nn.init.eye_(self.range_calibrator.weight.view(2, 2))
         nn.init.zeros_(self.range_calibrator.bias)
         
-        # Store decoder unfreezing configuration
-        self.decoder_unfreezing_enabled = UNFREEZE_LAST_DECODER_BLOCK
-        
         # Initialize network weights
         self._init_weights()
         
@@ -289,7 +283,7 @@ class HybridCNNTransformer(nn.Module):
         logger.info("🚀 ENHANCED FEATURES:")
         logger.info(f"   ├─ Attention Pooling: {'✅ Active' if True else '❌ Disabled'}")
         logger.info(f"   ├─ Range Calibrator: {'✅ Active' if True else '❌ Disabled'}")
-        logger.info(f"   ├─ Decoder Unfreezing: {'✅ Enabled' if self.decoder_unfreezing_enabled else '❌ Disabled'}")
+        logger.info(f"   ├─ Decoder: {'🔒 Frozen (Stage 1 features preserved)' if self.training_stage == 'stage2' else '✅ Active'}")
         logger.info(f"   └─ EMA Training: {'✅ Active' if hasattr(self, 'ema_enabled') else '⚙️  External Config'}")
         
         # Stage-specific parameter usage
@@ -310,9 +304,6 @@ class HybridCNNTransformer(nn.Module):
             logger.info(f"   ├─ Active: Range Calibrator ({calibrator_total:,} params)")
             logger.info(f"   └─ TOTAL ACTIVE: {stage2_active:,} params")
             logger.info(f"   └─ Discarded: CNN Encoder ({cnn_encoder:,} params)")
-            if self.decoder_unfreezing_enabled:
-                unfrozen_params = sum(p.numel() for p in self.get_unfrozen_decoder_parameters())
-                logger.info(f"   └─ Unfrozen Decoder Block: {unfrozen_params:,} params (fine-tuning)")
     
     def _init_weights(self):
         """
@@ -648,34 +639,6 @@ class HybridCNNTransformer(nn.Module):
         
         return self.encode(nir_measurements, tissue_patches)
 
-    def unfreeze_last_decoder_block(self):
-        """
-        Unfreeze the last decoder block for fine-tuning in Stage 2.
-        
-        When UNFREEZE_LAST_DECODER_BLOCK is True, this method allows fine-tuning
-        of both deconv5 and final_conv layers with a reduced learning rate.
-        """
-        if not self.decoder_unfreezing_enabled:
-            return
-        
-        decoder = self.cnn_autoencoder.decoder
-        unfrozen_params = 0
-        unfrozen_tensors = []
-        
-        # Unfreeze deconv5 (ConvTranspose3d + BatchNorm3d)
-        for param in decoder.deconv5.parameters():
-            param.requires_grad = True
-            unfrozen_params += param.numel()
-            unfrozen_tensors.append(param)
-        
-        # Unfreeze final_conv  
-        for param in decoder.final_conv.parameters():
-            param.requires_grad = True
-            unfrozen_params += param.numel()
-            unfrozen_tensors.append(param)
-        
-        logger.info(f"🔓 Unfroze {len(unfrozen_tensors)} tensors ({unfrozen_params:,} params) in deconv5 + final_conv for {DECODER_FINETUNING_LR_SCALE}x LR fine-tuning")
-    
     def get_calibrator_regularization(self, weight_lambda: float = 1e-5) -> torch.Tensor:
         """
         Compute L2 regularization for the range calibrator.
@@ -694,27 +657,3 @@ class HybridCNNTransformer(nn.Module):
         bias_penalty = torch.norm(self.range_calibrator.bias)
         
         return weight_lambda * (weight_penalty + bias_penalty)
-    
-    def get_unfrozen_decoder_parameters(self):
-        """
-        Get parameters from the unfrozen decoder layers (deconv5 + final_conv) for separate optimization.
-        
-        Returns:
-            List of parameters that should be optimized with reduced LR
-        """
-        if not self.decoder_unfreezing_enabled:
-            return []
-        
-        decoder = self.cnn_autoencoder.decoder
-        unfrozen_params = []
-        
-        # Collect parameters from deconv5 and final_conv
-        for param in decoder.deconv5.parameters():
-            if param.requires_grad:
-                unfrozen_params.append(param)
-        
-        for param in decoder.final_conv.parameters():
-            if param.requires_grad:
-                unfrozen_params.append(param)
-        
-        return unfrozen_params
