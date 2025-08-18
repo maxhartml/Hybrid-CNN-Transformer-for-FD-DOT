@@ -198,9 +198,6 @@ class Stage2Trainer:
                     f"Please run Stage 1 training first or provide a specific checkpoint path."
                 )
         
-        # Initialize logger for this trainer instance
-        self.logger = get_training_logger(__name__)
-        
         # Early stopping tracking
         self.best_val_loss = float('inf')
         self.patience_counter = 0
@@ -333,13 +330,8 @@ class Stage2Trainer:
             self.latent_stats = None
             self.latent_align = None
         
-        # Initialize EMA if enabled
+        # Initialize EMA if enabled - will be created after optimizer/scheduler in train()
         self.ema = None
-        if USE_EMA:
-            self.ema = EMAModel(self.model, decay=EMA_DECAY)
-            logger.info(f"🔄 EMA initialized with decay={EMA_DECAY}")
-        else:
-            logger.info("📊 EMA disabled")
             
         # Initialize checkpoint system for Stage 2
         self.run_id = get_or_create_run_id("stage2")
@@ -676,8 +668,8 @@ class Stage2Trainer:
         
         logger.info(f"[AdamW Groups] decay: {len(decay_params)} params, no_decay: {len(no_decay_params)} params")
         logger.info(f"📊 Parameter Groups (CRITICAL for transformer training):")
-        logger.info(f"   ├─ With weight decay: {len(decay_params)} groups")
-        logger.info(f"   ├─ No weight decay: {len(no_decay_params)} groups (norms/biases/embeddings)")
+        logger.info(f"   ├─ With weight decay: {len(decay_params)} params")
+        logger.info(f"   ├─ No weight decay: {len(no_decay_params)} params (norms/biases/embeddings)")
         if decoder_params or decoder_no_decay_params:
             logger.info(f"   ├─ Decoder with decay: {len(decoder_params)} params")
             logger.info(f"   └─ Decoder no decay: {len(decoder_no_decay_params)} params")
@@ -825,7 +817,8 @@ class Stage2Trainer:
         trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         total_params = sum(p.numel() for p in self.model.parameters())
         
-        logger.info(f"🔒 CNN decoder frozen. Frozen: {frozen_params:,}, Trainable: {trainable_params:,}/{total_params:,} "
+        logger.info(f"🔒 CNN autoencoder frozen. Frozen: {frozen_params:,}, "
+                   f"Trainable: {trainable_params:,}/{total_params:,} "
                    f"({100 * trainable_params / total_params:.1f}%)")
         
         # Verify we have trainable parameters
@@ -911,9 +904,11 @@ class Stage2Trainer:
             logger.debug("⚡ Starting Stage 2 forward pass (NIR → features → reconstruction)...")
             self.optimizer.zero_grad()
             
-            # Use bfloat16 if available to avoid gradient underflow issues (ChatGPT recommendation)
-            dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-            with autocast(dtype=dtype):
+            # Guard AMP autocast cleanly
+            use_amp = (self.device.type == "cuda")
+            amp_dtype = torch.bfloat16 if (use_amp and torch.cuda.is_bf16_supported()) else torch.float16
+            
+            with autocast(enabled=use_amp, dtype=amp_dtype):
                 if TRAIN_STAGE2_LATENT_ONLY:
                     # LATENT-ONLY TRAINING MODE
                     # Forward pass only through encoder to get student latent
@@ -976,8 +971,7 @@ class Stage2Trainer:
                         loss = loss + ATTENTION_ENTROPY_LAMBDA * mean_entropy
                         
                         # Store for logging
-                        if 'mean_entropy' not in locals():
-                            mean_entropy_for_logging = mean_entropy.item()
+                        mean_entropy_for_logging = float(mean_entropy)
                         
                         if DEBUG_VERBOSE:
                             logger.debug(f"🧠 Attention entropy: {mean_entropy:.4f}, regularization: {ATTENTION_ENTROPY_LAMBDA * mean_entropy:.6f}")
@@ -1038,9 +1032,13 @@ class Stage2Trainer:
                 
                 log_data = {
                     "training_step": global_step,
-                    "train/latent_rmse": loss.item(),  # Use latent_rmse as primary training metric
                     "train/lr": current_lr
                 }
+                
+                if TRAIN_STAGE2_LATENT_ONLY:
+                    log_data["train/latent_rmse"] = batch_latent_stats["latent_rmse"]
+                else:
+                    log_data["train/loss_std"] = float(loss.item())
                 
                 # Add attention entropy if available
                 if 'mean_entropy_for_logging' in locals():
@@ -1128,8 +1126,8 @@ class Stage2Trainer:
             tgt_mu_a_min, tgt_mu_a_max = float(tgt_raw[:,0].min()), float(tgt_raw[:,0].max())
             tgt_mu_s_min, tgt_mu_s_max = float(tgt_raw[:,1].min()), float(tgt_raw[:,1].max())
             
-            self.logger.info(f"[VIZ PRED] μₐ: {pred_mu_a_min:.4f}..{pred_mu_a_max:.4f} mm⁻¹, μ′ₛ: {pred_mu_s_min:.3f}..{pred_mu_s_max:.3f} mm⁻¹")
-            self.logger.info(f"[VIZ TGT]  μₐ: {tgt_mu_a_min:.4f}..{tgt_mu_a_max:.4f} mm⁻¹, μ′ₛ: {tgt_mu_s_min:.3f}..{tgt_mu_s_max:.3f} mm⁻¹")
+            logger.info(f"[VIZ PRED] μₐ: {pred_mu_a_min:.4f}..{pred_mu_a_max:.4f} mm⁻¹, μ′ₛ: {pred_mu_s_min:.3f}..{pred_mu_s_max:.3f} mm⁻¹")
+            logger.info(f"[VIZ TGT]  μₐ: {tgt_mu_a_min:.4f}..{tgt_mu_a_max:.4f} mm⁻¹, μ′ₛ: {tgt_mu_s_min:.3f}..{tgt_mu_s_max:.3f} mm⁻¹")
             
             # Acceptance check
             assert pred_raw[:,0].max() > 1e-5 and pred_raw[:,1].max() > 1e-3, "Zeros after prep; abort recon logging."
@@ -1138,7 +1136,7 @@ class Stage2Trainer:
             log_recon_slices_raw(pred_raw, tgt_raw, epoch, phantom_ids=phantom_ids, prefix="Reconstructions")
             
         except Exception as e:
-            self.logger.warning(f"⚠️ Failed to log reconstruction images: {e}")
+            logger.warning(f"⚠️ Failed to log reconstruction images: {e}")
     
     def validate(self, data_loader, epoch=0):
         """
@@ -1219,10 +1217,12 @@ class Stage2Trainer:
                 
                 logger.debug(f"📦 Validation batch shape: {raw_ground_truth.shape}")
                 
-                # Use same dtype as training for consistency
-                dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+                # Guard AMP autocast cleanly
+                use_amp = (self.device.type == "cuda")
+                amp_dtype = torch.bfloat16 if (use_amp and torch.cuda.is_bf16_supported()) else torch.float16
+                
                 logger.debug("⚡ Validation forward pass...")
-                with autocast(dtype=dtype):
+                with autocast(enabled=use_amp, dtype=amp_dtype):
                     if TRAIN_STAGE2_LATENT_ONLY and not do_e2e_validation:
                         # LATENT-ONLY VALIDATION
                         student_latent = self.model.encode(nir_measurements, tissue_patches)
@@ -1412,6 +1412,11 @@ class Stage2Trainer:
             steps_per_epoch = len(data_loaders['train'])
             self._create_optimizer_and_scheduler(epochs, steps_per_epoch)
         
+        # AFTER optimizer/scheduler creation (and after any unfreezing in param-groups)
+        if USE_EMA and self.ema is None:
+            self.ema = EMAModel(self.model, decay=EMA_DECAY)
+            logger.info(f"🔄 EMA initialized with decay={EMA_DECAY} (post-unfreeze)")
+        
         # Initialize W&B logging with proper parameters
         if self.use_wandb and not self._wandb_initialized:
             steps_per_epoch = len(data_loaders['train'])
@@ -1444,8 +1449,8 @@ class Stage2Trainer:
                 wandb.log({
                     "epoch": epoch + 1,  # Custom x-axis for epoch metrics
                     
-                    # === TRAINING LOSS (latent-only) ===
-                    "train/latent_rmse": train_std_loss,        # Primary training metric (latent RMSE)
+                    # === TRAINING LOSS ===
+                    "train/latent_rmse" if TRAIN_STAGE2_LATENT_ONLY else "train/loss_std": train_std_loss,
                     "val/loss_std": val_std_loss,               # Main validation metric for early stopping
                     
                     # === RAW METRICS (human-interpretable) ===
