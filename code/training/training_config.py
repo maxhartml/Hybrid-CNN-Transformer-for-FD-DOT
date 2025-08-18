@@ -100,7 +100,7 @@ WEIGHT_DECAY = 7e-4             # CNN weight decay - higher (↑) = less overfit
 WEIGHT_DECAY_TRANSFORMER = 0.0001  # Keep capacity with mild regularization
 
 # Dropout Rates (prevent overfitting)
-DROPOUT_CNN = 0.05              # CNN dropout rate - higher (↑) = stronger regularization, lower (↓) = more model capacity
+DROPOUT_CNN = 0.10              # CNN dropout rate - higher (↑) = stronger regularization, lower (↓) = more model capacity
 DROPOUT_TRANSFORMER = 0.02      # Further reduced dropout for more capacity since not overfitting
 DROPOUT_NIR_PROCESSOR = 0.04    # Further reduced NIR dropout for better signal learning
 
@@ -122,13 +122,13 @@ GRADSCALER_GROWTH_INTERVAL = 200        # Shorter interval for quicker scale gro
 # Learning Rate Schedule
 STAGE1_MAX_LR = 3e-3          # Peak learning rate - higher values speed up training but risk instability
 STAGE1_BASE_LR = 1.0e-4         # Starting/ending learning rate - lower values provide smoother convergence
-STAGE1_DIV_FACTOR = 20          # Initial LR division factor - controls how low we start (max_lr/div_factor)
-STAGE1_FINAL_DIV_FACTOR = 200   # Final LR reduction factor - higher values give gentler final decay
-STAGE1_PCT_START = 0.40         # Warmup phase percentage - more warmup (↑) = more stable but slower start
+STAGE1_DIV_FACTOR = 25          # Initial LR division factor - controls how low we start (max_lr/div_factor)
+STAGE1_FINAL_DIV_FACTOR = 100   # Final LR reduction factor - higher values give gentler final decay
+STAGE1_PCT_START = 0.30         # Warmup phase percentage - more warmup (↑) = more stable but slower start
 STAGE1_CYCLE_MOMENTUM = True    # Enable momentum cycling for CNN - helps escape local minima
 
 # Optimizer Parameters
-ADAMW_BETAS_STAGE1 = (0.9, 0.98)  # Adam momentum parameters - beta1 (↑) = more momentum, beta2 (↑) = smoother updates
+ADAMW_BETAS_STAGE1 = (0.9, 0.95)  # Adam momentum parameters - beta1 (↑) = more momentum, beta2 (↑) = smoother updates
 ADAMW_EPS_STAGE1 = 1e-8            # Numerical stability epsilon - prevents division by zero in optimizer
 
 # Momentum Cycling (OneCycleLR feature)

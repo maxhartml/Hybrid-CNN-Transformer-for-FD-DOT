@@ -107,12 +107,8 @@ class Stage1Trainer:
         self.weight_decay = weight_decay
         self.early_stopping_patience = early_stopping_patience
         
-        # Early stopping and best model tracking - UPDATED TO USE RAW RMSE
-        self.best_val_raw_rmse = float('inf')           # Primary criterion: Raw RMSE (total)
-        self.best_val_raw_rmse_mu_a = None              # Best Raw RMSE μₐ component
-        self.best_val_raw_rmse_mu_s = None              # Best Raw RMSE μ′ₛ component
-        self.best_val_std_rmse = float('inf')           # Keep for logging reference only
-        self.best_val_loss = float('inf')               # Alias for backward compatibility
+        # Early stopping tracking
+        self.best_val_loss = float('inf')
         self.patience_counter = 0
         self.early_stopped = False
         
@@ -842,49 +838,28 @@ class Stage1Trainer:
                 except:
                     pass
             
-            # Model selection based on Raw RMSE (total) - UPDATED CRITERION
-            val_raw_rmse_total = val_raw_metrics['raw_rmse_total']
-            val_raw_rmse_mu_a = val_raw_metrics['raw_rmse_mu_a'] 
-            val_raw_rmse_mu_s = val_raw_metrics['raw_rmse_mu_s']
-            
-            # Primary criterion: Raw RMSE (total) with tie-breaker
-            is_new_best = val_raw_rmse_total < self.best_val_raw_rmse - 1e-6
-            
-            # Optional tie-breaker: if totals are equal within 1e-6, favor lower μₐ + μ′ₛ
-            if not is_new_best and abs(val_raw_rmse_total - self.best_val_raw_rmse) <= 1e-6:
-                cur_sum = (val_raw_rmse_mu_a or 0.0) + (val_raw_rmse_mu_s or 0.0)
-                best_sum = (self.best_val_raw_rmse_mu_a or 1e9) + (self.best_val_raw_rmse_mu_s or 1e9)
-                is_new_best = cur_sum < best_sum
-            
-            if is_new_best:
-                # Calculate improvement for logging
-                improvement = (self.best_val_raw_rmse - val_raw_rmse_total) if self.best_val_raw_rmse < float("inf") else 0.0
-                
-                # Update best model trackers
-                self.best_val_raw_rmse = val_raw_rmse_total
-                self.best_val_raw_rmse_mu_a = val_raw_rmse_mu_a
-                self.best_val_raw_rmse_mu_s = val_raw_rmse_mu_s
-                self.best_val_std_rmse = min(self.best_val_std_rmse, val_std_loss)  # Keep for reference
-                self.best_val_loss = val_raw_rmse_total  # Backward compatibility
+            # Early stopping based on STANDARDIZED validation loss
+            if val_std_loss < self.best_val_loss:
+                improvement = self.best_val_loss - val_std_loss
+                self.best_val_loss = val_std_loss
                 self.patience_counter = 0  # Reset patience counter
                 
-                logger.info(f"🎉 NEW BEST MODEL (by Raw_RMSE) | ΔRaw: {improvement:.4f} | "
-                           f"Best Raw_RMSE: {self.best_val_raw_rmse:.4f} (μₐ:{self.best_val_raw_rmse_mu_a:.6f}, μ′ₛ:{self.best_val_raw_rmse_mu_s:.4f}) | "
-                           f"Ref Std_RMSE: {self.best_val_std_rmse:.4f}")
+                # Save checkpoint using new per-run system
+                metrics = {
+                    'val_std_rmse': val_std_loss,
+                    'epoch': epoch
+                }
+                # Add raw metrics if available
+                if val_raw_metrics:
+                    metrics.update(val_raw_metrics)
                 
-                # Prepare checkpoint data with raw metrics in metadata
+                logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best Std_RMSE: {self.best_val_loss:.4f}")
+                
+                # Prepare additional checkpoint data for Stage1
                 checkpoint_data = {
                     'model_state_dict': self.model.state_dict(),
                     'optimizer_state_dict': self.optimizer.state_dict(),
-                    'metrics': {
-                        'val_std_rmse': val_std_loss,           # Keep std for reference
-                        'val_raw_rmse_total': val_raw_rmse_total,
-                        'val_raw_rmse_mu_a': val_raw_rmse_mu_a,
-                        'val_raw_rmse_mu_s': val_raw_rmse_mu_s,
-                        'val_raw_dice': val_raw_metrics['raw_dice'],
-                        'val_raw_contrast': val_raw_metrics['raw_contrast'],
-                        'epoch': epoch
-                    }
+                    'metrics': metrics
                 }
                 
                 # Add standardizer info for Stage1
@@ -894,25 +869,17 @@ class Stage1Trainer:
                 else:
                     checkpoint_data['standardizer_fitted'] = False
                 
-                # Save checkpoint using raw RMSE as primary metric (save_checkpoint expects val_std_rmse)
-                # Note: save_checkpoint uses the third parameter for improvement comparison, 
-                # so we pass val_raw_rmse_total as the comparison metric
-                saved = save_checkpoint(self.checkpoint_path, checkpoint_data, val_raw_rmse_total)
-                
-                if saved:
-                    logger.info(f"💾 Checkpoint saved: {self.checkpoint_path}")
-                
+                save_checkpoint(self.checkpoint_path, checkpoint_data, val_std_loss)
             else:
                 self.patience_counter += 1
-                logger.debug(f"📊 No improvement in Raw_RMSE. Current: {val_raw_rmse_total:.6f}, Best: {self.best_val_raw_rmse:.6f}, Patience: {self.patience_counter}/{self.early_stopping_patience}")
-                logger.debug("No improvement in Raw_RMSE; not saving.")
+                logger.debug(f"📊 No improvement. Current: {val_std_loss:.6f}, Best: {self.best_val_loss:.6f}, Patience: {self.patience_counter}/{self.early_stopping_patience}")
                 
-                # Early stopping based on Raw RMSE (total) - UPDATED CRITERION  
+                # Check for early stopping
                 if self.patience_counter >= self.early_stopping_patience:
                     logger.info(f"")
-                    logger.info(f"🛑 EARLY STOPPING TRIGGERED (criterion: Raw_RMSE)")
-                    logger.info(f"🔄 No improvement in Raw_RMSE for {self.early_stopping_patience} epochs")
-                    logger.info(f"🏆 Best Raw_RMSE achieved: {self.best_val_raw_rmse:.4f}")
+                    logger.info(f"🛑 EARLY STOPPING TRIGGERED")
+                    logger.info(f"🔄 No improvement for {self.early_stopping_patience} epochs")
+                    logger.info(f"🏆 Best Std_RMSE achieved: {self.best_val_loss:.4f}")
                     self.early_stopped = True
                     break
         
@@ -923,27 +890,20 @@ class Stage1Trainer:
             logger.info(f"✅ STAGE 1 TRAINING COMPLETED (Early Stopped)")
         else:
             logger.info(f"✅ STAGE 1 TRAINING COMPLETED (Full {epochs} Epochs)")
-        logger.info(f"🏆 Best Raw_RMSE: {self.best_val_raw_rmse:.4f} (μₐ:{self.best_val_raw_rmse_mu_a:.6f}, μ′ₛ:{self.best_val_raw_rmse_mu_s:.4f})")
-        logger.info(f"📊 Reference Std_RMSE: {self.best_val_std_rmse:.4f}")
+        logger.info(f"🏆 Best Std_RMSE Loss: {self.best_val_loss:.4f}")
         logger.info(f"📊 Final Epoch: {epoch+1}")
         logger.info(f"{'='*80}")
         
         logger.debug(f"🏁 Training summary: Completed epochs: {epoch+1}, Final best loss: {self.best_val_loss:.6f}")
         
-        # Finish W&B run with Raw RMSE as primary metric
+        # Finish W&B run
         if self.use_wandb and wandb.run:
-            wandb.run.summary["System/final_best_val_loss"] = self.best_val_raw_rmse
-            wandb.run.summary["stage1/best_raw_rmse"] = self.best_val_raw_rmse
-            wandb.run.summary["stage1/best_std_rmse_ref"] = self.best_val_std_rmse
-            wandb.log({"System/final_best_val_loss": self.best_val_raw_rmse, 
-                      "System/early_stopped": self.early_stopped}, commit=False)
+            wandb.log({"System/final_best_val_loss": self.best_val_loss, "System/early_stopped": self.early_stopped}, commit=False)
             wandb.finish()
             logger.info("🔬 W&B experiment finished")
         
         return {
-            'best_val_loss': self.best_val_raw_rmse,      # Return Raw RMSE as primary metric
-            'best_val_raw_rmse': self.best_val_raw_rmse,  # Explicit Raw RMSE
-            'best_val_std_rmse': self.best_val_std_rmse,  # Reference Std RMSE
+            'best_val_loss': self.best_val_loss, 
             'early_stopped': self.early_stopped,
             'standardizer_fitted': self.standardizer_fitted
         }
