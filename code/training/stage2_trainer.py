@@ -698,91 +698,69 @@ class Stage2Trainer:
         
         return param_groups
     
-    def _create_optimizer_and_scheduler(self, epochs: int, steps_per_epoch: int):
+    def _create_optimizer_and_scheduler(self, steps_per_epoch: int, total_epochs: int):
         """
-        Create AdamW optimizer and scheduler for Stage 2 with Preset B configuration.
+        Create AdamW optimizer and single scheduler for Stage 2 with linear warmup + cosine decay.
         
-        Preset B Features:
-        - Cosine Warm Restarts for better exploration
-        - Progressive EMA decay ramp
-        - Enhanced decoder fine-tuning
+        Features:
+        - Linear warmup from start_factor*base_lr to base_lr
+        - Cosine decay from base_lr to min_lr floor
+        - Single unified scheduler (no dual scheduler complexity)
         
         Args:
-            epochs (int): Total training epochs
             steps_per_epoch (int): Batches per epoch
-            
-        Returns:
-            tuple: (optimizer, scheduler) configured for Stage 2
+            total_epochs (int): Total training epochs
         """
+        self.steps_per_epoch = steps_per_epoch
+        self.total_steps = total_epochs * steps_per_epoch
+        warmup_steps = int(max(1, STAGE2_WARMUP_PCT * self.total_steps))
+        self.warmup_steps = warmup_steps
+
+        base_lr = STAGE2_BASE_LR
+        min_lr  = STAGE2_MIN_LR
+        start_factor = getattr(globals(), "SCHEDULER_START_FACTOR", 0.01)
+
         # Create parameter groups for differential weight decay
         param_groups = self._create_parameter_groups()
         
         # Create AdamW optimizer with transformer-optimized parameters
         self.optimizer = torch.optim.AdamW(
             param_groups,
-            lr=STAGE2_BASE_LR,                   # Conservative for fine-tuning
-            betas=ADAMW_BETAS_STAGE2,           # Transformer-standard betas (0.9, 0.98)
-            eps=ADAMW_EPS_STAGE2                # Numerical stability
+            lr=base_lr,                         # Base LR will be managed by scheduler
+            betas=ADAMW_BETAS_STAGE2,          # Transformer-standard betas (0.9, 0.98)
+            eps=ADAMW_EPS_STAGE2               # Numerical stability
         )
+
+        # Make sure optimizer param_groups all share base_lr
+        for pg in self.optimizer.param_groups:
+            pg["lr"] = base_lr
+
+        def lr_lambda(global_step: int):
+            # Linear warmup from start_factor*base_lr -> base_lr
+            if global_step < warmup_steps:
+                frac = global_step / max(1, warmup_steps)
+                return start_factor + (1.0 - start_factor) * frac
+
+            # Cosine decay from base_lr -> min_lr
+            decay_steps = max(1, self.total_steps - warmup_steps)
+            progress = (global_step - warmup_steps) / decay_steps
+            progress = min(max(progress, 0.0), 1.0)
+            # cosine multiplier in [0,1]
+            cos_mult = 0.5 * (1.0 + math.cos(math.pi * progress))
+            # map to [min_lr/base_lr, 1]
+            floor = min_lr / base_lr
+            return floor + (1.0 - floor) * cos_mult
+
+        self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda=lr_lambda, last_epoch=-1)
         
-        # Create scheduler based on configuration
-        total_steps = epochs * steps_per_epoch
-        warmup_steps = int(STAGE2_WARMUP_PCT * total_steps)
-        
-        if STAGE2_USE_COSINE_RESTARTS:
-            # Preset B: Cosine Warm Restarts
-            logger.info("🚀 Using Cosine Warm Restarts scheduler (Preset B)")
-            
-            # Create warmup scheduler for initial steps
-            def warmup_lambda(step):
-                if step < warmup_steps:
-                    min_lr_factor = 0.01  # Start at 1% of base LR
-                    return min_lr_factor + (1.0 - min_lr_factor) * (step / max(1, warmup_steps))
-                return 1.0
-            
-            self.warmup_scheduler = torch.optim.lr_scheduler.LambdaLR(
-                self.optimizer, warmup_lambda
-            )
-            
-            # Create cosine restart scheduler for post-warmup
-            T_0_steps = STAGE2_RESTART_T0_EPOCHS * steps_per_epoch
-            self.restart_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-                self.optimizer,
-                T_0=T_0_steps,
-                T_mult=STAGE2_RESTART_T_MULT,
-                eta_min=STAGE2_MIN_LR
-            )
-            
-            # Combined scheduler tracking
-            self.current_step = 0
-            self.warmup_steps = warmup_steps
-            
-            logger.info(f"🚀 COSINE WARM RESTARTS SCHEDULER:")
-            logger.info(f"   ├─ Warmup Steps: {warmup_steps:,} ({STAGE2_WARMUP_PCT*100:.1f}%)")
-            logger.info(f"   ├─ Restart T0: {STAGE2_RESTART_T0_EPOCHS} epochs ({T_0_steps} steps)")
-            logger.info(f"   ├─ Restart Multiplier: {STAGE2_RESTART_T_MULT}x")
-            logger.info(f"   ├─ Base LR: {STAGE2_BASE_LR:.2e}")
-            logger.info(f"   └─ Min LR: {STAGE2_MIN_LR:.2e}")
-        else:
-            # Original: Linear Warmup + Cosine Decay
-            def get_cosine_schedule_with_warmup(step):
-                if step < warmup_steps:
-                    min_lr_factor = 0.01  # Start at 1% of base LR
-                    warmup_factor = min_lr_factor + (1.0 - min_lr_factor) * (step / max(1, warmup_steps))
-                    return warmup_factor
-                
-                # Cosine decay
-                progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
-                eta_min = STAGE2_MIN_LR / STAGE2_BASE_LR  # Normalized eta_min
-                cosine_factor = eta_min + 0.5 * (1 - eta_min) * (1 + math.cos(math.pi * progress))
-                return cosine_factor
-            
-            self.scheduler = torch.optim.lr_scheduler.LambdaLR(
-                self.optimizer, get_cosine_schedule_with_warmup
-            )
+        logger.info(f"🚀 STAGE 2 LINEAR WARMUP + COSINE DECAY SCHEDULER:")
+        logger.info(f"   ├─ Warmup Steps: {warmup_steps:,} ({STAGE2_WARMUP_PCT*100:.1f}%)")
+        logger.info(f"   ├─ Base LR: {base_lr:.2e}")
+        logger.info(f"   ├─ Min LR: {min_lr:.2e}")
+        logger.info(f"   └─ Start Factor: {start_factor} (warmup begins at {start_factor*100:.1f}% of base)")
         
         logger.info(f"🚀 STAGE 2 ADAMW OPTIMIZER:")
-        logger.info(f"   ├─ Base LR: {STAGE2_BASE_LR:.0e}")
+        logger.info(f"   ├─ Base LR: {base_lr:.0e}")
         logger.info(f"   ├─ Weight Decay (Transformer): {WEIGHT_DECAY_TRANSFORMER}")
         logger.info(f"   └─ Betas: {ADAMW_BETAS_STAGE2}")
         
@@ -1049,17 +1027,14 @@ class Stage2Trainer:
                 grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), GRADIENT_CLIP_MAX_NORM)
                 self.optimizer.step()
             
-            # Step scheduler based on configuration
-            if hasattr(self, 'warmup_scheduler') and hasattr(self, 'restart_scheduler'):
-                # Cosine Warm Restarts scheduler
-                if self.current_step < self.warmup_steps:
-                    self.warmup_scheduler.step()
-                else:
-                    self.restart_scheduler.step()
-                self.current_step += 1
-            else:
-                # Original scheduler
-                self.scheduler.step()
+            # Step scheduler - single scheduler only
+            self.scheduler.step()
+            
+            # One-time scheduler info log
+            if epoch == 0 and batch_idx == 0:
+                logger.info(f"📅 LR schedule: warmup {self.warmup_steps} steps "
+                           f"({STAGE2_WARMUP_PCT*100:.1f}%), "
+                           f"base={STAGE2_BASE_LR:.3e}, floor={STAGE2_MIN_LR:.3e}")
             
             # SAFETY: Check for extreme gradient norms (sign of training instability)
             if grad_norm > GRADIENT_MONITOR_THRESHOLD:

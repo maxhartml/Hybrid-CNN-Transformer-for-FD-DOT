@@ -136,17 +136,16 @@ BASE_MOMENTUM = 0.85  # Minimum momentum value - higher (↑) = more stability, 
 MAX_MOMENTUM = 0.95   # Maximum momentum value - cycles between base and max during training
 
 # =============================================================================
-# STAGE 2: TRANSFORMER TRAINING (Cosine Warm Restarts + EMA Ramp)
+# STAGE 2: TRANSFORMER TRAINING (Linear Warmup -> Cosine Decay with Floor)
 # =============================================================================
-# Preset B: Enhanced cosine annealing with warm restarts and progressive EMA decay ramp
 
-# Learning Rate Schedule - Cosine Warm Restarts
-STAGE2_USE_COSINE_RESTARTS = True       # Enable cosine warm restarts for better exploration
-STAGE2_RESTART_T0_EPOCHS = 20           # Initial restart period (20 epochs)
-STAGE2_RESTART_T_MULT = 2               # Restart period multiplier (20→40→80→160...)
-STAGE2_BASE_LR = 1.5e-4                 # Peak learning rate - optimized for transformer training  
-STAGE2_WARMUP_PCT = 0.08                # Warmup phase (8% of total steps) for stable transformer training
-STAGE2_MIN_LR = 8e-6                    # Final LR floor for restarts - prevents complete learning cessation
+# Learning Rate Schedule
+STAGE2_BASE_LR = 1.5e-4                 # Peak LR after warmup - optimized for transformer training
+STAGE2_WARMUP_PCT = 0.06                # 6% of total training steps for warmup
+STAGE2_MIN_LR = 2.0e-6                  # LR floor to prevent learning stagnation
+
+# Scheduler Configuration
+SCHEDULER_START_FACTOR = 0.01           # Start warmup at 1% of base to avoid zero-LR AdamW issues
 
 # Optimizer Parameters
 ADAMW_BETAS_STAGE2 = (0.9, 0.98)       # Transformer-optimized momentum - beta2=0.98 reduces noise in attention gradients
