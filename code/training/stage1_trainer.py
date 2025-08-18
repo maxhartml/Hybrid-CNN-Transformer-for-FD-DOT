@@ -48,7 +48,7 @@ from code.utils.metrics import NIRDOTMetrics, create_metrics_for_stage, calculat
 from code.utils.standardizers import PerChannelZScore, fit_standardizer_on_dataloader
 from code.utils.viz_recon import log_recon_slices_raw
 from .training_config import *  # Import all training config
-from .training_utils import save_checkpoint
+from .training_utils import get_or_create_run_id, get_checkpoint_path, save_checkpoint
 
 # =============================================================================
 # STAGE-SPECIFIC CONFIGURATION
@@ -189,6 +189,11 @@ class Stage1Trainer:
         else:
             logger.info(f"💻 CPU Mode: Enabled")
         logger.info(f"{'='*80}")
+        
+        # Initialize checkpoint system
+        self.run_id = get_or_create_run_id("stage1")
+        self.checkpoint_path = get_checkpoint_path("stage1", self.run_id)
+        logger.info(f"📁 Checkpoint: {self.checkpoint_path}")
         
         # Initialize Weights & Biases
         if self.use_wandb:
@@ -839,10 +844,32 @@ class Stage1Trainer:
                 self.best_val_loss = val_std_loss
                 self.patience_counter = 0  # Reset patience counter
                 
-                # Save checkpoint with timestamped filename
-                checkpoint_base_path = f"{CHECKPOINT_BASE_DIR}/{CHECKPOINT_STAGE1}"
+                # Save checkpoint using new per-run system
+                metrics = {
+                    'val_std_rmse': val_std_loss,
+                    'epoch': epoch
+                }
+                # Add raw metrics if available
+                if val_raw_metrics:
+                    metrics.update(val_raw_metrics)
+                
                 logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best Std_RMSE: {self.best_val_loss:.4f}")
-                actual_path = self.save_checkpoint(checkpoint_base_path, epoch, val_std_loss, val_raw_metrics)
+                
+                # Prepare additional checkpoint data for Stage1
+                checkpoint_data = {
+                    'model_state_dict': self.model.state_dict(),
+                    'optimizer_state_dict': self.optimizer.state_dict(),
+                    'metrics': metrics
+                }
+                
+                # Add standardizer info for Stage1
+                if self.standardizer_fitted:
+                    checkpoint_data['standardizer'] = self.standardizer.state_dict()
+                    checkpoint_data['standardizer_fitted'] = True
+                else:
+                    checkpoint_data['standardizer_fitted'] = False
+                
+                save_checkpoint(self.checkpoint_path, checkpoint_data, val_std_loss)
             else:
                 self.patience_counter += 1
                 logger.debug(f"📊 No improvement. Current: {val_std_loss:.6f}, Best: {self.best_val_loss:.6f}, Patience: {self.patience_counter}/{self.early_stopping_patience}")
@@ -880,49 +907,3 @@ class Stage1Trainer:
             'early_stopped': self.early_stopped,
             'standardizer_fitted': self.standardizer_fitted
         }
-    
-    def save_checkpoint(self, path, epoch, val_loss, val_raw_metrics=None):
-        """
-        Save model checkpoint with training state and standardizer information.
-        
-        This method creates a comprehensive checkpoint containing the model state,
-        optimizer state, standardizer state, and training metadata for resuming 
-        training or transferring to Stage 2 training.
-        
-        Args:
-            path (str): File path for saving the checkpoint
-            epoch (int): Current training epoch number
-            val_loss (float): Current validation loss value (standardized space)
-            val_raw_metrics (dict, optional): Raw validation metrics for reference
-        
-        The checkpoint includes:
-        - Model state dictionary (learned parameters)
-        - Optimizer state dictionary (for training resumption)
-        - Standardizer state dictionary (normalization parameters)
-        - Training metadata (epoch, validation loss, raw metrics)
-        """
-        logger.debug(f"💾 Saving Stage 1 checkpoint: epoch={epoch}, val_loss={val_loss:.6f}")
-        
-        # Prepare Stage 1 specific data
-        extra_data = {
-            'standardizer': self.standardizer.state_dict() if self.standardizer_fitted else None,
-            'standardizer_fitted': self.standardizer_fitted,
-        }
-        
-        # Add raw metrics if provided
-        if val_raw_metrics is not None:
-            extra_data['val_raw_metrics'] = val_raw_metrics
-            logger.info(f"📊 Raw metrics saved: RMSE={val_raw_metrics.get('raw_rmse_total', 0):.4f}, Dice={val_raw_metrics.get('raw_dice', 0):.4f}")
-        
-        # Use common checkpoint saving function with timestamped filename
-        actual_path = save_checkpoint(
-            path=path,
-            epoch=epoch,
-            model_state=self.model.state_dict(),
-            optimizer_state=self.optimizer.state_dict(),
-            val_loss=val_loss,
-            stage_name="Stage 1",
-            extra_data=extra_data
-        )
-        
-        return actual_path

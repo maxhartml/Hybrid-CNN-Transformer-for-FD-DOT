@@ -49,7 +49,7 @@ from code.utils.metrics import NIRDOTMetrics, create_metrics_for_stage, calculat
 from code.utils.standardizers import Stage2StandardizerCollection
 from code.data_processing.data_loader import create_phantom_dataloaders  # For standardizer fitting
 from .training_config import *  # Import all training config
-from .training_utils import save_checkpoint, find_best_checkpoint
+from .training_utils import get_or_create_run_id, get_checkpoint_path, save_checkpoint, find_best_checkpoint
 
 # =============================================================================
 # PERFORMANCE OPTIMIZATIONS
@@ -190,7 +190,7 @@ class Stage2Trainer:
         if stage1_checkpoint_path is None:
             checkpoint_search_dir = checkpoint_dir or CHECKPOINT_BASE_DIR
             logger.info("🔍 No Stage 1 checkpoint path provided - searching for best checkpoint...")
-            stage1_checkpoint_path = find_best_checkpoint(checkpoint_search_dir, "stage1")
+            stage1_checkpoint_path = find_best_checkpoint("stage1", checkpoint_search_dir)
             
             if stage1_checkpoint_path is None:
                 raise FileNotFoundError(
@@ -340,6 +340,11 @@ class Stage2Trainer:
             logger.info(f"🔄 EMA initialized with decay={EMA_DECAY}")
         else:
             logger.info("📊 EMA disabled")
+            
+        # Initialize checkpoint system for Stage 2
+        self.run_id = get_or_create_run_id("stage2")
+        self.checkpoint_path = get_checkpoint_path("stage2", self.run_id)
+        logger.info(f"📁 Stage 2 Checkpoint: {self.checkpoint_path}")
     
     def _create_lightweight_dataloader_for_standardizer_fitting(self):
         """
@@ -1522,10 +1527,22 @@ class Stage2Trainer:
             if val_std_loss < best_val_loss:
                 improvement = best_val_loss - val_std_loss
                 best_val_loss = val_std_loss
-                checkpoint_filename = CHECKPOINT_STAGE2_ENHANCED if self.use_tissue_patches else CHECKPOINT_STAGE2_BASELINE
-                checkpoint_base_path = f"{CHECKPOINT_BASE_DIR}/{checkpoint_filename}"
                 logger.info(f"🎉 NEW BEST MODEL | Improvement: {improvement:.4f} | Best Std_RMSE: {best_val_loss:.4f}")
-                actual_path = self.save_checkpoint(checkpoint_base_path, epoch, val_std_loss)
+                
+                # Prepare checkpoint data
+                metrics = {
+                    'val_std_rmse': val_std_loss,
+                    'epoch': epoch
+                }
+                
+                checkpoint_data = {
+                    'model_state_dict': self.model.state_dict(),
+                    'optimizer_state_dict': self.optimizer.state_dict(),
+                    'metrics': metrics,
+                    'use_tissue_patches': self.use_tissue_patches
+                }
+                
+                save_checkpoint(self.checkpoint_path, checkpoint_data, val_std_loss)
             else:
                 logger.debug(f"📊 Stage 2 no improvement. Current: {val_std_loss:.6f}, Best: {best_val_loss:.6f}")
         
@@ -1546,43 +1563,3 @@ class Stage2Trainer:
             logger.info("🔬 W&B experiment finished")
         
         return {'best_val_loss': best_val_loss}
-    
-    def save_checkpoint(self, path, epoch, val_loss):
-        """
-        Save model checkpoint with complete training state information.
-        
-        This method creates a comprehensive checkpoint containing the full model state,
-        optimizer state, and Stage 2 specific metadata including tissue patch
-        configuration for proper model restoration.
-        
-        Args:
-            path (str): File path for saving the checkpoint
-            epoch (int): Current training epoch number
-            val_loss (float): Current validation loss value
-        
-        The checkpoint includes:
-        - Complete model state dictionary (CNN + Transformer)
-        - Optimizer state dictionary for training resumption
-        - Training metadata and configuration
-        - Tissue patch usage flag for proper restoration
-        """
-        # Prepare Stage 2 specific data
-        extra_data = {
-            'use_tissue_patches': self.use_tissue_patches
-        }
-        
-        mode = "Enhanced" if self.use_tissue_patches else "Baseline"
-        stage_name = f"Stage 2 ({mode})"
-        
-        # Use common checkpoint saving function with timestamped filename
-        actual_path = save_checkpoint(
-            path=path,
-            epoch=epoch,
-            model_state=self.model.state_dict(),
-            optimizer_state=self.optimizer.state_dict(),
-            val_loss=val_loss,
-            stage_name=stage_name,
-            extra_data=extra_data
-        )
-        
-        return actual_path
