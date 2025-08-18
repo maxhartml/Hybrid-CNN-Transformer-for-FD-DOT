@@ -53,7 +53,7 @@ USE_TISSUE_PATCHES_STAGE2 = False       # Baseline: no patch extraction (set Tru
 # Exponential Moving Average (EMA) Configuration - Progressive Decay Ramp
 USE_EMA = True                          # Enable EMA of model weights for better generalization
 EMA_DECAY = 0.997                       # Baseline EMA decay factor (maintained for compatibility)
-EMA_DECAY_START = 0.990                 # Starting EMA decay value (more aggressive early learning)
+EMA_DECAY_START = 0.995                 # Starting EMA decay value (more aggressive early learning)
 EMA_DECAY_END = 0.9995                  # Final EMA decay value (more stable late training)
 
 # Decoder Fine-tuning Control - Increased for Preset B
@@ -61,7 +61,7 @@ UNFREEZE_LAST_DECODER_BLOCK = True      # Allow fine-tuning of final decoder blo
 DECODER_FINETUNING_LR_SCALE = 0.3       # Increased LR scaling for unfrozen decoder block (relative to transformer LR)
 
 # Attention Entropy Regularization
-ATTENTION_ENTROPY_LAMBDA = 2e-4         # Regularization weight for attention entropy - encourages diverse attention patterns
+ATTENTION_ENTROPY_LAMBDA = 1e-4         # Regularization weight for attention entropy - encourages diverse attention patterns
 
 # Performance Optimizations
 USE_MODEL_COMPILATION = True            # PyTorch 2.0 compilation for 2x speedup (fixed compilation issues)
@@ -73,17 +73,16 @@ USE_CHANNELS_LAST_MEMORY_FORMAT = True  # Efficient memory layout for 3D convolu
 # =============================================================================
 
 # Training Duration
-EPOCHS_STAGE1 = 150  # Stage 1 CNN training epochs - more (↑) = better feature learning, less (↓) = faster training
+EPOCHS_STAGE1 = 200  # Stage 1 CNN training epochs - more (↑) = better feature learning, less (↓) = faster training
 EPOCHS_STAGE2 = 400   # Stage 2 transformer epochs - increased for better convergence, more (↑) = better fine-tuning, less (↓) = faster completion
 
 # Batch Sizes - Hard-coded for stability
 BATCH_SIZE = 128  # Reduced for better gradient diversity and memory efficiency
 
 # Early Stopping
-EARLY_STOPPING_PATIENCE = 30  # Epochs to wait without improvement - higher (↑) = more exploration, lower (↓) = faster stopping
+EARLY_STOPPING_PATIENCE = 50  # Epochs to wait without improvement - higher (↑) = more exploration, lower (↓) = faster stopping
 
-# =============================================================================
-# Data Loading Configuration
+# ===================================== Data Loading Configuration =========================================
 # Optimized for large 3D medical imaging data (64x64x64 phantoms)
 
 NUM_WORKERS = 16          # Increased for better throughput - more parallel loading to feed transformer
@@ -97,7 +96,7 @@ PERSISTENT_WORKERS = True # Keep workers alive between epochs - True = faster ep
 
 # Weight Decay (L2 regularization)
 WEIGHT_DECAY = 7e-4             # CNN weight decay - higher (↑) = less overfitting but may underfit, lower (↓) = more capacity but overfitting risk
-WEIGHT_DECAY_TRANSFORMER = 0.001  # Further reduced transformer weight decay for better capacity
+WEIGHT_DECAY_TRANSFORMER = 0.01  # Further reduced transformer weight decay for better capacity
 
 # Dropout Rates (prevent overfitting)
 DROPOUT_CNN = 0.05              # CNN dropout rate - higher (↑) = stronger regularization, lower (↓) = more model capacity
