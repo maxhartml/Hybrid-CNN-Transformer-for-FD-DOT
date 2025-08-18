@@ -60,7 +60,7 @@ class NIRDOTLogger:
         root_logger = logging.getLogger()
         root_logger.setLevel(getattr(logging, log_level.upper()))
         
-        # Clear existing handlers
+        # Clear existing handlers to prevent duplicates
         for handler in root_logger.handlers[:]:
             root_logger.removeHandler(handler)
         
@@ -83,20 +83,20 @@ class NIRDOTLogger:
             datefmt='%Y-%m-%d %H:%M:%S'
         )
         
-        # Console handler
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(getattr(logging, log_level.upper()))
-        console_handler.setFormatter(formatter)
-        root_logger.addHandler(console_handler)
+        # Console handler - only add if no handlers exist
+        if not root_logger.handlers:
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(getattr(logging, log_level.upper()))
+            console_handler.setFormatter(formatter)
+            root_logger.addHandler(console_handler)
         
         cls._initialized = True
         
-        # Log initialization
-        logger = cls.get_logger("logging_config", "training")
-        logger.info("🚀 NIR-DOT Logging Initialized")
-        logger.info(f"📂 Log directory: {log_path.absolute()}")
-        logger.info(f"📊 Log level: {log_level}")
-        logger.info(f"🔄 File rotation: {max_file_size // (1024*1024)}MB, {backup_count} backups")
+        # Log initialization directly to avoid recursive calls
+        root_logger.info("🚀 NIR-DOT Logging Initialized")
+        root_logger.info(f"📂 Log directory: {log_path.absolute()}")
+        root_logger.info(f"📊 Log level: {log_level}")
+        root_logger.info(f"🔄 File rotation: {max_file_size // (1024*1024)}MB, {backup_count} backups")
     
     @classmethod
     def get_logger(cls, 
@@ -125,8 +125,8 @@ class NIRDOTLogger:
         # Create new logger
         logger = logging.getLogger(name)
         
-        # Add module-specific file handler
-        if module:
+        # Add module-specific file handler only if module is specified and logger has no handlers
+        if module and not any(isinstance(h, logging.handlers.RotatingFileHandler) for h in logger.handlers):
             log_path = Path(log_dir) / module
             log_path.mkdir(exist_ok=True)
             

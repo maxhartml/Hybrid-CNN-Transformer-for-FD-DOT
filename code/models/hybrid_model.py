@@ -653,18 +653,28 @@ class HybridCNNTransformer(nn.Module):
         Unfreeze the last decoder block for fine-tuning in Stage 2.
         
         When UNFREEZE_LAST_DECODER_BLOCK is True, this method allows fine-tuning
-        of the final decoder block with a reduced learning rate.
+        of both deconv5 and final_conv layers with a reduced learning rate.
         """
         if not self.decoder_unfreezing_enabled:
             return
-            
-        # Get the last decoder block (assuming it's the final layers)
-        decoder_blocks = list(self.cnn_autoencoder.decoder.children())
-        if len(decoder_blocks) > 0:
-            last_block = decoder_blocks[-1]
-            for param in last_block.parameters():
-                param.requires_grad = True
-            logger.info(f"🔓 Unfroze last decoder block for fine-tuning with {DECODER_FINETUNING_LR_SCALE}x LR")
+        
+        decoder = self.cnn_autoencoder.decoder
+        unfrozen_params = 0
+        unfrozen_tensors = []
+        
+        # Unfreeze deconv5 (ConvTranspose3d + BatchNorm3d)
+        for param in decoder.deconv5.parameters():
+            param.requires_grad = True
+            unfrozen_params += param.numel()
+            unfrozen_tensors.append(param)
+        
+        # Unfreeze final_conv  
+        for param in decoder.final_conv.parameters():
+            param.requires_grad = True
+            unfrozen_params += param.numel()
+            unfrozen_tensors.append(param)
+        
+        logger.info(f"🔓 Unfroze {len(unfrozen_tensors)} tensors ({unfrozen_params:,} params) in deconv5 + final_conv for {DECODER_FINETUNING_LR_SCALE}x LR fine-tuning")
     
     def get_calibrator_regularization(self, weight_lambda: float = 1e-5) -> torch.Tensor:
         """
@@ -687,16 +697,24 @@ class HybridCNNTransformer(nn.Module):
     
     def get_unfrozen_decoder_parameters(self):
         """
-        Get parameters from the unfrozen last decoder block for separate optimization.
+        Get parameters from the unfrozen decoder layers (deconv5 + final_conv) for separate optimization.
         
         Returns:
             List of parameters that should be optimized with reduced LR
         """
         if not self.decoder_unfreezing_enabled:
             return []
-            
-        decoder_blocks = list(self.cnn_autoencoder.decoder.children())
-        if len(decoder_blocks) > 0:
-            last_block = decoder_blocks[-1]
-            return [param for param in last_block.parameters() if param.requires_grad]
-        return []
+        
+        decoder = self.cnn_autoencoder.decoder
+        unfrozen_params = []
+        
+        # Collect parameters from deconv5 and final_conv
+        for param in decoder.deconv5.parameters():
+            if param.requires_grad:
+                unfrozen_params.append(param)
+        
+        for param in decoder.final_conv.parameters():
+            if param.requires_grad:
+                unfrozen_params.append(param)
+        
+        return unfrozen_params
