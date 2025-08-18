@@ -50,13 +50,15 @@ VAL_E2E_EVERY_K_EPOCHS = 1              # Decode + raw metrics every K epochs
 # Tissue patch gating for Stage 2
 USE_TISSUE_PATCHES_STAGE2 = False       # Baseline: no patch extraction (set True for enhanced mode)
 
-# Exponential Moving Average (EMA) Configuration
+# Exponential Moving Average (EMA) Configuration - Progressive Decay Ramp
 USE_EMA = True                          # Enable EMA of model weights for better generalization
-EMA_DECAY = 0.997                       # EMA decay factor - higher (↑) = slower update, lower (↓) = faster tracking
+EMA_DECAY = 0.997                       # Baseline EMA decay factor (maintained for compatibility)
+EMA_DECAY_START = 0.990                 # Starting EMA decay value (more aggressive early learning)
+EMA_DECAY_END = 0.9995                  # Final EMA decay value (more stable late training)
 
-# Decoder Fine-tuning Control
+# Decoder Fine-tuning Control - Increased for Preset B
 UNFREEZE_LAST_DECODER_BLOCK = True      # Allow fine-tuning of final decoder block in Stage 2
-DECODER_FINETUNING_LR_SCALE = 0.1       # LR scaling for unfrozen decoder block (relative to transformer LR)
+DECODER_FINETUNING_LR_SCALE = 0.3       # Increased LR scaling for unfrozen decoder block (relative to transformer LR)
 
 # Attention Entropy Regularization
 ATTENTION_ENTROPY_LAMBDA = 2e-4         # Regularization weight for attention entropy - encourages diverse attention patterns
@@ -134,18 +136,21 @@ BASE_MOMENTUM = 0.85  # Minimum momentum value - higher (↑) = more stability, 
 MAX_MOMENTUM = 0.95   # Maximum momentum value - cycles between base and max during training
 
 # =============================================================================
-# STAGE 2: TRANSFORMER TRAINING (Cosine Decay with Warmup and Floor)
+# STAGE 2: TRANSFORMER TRAINING (Cosine Warm Restarts + EMA Ramp)
 # =============================================================================
-# Enhanced cosine annealing schedule with nonzero floor for better convergence
+# Preset B: Enhanced cosine annealing with warm restarts and progressive EMA decay ramp
 
-# Learning Rate Schedule
-STAGE2_BASE_LR = 1.5e-4         # Peak learning rate - optimized for transformer training  
-STAGE2_WARMUP_PCT = 0.06        # Warmup phase (6% of total steps) for stable transformer training
-STAGE2_MIN_LR = 2e-6            # Final LR floor (nonzero) - prevents complete learning cessation
+# Learning Rate Schedule - Cosine Warm Restarts
+STAGE2_USE_COSINE_RESTARTS = True       # Enable cosine warm restarts for better exploration
+STAGE2_RESTART_T0_EPOCHS = 20           # Initial restart period (20 epochs)
+STAGE2_RESTART_T_MULT = 2               # Restart period multiplier (20→40→80→160...)
+STAGE2_BASE_LR = 1.5e-4                 # Peak learning rate - optimized for transformer training  
+STAGE2_WARMUP_PCT = 0.08                # Warmup phase (8% of total steps) for stable transformer training
+STAGE2_MIN_LR = 8e-6                    # Final LR floor for restarts - prevents complete learning cessation
 
 # Optimizer Parameters
-ADAMW_BETAS_STAGE2 = (0.9, 0.98)  # Transformer-optimized momentum - beta2=0.98 reduces noise in attention gradients
-ADAMW_EPS_STAGE2 = 1e-8            # Numerical stability epsilon - prevents optimizer mathematical errors
+ADAMW_BETAS_STAGE2 = (0.9, 0.98)       # Transformer-optimized momentum - beta2=0.98 reduces noise in attention gradients
+ADAMW_EPS_STAGE2 = 1e-8                 # Numerical stability epsilon - prevents optimizer mathematical errors
 
 # =============================================================================
 # CHECKPOINT AND LOGGING CONFIGURATION
