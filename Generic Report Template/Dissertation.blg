@@ -18,13 +18,11 @@ A level-1 auxiliary file: Chapter7/Chapter7.aux
 A level-1 auxiliary file: Chapter8/Chapter8.aux
 The style file: abbrv.bst
 A level-1 auxiliary file: Appendices/Appendices.aux
+I found no \citation commands---while reading file Dissertation.aux
 Database file #1: bibliography.bib
-Warning--I didn't find a database entry for "dale2021"
-Warning--I didn't find a database entry for "dale2022"
-Warning--I didn't find a database entry for "dale2023hybrid"
 You've used 0 entries,
             2118 wiz_defined-function locations,
-            516 strings with 4104 characters,
+            513 strings with 4074 characters,
 and the built_in function-call counts, 18 in all, are:
 = -- 0
 > -- 0
@@ -63,4 +61,4 @@ warning$ -- 0
 while$ -- 0
 width$ -- 0
 write$ -- 2
-(There were 3 warnings)
+(There was 1 error message)

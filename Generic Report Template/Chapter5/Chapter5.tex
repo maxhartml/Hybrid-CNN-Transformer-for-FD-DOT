@@ -3,41 +3,85 @@
 \chapter{Two-Stage Training Methodology}
 
 \section{Training Strategy Overview}
+
+% >>> STARTER: Training Strategy Overview
+Outlines Stage 1 pretraining on ground-truth volumes followed by Stage 2 transformer training with the decoder frozen. Highlights benefits: stability, modularity, and reuse of a high-quality spatial prior.
+% <<< STARTER: Training Strategy Overview
+
 % High-level overview of the two-stage training approach
 
 \section{Stage 1: CNN Autoencoder Pre-Training}
+
+% >>> STARTER: Stage 1: CNN Autoencoder Pre-Training
+Uses RMSE on standardised volumes with AdamW and OneCycleLR for rapid convergence. Mixed precision and sensible batch sizes accelerate training without sacrificing stability.
+% <<< STARTER: Stage 1: CNN Autoencoder Pre-Training
+
 % Detailed description of the first training stage
 
-\subsection{Identity Mapping Objective}
-% Explanation of the identity mapping training objective
+\subsection{Loss Function and Optimisation}
 
-\subsection{AdamW with OneCycleLR Optimization}
-% Optimization strategy for Stage 1 training
+% >>> STARTER: Loss Function and Optimisation
+Defines the reconstruction loss, weight decay, gradient clipping, and AMP/bf16 choices. Notes early stopping criteria if used.
+% <<< STARTER: Loss Function and Optimisation
 
-\subsection{Hyperparameter Selection}
-% Selection and tuning of hyperparameters for Stage 1
+% Description of the loss function and optimization strategy for Stage 1 (RMSE, AdamW, OneCycleLR)
+
+\subsection{Hyperparameter and Setup}
+
+% >>> STARTER: Hyperparameter and Setup
+Records epochs, batch size, peak LR and schedule shape, seed, and checkpointing. Mentions channels-last/compile flags if applicable.
+% <<< STARTER: Hyperparameter and Setup
+
+% Selection and tuning of hyperparameters for Stage 1 (epochs, batch size, weight decay, mixed precision)
 
 \section{Stage 2: Transformer Enhancement Training}
+
+% >>> STARTER: Stage 2: Transformer Enhancement Training
+Loads the frozen decoder and trains only the transformer (and pooling head) to match the teacher latent; evaluation uses decoder outputs. Scheduler uses linear warm-up with cosine decay; EMA can smooth updates.
+% <<< STARTER: Stage 2: Transformer Enhancement Training
+
 % Detailed description of the second training stage
 
 \subsection{Frozen Decoder Approach}
+
+% >>> STARTER: Frozen Decoder Approach
+Justifies freezing to preserve Stage 1 decoder quality and reduce overfitting. Notes any optional fine-tuning at lower LR.
+% <<< STARTER: Frozen Decoder Approach
+
 % Strategy for freezing decoder weights during Stage 2
 
-\subsection{Linear Warmup with Cosine Decay}
-% Learning rate scheduling for Stage 2
+\subsection{Latent Alignment Objective}
 
-\subsection{Differential Weight Decay}
-% Use of different weight decay values for different components
+% >>> STARTER: Latent Alignment Objective
+RMSE between student and teacher latents drives learning; periodic full recon checks track end-to-end quality. Cosine similarity can be monitored but is not required.
+% <<< STARTER: Latent Alignment Objective
 
-\section{Data Augmentation Strategy}
+% Description of the latent alignment objective for Stage 2 (RMSE teacher-student)
+
+\subsection{Scheduler and Optimisation Strategy}
+
+% >>> STARTER: Scheduler and Optimisation Strategy
+Describes warm-up, cosine parameters, AdamW groups, and regularisation choices. Mentions EMA decay schedule if used.
+% <<< STARTER: Scheduler and Optimisation Strategy
+
+% Learning rate scheduling and optimization strategy for Stage 2 (Linear warmup + Cosine decay, AdamW param groups, EMA)
+
+\section{Data Augmentation and Undersampling Strategy}
+
+% >>> STARTER: Data Augmentation and Undersampling Strategy
+Always subsample 256 of the 1000 measurements per phantom to set a fixed sequence length and provide augmentation. Rotation/randomisation come from phantom generation rather than image-space augmentations.
+% <<< STARTER: Data Augmentation and Undersampling Strategy
+
 % Data augmentation techniques used during training
 
 \section{Implementation Details}
-% Technical implementation details
 
-\subsection{Hardware Optimization}
-% Optimization for GPU training and memory efficiency
+% >>> STARTER: Implementation Details
+Notes hardware (e.g., A100), mixed precision, dataloader workers, logging (e.g., W\&B/TensorBoard), and run structure. Emphasises determinism settings for validation.
+% <<< STARTER: Implementation Details
 
-\subsection{Experiment Tracking}
-% Use of Weights \& Biases for experiment tracking
+% Implementation details and computational setup
+% <<< STARTER: Implementation Details
+
+% Technical implementation details (hardware, mixed precision, experiment tracking)
 

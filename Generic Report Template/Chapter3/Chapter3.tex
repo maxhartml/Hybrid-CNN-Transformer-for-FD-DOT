@@ -2,24 +2,50 @@
 
 \chapter{Synthetic Phantom Data Generation}
 
-\section{Physics-Based Forward Modeling}
+\section{Physics-Based Forward Modelling}
+
+% >>> STARTER: Physics-Based Forward Modelling
+Describes frequency-domain diffusion forward solves (e.g., 140 MHz) producing amplitude and phase per source–detector pair. Notes tetrahedral meshing and unit conventions. Establishes the mapping from $\mu_a$, $\mu'_s$ volumes to measurements.
+% <<< STARTER: Physics-Based Forward Modelling
+
 % Description of the forward modeling approach using finite element methods
 
 \section{Geometric Phantom Construction}
+
+% >>> STARTER: Geometric Phantom Construction
+Details $64 \times 64 \times 64$ voxel volumes with ellipsoidal tissues and randomly placed tumour inclusions. Random rotations and shape parameters reduce bias and encourage invariance. Controls ensure inclusions are well within tissue boundaries.
+% <<< STARTER: Geometric Phantom Construction
+
 % Methodology for creating realistic geometric phantoms
 
 \section{Optical Property Assignment}
+
+% >>> STARTER: Optical Property Assignment
+Specifies physiologically plausible ranges for $\mu_a$ and $\mu'_s$ and scaling for tumours relative to background. Clarifies refractive index assumptions if fixed. Ensures values remain within clinical bounds during synthesis.
+% <<< STARTER: Optical Property Assignment
+
 % Process for assigning optical properties to different tissue types
 
 \section{Surface Extraction and Probe Placement}
+
+% >>> STARTER: Surface Extraction and Probe Placement
+Explains surface-aware placement of ~50 sources and ~20 detectors per source with SDS in 10–40 mm. Encodes each measurement with [log-amplitude, phase, src\_xyz, det\_xyz]. Clarifies pairing logic and avoidance of overlaps.
+% <<< STARTER: Surface Extraction and Probe Placement
+
 % Details on surface mesh extraction and probe positioning
 
-\section{Frequency-Domain Measurement Simulation}
-% Simulation of frequency-domain NIR measurements
+\section{Noise Model}
 
-\section{Dataset Composition and Statistics}
-% Overview of the generated dataset with 5,000 phantoms
+% >>> STARTER: Noise Model
+States additive noise levels for amplitude/phase (e.g., relative Gaussian on log-amp; small absolute Gaussian on phase). Justifies where noise is injected (pre/post transforms) and why these levels are realistic. Notes any fixed seeds for repeatability.
+% <<< STARTER: Noise Model
 
-\section{Validation of Simulated Data}
-% Validation against known analytical solutions and experimental data
+% Description of the noise model used to simulate measurement noise
 
+\section{Dataset Composition and Preprocessing}
+
+% >>> STARTER: Dataset Composition and Preprocessing
+Summarises dataset size, splits, and standardisation (per-channel z-score for volumes and features). Undersampling: always select exactly 256 from 1000 measurements per phantom. Mentions file formats and loader behaviour.
+% <<< STARTER: Dataset Composition and Preprocessing
+
+% Overview of the generated dataset with 10,000 phantoms

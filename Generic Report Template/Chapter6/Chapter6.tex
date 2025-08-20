@@ -3,63 +3,65 @@
 \chapter{Experimental Results and Analysis}
 
 \section{Experimental Setup}
+
+% >>> STARTER: Experimental Setup
+Describes dataset splits, number of phantoms, and pre/post-processing used during evaluation. Lists key hyperparameters for both stages and any fixed seeds.
+% <<< STARTER: Experimental Setup
+
 % Description of the experimental methodology
 
 \subsection{Dataset Preparation}
+
+% >>> STARTER: Dataset Preparation
+Specifies training/validation/test proportions and how measurement subsampling is handled at eval time. Notes standardisation fitted on train only.
+% <<< STARTER: Dataset Preparation
+
 % Preparation of training, validation, and test datasets
 
 \subsection{Evaluation Metrics}
+
+% >>> STARTER: Evaluation Metrics
+RMSE (per-channel and total), Dice for inclusion overlap, and contrast ratio in raw units. Optionally report latent RMSE for Stage 2 training curves.
+% <<< STARTER: Evaluation Metrics
+
 % RMSE, SSIM, PSNR, and other evaluation metrics
 
 \subsection{Baseline Methods}
+
+% >>> STARTER: Baseline Methods
+Compares Stage 2 against Stage 1 reconstructions to quantify gains. Mentions any classic iterative baseline if available; otherwise focuses on within-pipeline comparison.
+% <<< STARTER: Baseline Methods
+
 % Description of baseline methods for comparison
 
 \section{Stage 1 Results: CNN Autoencoder Performance}
-% Results from the first training stage
 
-\subsection{Reconstruction Quality Metrics}
-% Quantitative analysis of CNN autoencoder performance
+% >>> STARTER: Stage 1 Results: CNN Autoencoder Performance
+Reports convergence behaviour, best checkpoints, and qualitative slices. Typically sharper $\mu_a$ than $\mu'_s$ owing to modality physics; note typical artefacts.
+% <<< STARTER: Stage 1 Results: CNN Autoencoder Performance
 
-\subsection{Feature Learning Analysis}
-% Analysis of learned features and representations
+% Results and analysis of Stage 1 CNN performance
 
 \section{Stage 2 Results: Transformer Enhancement}
+
+% >>> STARTER: Stage 2 Results: Transformer Enhancement
+Presents improvement over Stage 1 with the latent alignment strategy. Shows validation curves and sample reconstructions demonstrating enhanced global coherence.
+% <<< STARTER: Stage 2 Results: Transformer Enhancement
+
 % Results from the second training stage
 
-\clearpage % Force a page break here
+\section{Comparative Analysis}
 
-\subsection{Baseline Mode Performance}
-% Performance without tissue context integration
+% >>> STARTER: Comparative Analysis
+Summarises gains in metrics and discusses where improvements concentrate (e.g., boundaries, global structure). Notes trade-offs in runtime/memory.
+% <<< STARTER: Comparative Analysis
 
-\subsection{Enhanced Mode with Tissue Context}
-% Performance with tissue context integration
+% Comparative analysis of different approaches
 
-\subsection{Comparative Analysis}
-% Comparison between different modes and baselines
+\section{Visualisation and Interpretation}
 
-\section{Ablation Studies}
-% Systematic study of different components
+% >>> STARTER: Visualisation and Interpretation
+Includes representative axial/coronal/sagittal slices and, if available, attention summaries or latent distributions. Focuses on interpretability and failure modes.
+% <<< STARTER: Visualisation and Interpretation
 
-\clearpage % Force a page break here
-
-\subsection{Impact of Tissue Patch Size}
-% Effect of different tissue patch sizes on performance
-
-\subsection{Effect of Transformer Layers and Heads}
-% Impact of Transformer architecture parameters
-
-\subsection{Sensitivity to Tissue Context Quality}
-% Analysis of how tissue context quality affects results
-
-\section{Visualization and Interpretation}
 % Visual analysis of results
-
-\subsection{Attention Map Analysis}
-% Analysis of Transformer attention patterns
-
-\subsection{Reconstruction Quality Visualization}
-% Visual comparison of reconstruction quality
-
-\subsection{Error Distribution Analysis}
-% Analysis of reconstruction errors and their distribution
-

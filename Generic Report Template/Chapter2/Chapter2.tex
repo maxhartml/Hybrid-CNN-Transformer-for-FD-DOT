@@ -3,26 +3,66 @@
 \chapter{Literature Review}
 
 \section{Physics of NIR Light Propagation}
+
+% >>> STARTER: Physics of NIR Light Propagation
+Summarises the diffusion approximation to the radiative transfer equation and boundary conditions used in tissue. Highlights how modulation frequency enables separation of absorption and scattering through amplitude and phase. Notes typical parameter ranges and assumptions.
+% <<< STARTER: Physics of NIR Light Propagation
+
 % Review of the physical principles underlying NIR light propagation in tissue
 
 \section{Classical NIR-DOT Reconstruction Methods}
+
+% >>> STARTER: Classical NIR-DOT Reconstruction Methods
+Covers iterative FEM/Jacobian-based approaches with Tikhonov/TV regularisation and their computational burden. Discusses sensitivity to priors and geometry and the trade-off between speed and quantitative accuracy. Motivates learning-based accelerations.
+% <<< STARTER: Classical NIR-DOT Reconstruction Methods
+
 % Survey of traditional reconstruction algorithms and their limitations
 
 \section{Deep Learning for Medical Image Reconstruction}
+
+% >>> STARTER: Deep Learning for Medical Image Reconstruction
+Reviews supervised and self-supervised paradigms, unrolled networks, and autoencoders for inverse problems. Emphasises data fidelity terms versus learned priors and the risk of hallucination. Positions physics-aware pipelines as a middle ground.
+% <<< STARTER: Deep Learning for Medical Image Reconstruction
+
 % Overview of deep learning applications in medical imaging
 
 \section{CNN Approaches in NIR-DOT}
+
+% >>> STARTER: CNN Approaches in NIR-DOT
+Summarises voxel-space CNN decoders and encoder–decoders trained on simulated data. Strengths: spatial locality and parameter efficiency; limitations: handling variable probe geometry and long-range dependencies. Notes typical losses and evaluation metrics.
+% <<< STARTER: CNN Approaches in NIR-DOT
+
 % Specific review of CNN-based methods for NIR-DOT reconstruction
 
 \section{Transformers in Medical Imaging}
+
+% >>> STARTER: Transformers in Medical Imaging
+Outlines attention mechanisms for long-range dependency modelling in sequences and volumes. Discusses tokenisation strategies, positional encodings, and computational considerations. Motivates transformers for processing measurement sequences.
+% <<< STARTER: Transformers in Medical Imaging
+
 % Introduction to Transformer architectures and their use in medical imaging
 
 \section{Hybrid Architectures and Multi-Stage Training}
+
+% >>> STARTER: Hybrid Architectures and Multi-Stage Training
+Surveys CNN–Transformer hybrids and teacher–student schemes used to stabilise training and reuse pretrained modules. Two-stage protocols can disentangle spatial representation learning from measurement encoding. Highlights applicability to NIR-DOT.
+% <<< STARTER: Hybrid Architectures and Multi-Stage Training
+
 % Review of hybrid CNN-Transformer approaches and training strategies
 
-\section{Contextual Integration in Medical Imaging}
-% Discussion of context-aware methods in medical image reconstruction
+\section{Generalisation Challenges in DOT and Inverse Problems}
+
+% >>> STARTER: Generalisation Challenges in DOT and Inverse Problems
+Describes geometry shift, noise shift, and simulator-to-real gaps that degrade performance. Argues for explicit spatial embeddings and randomised simulators to reduce shortcut learning. Frames "generalisation across probe layouts" as a core objective.
+% <<< STARTER: Generalisation Challenges in DOT and Inverse Problems
+
+% Discussion of generalisation challenges in DOT and inverse problems
 
 \section{Research Gap and Opportunity}
+
+% >>> STARTER: Research Gap and Opportunity
+Existing DL-DOT often assumes fixed geometries or end-to-end training that conflates roles. We identify a gap for a path-agnostic model combining a CNN spatial prior with a transformer measurement encoder, trained via latent alignment. This sets up our method.
+% <<< STARTER: Research Gap and Opportunity
+
 % Identification of gaps in current literature and research opportunities
 
