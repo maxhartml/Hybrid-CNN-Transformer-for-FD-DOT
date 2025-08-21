@@ -1,68 +1,82 @@
-% !TEX root =  ../Dissertation.tex
-
 \chapter{Literature Review}
 
-\section{Physics of NIR Light Propagation}
+\section{Optical Physics and Modelling Foundations}
+The reconstruction of optical properties in diffuse optical tomography (DOT) depends critically on accurate forward models of photon transport. While Chapter~1 outlined the principles of frequency-domain DOT, this section situates these concepts within the broader theoretical and computational literature. Two themes dominate: the simplification of photon transport from the radiative transport equation to the diffusion approximation, and the numerical strategies used to solve the resulting forward problem in realistic geometries.
 
-% >>> STARTER: Physics of NIR Light Propagation
-Summarises the diffusion approximation to the radiative transfer equation and boundary conditions used in tissue. Highlights how modulation frequency enables separation of absorption and scattering through amplitude and phase. Notes typical parameter ranges and assumptions.
-% <<< STARTER: Physics of NIR Light Propagation
+\subsection{From Radiative Transport to Diffusion Approximation}
+At its most fundamental level, light in tissue is described by the radiative transport equation (RTE), which tracks photons as they scatter and are absorbed across both space and angle. The RTE is exact but extremely challenging to solve in practice, as it requires keeping track of too many variables simultaneously \cite{arridge1999}. 
 
-% Review of the physical principles underlying NIR light propagation in tissue
+Fortunately, biological tissue is typically highly scattering: photons undergo many scattering events for each absorption. In this regime, the angular distribution of light quickly becomes nearly isotropic, meaning it is no longer necessary to model the exact photon directions. By exploiting this simplification, the RTE reduces to the diffusion equation, which captures the bulk flow of photons while ignoring fine angular detail. This transition was formalised in seminal work by Arridge \emph{et al.} (1999) \cite{arridge1999}, and further reviewed by Gibson \emph{et al.} (2005) \cite{gibson2005} and Boas \emph{et al.} (2001) \cite{boas2001}. 
 
-\section{Classical NIR-DOT Reconstruction Methods}
+The diffusion approximation has since become the standard model in DOT because it balances realism with tractability. It works particularly well in the near-infrared window ($650$–$900$\,nm), where scattering dominates over absorption. Its main limitations arise near tissue boundaries or in low-scattering regions, where the assumption of isotropy breaks down \cite{arridge2009}. Even so, for most DOT applications the diffusion model provides sufficient accuracy to form the foundation of both classical and modern reconstruction algorithms.
 
-% >>> STARTER: Classical NIR-DOT Reconstruction Methods
-Covers iterative FEM/Jacobian-based approaches with Tikhonov/TV regularisation and their computational burden. Discusses sensitivity to priors and geometry and the trade-off between speed and quantitative accuracy. Motivates learning-based accelerations.
-% <<< STARTER: Classical NIR-DOT Reconstruction Methods
+\subsection{Numerical Forward Modelling in FD-DOT}
+In practice, solving the diffusion equation in realistic geometries requires numerical discretisation. The finite element method (FEM) is the most widely adopted approach in DOT because of its flexibility with complex tissue boundaries and heterogeneous optical properties \cite{dehghani2009}. FEM discretises the tissue volume into small elements, enabling accurate representation of domains such as breast or brain geometries. The forward operator $\mathcal{F}$ is then constructed to map spatially varying absorption and scattering coefficients to predicted boundary measurements of log-amplitude and phase. 
 
-% Survey of traditional reconstruction algorithms and their limitations
+Alternative schemes, such as finite difference (FDM) or boundary element methods, have also been explored, though they are less common in modern DOT. FEM remains dominant because it integrates naturally with anatomical priors from MRI/CT and supports frequency-domain extensions, where sinusoidal modulation is incorporated into the diffusion equation. The computational cost, however, is significant: each forward solve involves very large systems of equations, and repeated sensitivity calculations are required for iterative inverse solvers. These bottlenecks are central to why conventional FD-DOT reconstructions are slow (often minutes per scan) and why deep learning has become a compelling alternative \cite{arridge2009, dehghani2009}. 
 
-\section{Deep Learning for Medical Image Reconstruction}
+In summary, the literature on optical modelling establishes a clear progression: the diffusion approximation provides a tractable surrogate to the full radiative transport equation, while FEM-based solvers have become the de facto standard for handling anatomical complexity. These foundations naturally lead to the next challenge: how to invert these forward models to reconstruct images, which is the focus of the following section.
 
-% >>> STARTER: Deep Learning for Medical Image Reconstruction
-Reviews supervised and self-supervised paradigms, unrolled networks, and autoencoders for inverse problems. Emphasises data fidelity terms versus learned priors and the risk of hallucination. Positions physics-aware pipelines as a middle ground.
-% <<< STARTER: Deep Learning for Medical Image Reconstruction
+\section{Conventional DOT Reconstruction Methods}
+While the diffusion equation provides the forward model for photon transport, the inverse problem of recovering absorption and scattering maps from boundary data is considerably more challenging. This section reviews the classical literature on DOT reconstruction, focusing on iterative inversion frameworks and the role of regularisation in stabilising solutions.
 
-% Overview of deep learning applications in medical imaging
+\subsection{Iterative Inversion Frameworks}
+Conventional DOT reconstruction is typically framed as an optimisation task: given a forward operator $\mathcal{F}$, the goal is to recover $\{\mu_a, \mu'_s\}$ such that the predicted boundary data match the measured values. A standard formulation is:
+\[
+\hat{\mu} = \arg\min_{\mu} \; \| \mathbf{y} - \mathcal{F}(\mu) \|^2 + \lambda R(\mu),
+\]
+where $\mu = \{\mu_a, \mu'_s\}$ are the optical parameters, $\mathbf{y}$ are the boundary measurements, $R(\mu)$ is a regularisation term, and $\lambda$ balances data fidelity against prior assumptions.  
 
-\section{CNN Approaches in NIR-DOT}
+The most common approach to solving this optimisation is Jacobian-based iterative inversion, in which the forward model is linearised around a current guess and updated step by step. Gauss–Newton and Levenberg–Marquardt schemes are widely used examples \cite{arridge1999}. These methods can produce reasonable reconstructions, but they are slow: each iteration requires solving a large FEM system and recomputing sensitivities, often leading to runtimes of several minutes per scan.  
 
-% >>> STARTER: CNN Approaches in NIR-DOT
-Summarises voxel-space CNN decoders and encoder–decoders trained on simulated data. Strengths: spatial locality and parameter efficiency; limitations: handling variable probe geometry and long-range dependencies. Notes typical losses and evaluation metrics.
-% <<< STARTER: CNN Approaches in NIR-DOT
+To improve stability, priors are introduced. Tikhonov regularisation is the classical choice, penalising large parameter deviations to suppress noise. More advanced approaches, such as sparsity or total variation (TV) penalties, encourage sharper boundaries and are particularly useful for detecting localised tumours \cite{gibson2005}. The trade-off, however, is that such priors must be tuned carefully and can make solutions more sensitive to noise.
 
-% Specific review of CNN-based methods for NIR-DOT reconstruction
+\subsection{Regularisation Strategies}
+Because DOT is highly underdetermined, regularisation plays a central role. Smoothness priors are the simplest option, enforcing gradual variation in optical properties. This works well for largely homogeneous tissue but risks blurring small inclusions.  
 
-\section{Transformers in Medical Imaging}
+Probabilistic approaches extend this by framing DOT as a Bayesian inference problem, where optical parameters are treated as random variables with prior distributions. Maximum a posteriori (MAP) formulations, as reviewed by Tarvainen \emph{et al.} (2010) \cite{tarvainen2010}, provide both stability and a means to quantify uncertainty, though at the cost of added computation.  
 
-% >>> STARTER: Transformers in Medical Imaging
-Outlines attention mechanisms for long-range dependency modelling in sequences and volumes. Discusses tokenisation strategies, positional encodings, and computational considerations. Motivates transformers for processing measurement sequences.
-% <<< STARTER: Transformers in Medical Imaging
+A further strategy is to incorporate structural information from other imaging modalities such as MRI or CT, using anatomical priors to guide reconstructions \cite{arridge1999}. This reduces ambiguity and improves localisation, but also limits flexibility since DOT becomes dependent on external data.  
 
-% Introduction to Transformer architectures and their use in medical imaging
+In summary, classical DOT solvers have evolved from basic iterative updates to more sophisticated regularised and anatomically guided methods. While they remain valuable, their reliance on slow Jacobian computations, hand-tuned priors, and limited robustness to noise has motivated a shift towards deep learning-based approaches, where priors can be learned directly from data. This transition is the focus of the next section.
 
-\section{Hybrid Architectures and Multi-Stage Training}
+\section{Deep Learning in Medical Inverse Problems}
+The rapid success of deep learning (DL) in vision and language tasks has naturally extended to medical imaging, where inverse problems such as tomographic reconstruction are central. This section situates DOT within that broader trend by first reviewing DL applications across established modalities before narrowing to DOT-specific efforts.
 
-% >>> STARTER: Hybrid Architectures and Multi-Stage Training
-Surveys CNN–Transformer hybrids and teacher–student schemes used to stabilise training and reuse pretrained modules. Two-stage protocols can disentangle spatial representation learning from measurement encoding. Highlights applicability to NIR-DOT.
-% <<< STARTER: Hybrid Architectures and Multi-Stage Training
+\subsection{Overview Across Modalities}
+Inverse problems in medical imaging—whether reconstructing attenuation maps in CT, proton densities in MRI, or absorption distributions in photoacoustics—share a common challenge: recovering high-dimensional fields from sparse or indirect measurements. Deep learning has been applied to these problems in two main ways: \emph{post-processing} of conventionally reconstructed images to remove artefacts, and \emph{direct inversion} where networks learn mappings from raw measurement data to images without iterative solvers \cite{monga2021}.  
 
-% Review of hybrid CNN-Transformer approaches and training strategies
+In CT, convolutional networks have been trained to denoise and de-streak low-dose reconstructions, reducing radiation exposure while maintaining diagnostic quality. In MRI, unrolled neural networks embed physics-based constraints directly into the architecture, accelerating acquisition and reconstruction. Photoacoustic tomography has similarly leveraged DL to suppress limited-view artefacts and boost spatial resolution. Across these domains, the key advantage of DL is its ability to learn data-driven priors that stabilise ill-posed inversions while enabling near real-time inference once trained.
 
-\section{Generalisation Challenges in DOT and Inverse Problems}
+\subsection{DOT-Specific Applications}
+Compared with CT or MRI, DL research in DOT is still at an early stage, but several studies have demonstrated its potential. Early work by Feng \emph{et al.} (2020) trained a U-Net to reconstruct absorption maps from simulated DOT data, reporting sharper images and fewer artefacts than Tikhonov-regularised FEM solvers \cite{feng2020}. Subsequent studies have explored refinements such as residual CNNs and adversarial objectives, though most remain constrained to fixed probe geometries and relatively small synthetic datasets.  
 
-% >>> STARTER: Generalisation Challenges in DOT and Inverse Problems
-Describes geometry shift, noise shift, and simulator-to-real gaps that degrade performance. Argues for explicit spatial embeddings and randomised simulators to reduce shortcut learning. Frames "generalisation across probe layouts" as a core objective.
-% <<< STARTER: Generalisation Challenges in DOT and Inverse Problems
+These initial applications highlight both promise and limitation. CNNs can achieve reconstructions orders of magnitude faster than iterative solvers, but their ability to generalise across different geometries and anatomies is weak. This limitation motivates more flexible architectures—such as hybrid CNN–Transformer designs—that can explicitly incorporate spatial context and better handle variability in patient anatomy and probe placement.  
 
-% Discussion of generalisation challenges in DOT and inverse problems
+In summary, while DL has already reshaped other imaging modalities, its role in DOT is still emerging. The literature demonstrates feasibility but also reveals bottlenecks in robustness and generalisation. These observations naturally set the stage for the next section, which focuses on CNN-based approaches in DOT.
 
-\section{Research Gap and Opportunity}
 
-% >>> STARTER: Research Gap and Opportunity
-Existing DL-DOT often assumes fixed geometries or end-to-end training that conflates roles. We identify a gap for a path-agnostic model combining a CNN spatial prior with a transformer measurement encoder, trained via latent alignment. This sets up our method.
-% <<< STARTER: Research Gap and Opportunity
 
-% Identification of gaps in current literature and research opportunities
 
+
+\section{Neural Architectures for DOT}
+\subsection{CNN Approaches}
+Detail 2D/3D CNN encoder–decoders, U-Nets, and autoencoders applied to DOT, including performance trade-offs.
+\subsection{Transformers and Attention}
+Review the adoption of attention in medical imaging, benefits of long-range modelling, and emerging applications in inverse problems.
+\subsection{Hybrid and Two-Stage Frameworks}
+Discuss hybrid CNN–Transformer designs, teacher–student training, and latent alignment strategies from the literature.
+
+\section{Challenges of Generalisation in DL-DOT}
+\subsection{Geometry Shift}
+Summarise literature on probe variability, geometry-aware networks, and failures under shift.
+\subsection{Noise and Measurement Variability}
+Review noise modelling in synthetic vs. experimental DOT data, and robustness strategies in ML.
+\subsection{Simulation-to-Real Gap}
+Survey domain adaptation, transfer learning, and physics-informed approaches proposed to narrow the gap.
+
+\section{Baseline and Research Gap}
+\subsection{Dale’s Hybrid FD-DOT}
+Review Dale’s recent baseline work, outlining his contributions (latent alignment, pooling, geometry assumptions).
+\subsection{Open Gaps and Research Opportunity}
+Position this dissertation: prior work struggles with geometry-agnostic generalisation and diverse phantom representations. Identify the niche where this project contributes.

@@ -1,67 +1,17 @@
-% !TEX root =  ../Dissertation.tex
-
 \chapter{Experimental Results and Analysis}
-
 \section{Experimental Setup}
-
-% >>> STARTER: Experimental Setup
-Describes dataset splits, number of phantoms, and pre/post-processing used during evaluation. Lists key hyperparameters for both stages and any fixed seeds.
-% <<< STARTER: Experimental Setup
-
-% Description of the experimental methodology
-
-\subsection{Dataset Preparation}
-
-% >>> STARTER: Dataset Preparation
-Specifies training/validation/test proportions and how measurement subsampling is handled at eval time. Notes standardisation fitted on train only.
-% <<< STARTER: Dataset Preparation
-
-% Preparation of training, validation, and test datasets
-
-\subsection{Evaluation Metrics}
-
-% >>> STARTER: Evaluation Metrics
-RMSE (per-channel and total), Dice for inclusion overlap, and contrast ratio in raw units. Optionally report latent RMSE for Stage 2 training curves.
-% <<< STARTER: Evaluation Metrics
-
-% RMSE, SSIM, PSNR, and other evaluation metrics
-
-\subsection{Baseline Methods}
-
-% >>> STARTER: Baseline Methods
-Compares Stage 2 against Stage 1 reconstructions to quantify gains. Mentions any classic iterative baseline if available; otherwise focuses on within-pipeline comparison.
-% <<< STARTER: Baseline Methods
-
-% Description of baseline methods for comparison
-
-\section{Stage 1 Results: CNN Autoencoder Performance}
-
-% >>> STARTER: Stage 1 Results: CNN Autoencoder Performance
-Reports convergence behaviour, best checkpoints, and qualitative slices. Typically sharper $\mu_a$ than $\mu'_s$ owing to modality physics; note typical artefacts.
-% <<< STARTER: Stage 1 Results: CNN Autoencoder Performance
-
-% Results and analysis of Stage 1 CNN performance
-
+\subsection{Datasets and Splits}
+\subsection{Metrics (Latent RMSE; Voxel RMSE/SSIM for $\mu_a,\mu'_s$)}
+\subsection{Hardware and Runtime Reporting}
+\section{Stage 1 Results: Autoencoder Reconstruction Quality}
 \section{Stage 2 Results: Transformer Enhancement}
-
-% >>> STARTER: Stage 2 Results: Transformer Enhancement
-Presents improvement over Stage 1 with the latent alignment strategy. Shows validation curves and sample reconstructions demonstrating enhanced global coherence.
-% <<< STARTER: Stage 2 Results: Transformer Enhancement
-
-% Results from the second training stage
-
-\section{Comparative Analysis}
-
-% >>> STARTER: Comparative Analysis
-Summarises gains in metrics and discusses where improvements concentrate (e.g., boundaries, global structure). Notes trade-offs in runtime/memory.
-% <<< STARTER: Comparative Analysis
-
-% Comparative analysis of different approaches
-
-\section{Visualisation and Interpretation}
-
-% >>> STARTER: Visualisation and Interpretation
-Includes representative axial/coronal/sagittal slices and, if available, attention summaries or latent distributions. Focuses on interpretability and failure modes.
-% <<< STARTER: Visualisation and Interpretation
-
-% Visual analysis of results
+\section{Ablations (Contribution-Focused)}
+\subsection{Mean Pooling vs Multi-Query Attention}
+\subsection{Fixed Geometry vs Randomised Geometry + $L{=}256$}
+\subsection{With vs Without Decoder Unfreezing}
+\subsection{Embedding Variants: With/Without Position Branch}
+\subsection{Sequence Length Sensitivity: $L\in\{128,256,512\}$}
+\section{Generalisation to Held-Out Probe Layouts (Contribution)}
+\section{Comparative Analysis with Prior Work (Dale Baseline)}
+\section{Qualitative Visualisation and Error Analysis}
+% Volume slices, error maps, (optional) attention maps if available.

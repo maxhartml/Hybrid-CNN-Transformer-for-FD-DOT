@@ -1,83 +1,19 @@
-% !TEX root =  ../Dissertation.tex
-
-\chapter{Hybrid CNN-Transformer Architecture}
-
+\chapter{Proposed Hybrid CNN–Transformer Model}
 \section{Architectural Overview}
-
-% >>> STARTER: Architectural Overview
-Presents the two-stage pipeline: Stage 1 3D CNN autoencoder learns a 256-D latent; Stage 2 transformer encodes 256 measurement tokens with spatial awareness and maps to the same latent, feeding the frozen decoder. High-level flow from measurements to reconstruction.
-% <<< STARTER: Architectural Overview
-
-% High-level description of the proposed hybrid architecture
-
-\section{Stage 1: CNN Autoencoder Design}
-
-% >>> STARTER: Stage 1: CNN Autoencoder Design
-The encoder uses progressive downsampling with residual blocks to compress 2-channel volumes to a 256-D latent; the decoder upsamples back to $64^3$ outputs. The design balances capacity (~7 M params) and efficiency for stable pretraining.
-% <<< STARTER: Stage 1: CNN Autoencoder Design
-
-% Detailed description of the CNN component
-
-\subsection{Encoder Architecture}
-
-% >>> STARTER: Encoder Architecture
-Lists channel progression (e.g., 16→32→64→128→256), kernels/strides, and normalisation/activation choices. Notes global pooling or bottleneck projection to reach 256-D.
-% <<< STARTER: Encoder Architecture
-
-% CNN encoder design and implementation
-
-\subsection{Decoder Architecture}
-
-% >>> STARTER: Decoder Architecture
-Describes transposed-conv (or upsample+conv) stages reversing the encoder to recover $\mu_a$ and $\mu'_s$. Mentions final activation/constraints if any.
-% <<< STARTER: Decoder Architecture
-
-% CNN decoder design and implementation
-
-\subsection{Residual Connections and Latent Space}
-
-% >>> STARTER: Residual Connections and Latent Space
-Explains residual paths for stable gradients and the rationale for a compact 256-D latent that later serves as the target for Stage 2. Notes parameter count and memory footprint.
-% <<< STARTER: Residual Connections and Latent Space
-
-% Use of residual connections and latent space representations
-
-\section{Stage 2: Measurement Embedding and Transformer}
-
-% >>> STARTER: Stage 2: Measurement Embedding and Transformer
-The measurement branch embeds [log-amp, phase] while a spatial branch embeds [src\_xyz, det\_xyz]; fused tokens form a 256-D sequence. An L-layer, H-head transformer with dropout processes the sequence before pooling.
-% <<< STARTER: Stage 2: Measurement Embedding and Transformer
-
-% Description of the measurement embedding process and transformer integration
-
-\subsection{Spatially-Aware Embedding}
-
-% >>> STARTER: Spatially-Aware Embedding
-Clarifies separate MLPs for signals and positions and how they are fused (concat + MLP). Emphasises geometry awareness as key to path-agnostic generalisation.
-% <<< STARTER: Spatially-Aware Embedding
-
-% Incorporating spatial information in measurement processing
-
-\subsection{Transformer Encoder Design}
-
-% >>> STARTER: Transformer Encoder Design
-States $d_{\text{model}}$, number of layers/heads, MLP ratio, positional encoding, and pooling (e.g., global average or learned queries). Notes typical head dimension.
-% <<< STARTER: Transformer Encoder Design
-
-% Detailed description of the Transformer component
-
-\subsection{Latent Alignment Strategy}
-
-% >>> STARTER: Latent Alignment Strategy
-The student transformer latent (256-D) is trained to match the frozen teacher latent via RMSE; the CNN decoder is reused, typically frozen. Optionally validate end-to-end recon during training.
-% <<< STARTER: Latent Alignment Strategy
-
-% Strategy for aligning latent representations between CNN and Transformer
-
-\section{Integration Strategy}
-
-% >>> STARTER: Integration Strategy
-Summarises tensor shapes from tokens → transformer → latent → decoder. Explains module freezing/unfreezing policy and how mismatches are handled (adapters if used/not used).
-% <<< STARTER: Integration Strategy
-
-% Combining CNN and Transformer outputs
+% Teacher decoder prior; student encoder from measurements.
+\section{Stage 1: CNN Autoencoder (Teacher Prior)}
+\subsection{Encoder: Residual Blocks and Downsampling}
+\subsection{Latent Space Design ($d_z{=}256$)}
+\subsection{Decoder: Progressive Upsampling and Reconstruction}
+\section{Stage 2: Spatially-Aware Measurement Embedding (Contribution)}
+\subsection{Signal Branch for $\{\log A,\varphi\}$}
+\subsection{Position Branch for $\{\mathbf{x}_\mathrm{src},\mathbf{x}_\mathrm{det}\}$}
+\subsection{Fusion and Token Formation}
+\section{Transformer Encoder}
+\subsection{Attention, Depth, and Positional Handling}
+\subsection{Regularisation and Capacity Control}
+\section{Aggregation via Multi-Query Attention Pooling (Contribution)}
+% 4 learnable queries; contrast with mean/global pooling; motivation and equations.
+\section{Latent Alignment and Decoder Reuse}
+% Student $\hat{\mathbf z}$ matched to teacher $\mathbf z$; decoder fixed by default.
+\section{Inference Pathway and Computational Cost}

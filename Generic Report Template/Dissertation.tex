@@ -1,11 +1,36 @@
 \documentclass[pdftex,11pt,a4paper,oneside]{report}
 
-\usepackage[a4paper, top=25mm, bottom=25mm, left=30mm, right=20mm]{geometry} % margins
-\usepackage{setspace}
-\onehalfspacing   % 1.5 line spacing
-\usepackage[hyphens]{url}
-\usepackage{microtype} % better text spacing
+\usepackage[a4paper,margin=25mm]{geometry} % margins
 
+% === Language & typography ===
+\usepackage[british]{babel}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}            % Or newtxtext,newtxmath for Times-like look
+\usepackage{microtype}
+\usepackage{setspace}
+\onehalfspacing
+
+
+% === Maths, algorithms, figures ===
+\usepackage{amsmath,amssymb}
+\usepackage{algorithm,algorithmic}
+\usepackage{graphicx}
+\usepackage{siunitx}
+\sisetup{detect-weight=true,detect-family=true}
+
+% === Tables & lists ===
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{enumitem}
+\setlist{nosep}
+
+% === Links & cross-refs ===
+\usepackage[hidelinks]{hyperref}
+\usepackage[nameinlink,capitalise]{cleveref}
+
+% Numbering depth & ToC depth
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{3}
 
 \usepackage{amsmath}
 \usepackage{algorithm}
@@ -48,7 +73,7 @@
 \include{Chapter8/Chapter8}
 
 
-\bibliographystyle{abbrv}
+\bibliographystyle{unsrt}
 \bibliography{bibliography}
 
 \include{Appendices/Appendices}

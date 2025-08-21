@@ -1,33 +1,91 @@
-% !TEX root =  ../Dissertation.tex
-
 \chapter{Introduction}
 
+
 \section{Background and Motivation}
+Diffuse optical tomography (DOT) is a non-invasive imaging modality that reconstructs the optical properties of tissue from near-infrared (NIR) light measurements. By exploiting the wavelength-dependent absorption and scattering of NIR photons in biological tissue, DOT enables three-dimensional imaging of physiological parameters such as blood volume and oxygenation. These parameters are biomarkers of vascularisation and haemodynamics, making DOT attractive for oncology and neuroscience. Unlike ionising modalities such as computed tomography (CT) or positron emission tomography (PET), DOT is inherently safe for repeated use, cost-effective, and portable. These features make it well suited to longitudinal monitoring, point-of-care screening, and intraoperative guidance \cite{arridge1999, gibson2005}.
 
-% >>> STARTER: Background and Motivation
-DOT uses NIR light to infer tissue absorption ($\mu_a$) and reduced scattering ($\mu'_s$), but mapping sparse boundary measurements to 3D volumes is severely ill-posed. This work motivates a modern, data-driven approach that retains physical plausibility while achieving fast, reliable reconstructions suitable for clinical workflows. We position the problem within quantitative NIR-DOT and argue for architectures that learn robust, geometry-aware representations.
-% <<< STARTER: Background and Motivation
+These advantages translate directly into clinical impact. Among the most widely studied applications is breast cancer imaging. Breast cancer remains the most common cancer in women worldwide, and both early detection and accurate monitoring of treatment response are critical determinants of outcome. DOT can provide functional information such as tumour oxygenation and haemoglobin concentration, which are not readily accessible using conventional imaging techniques. In particular, DOT has been investigated for monitoring patient response to neoadjuvant chemotherapy, where frequent, non-invasive, and low-cost imaging is required but impractical with MRI or mammography \cite{tromberg2016}. In neuroscience, DOT-based functional imaging has been applied to study brain activation and cerebral oxygenation, offering a portable and low-cost alternative to fMRI that is especially valuable for bedside or paediatric use \cite{eggebrecht2014}.
 
-\section{Near-Infrared Diffuse Optical Tomography (NIR-DOT)}
+Recent advances in instrumentation have further expanded the potential of DOT. Handheld and wearable systems are now capable of real-time scanning and adapting to varied patient geometries \cite{stillwell2022}. These developments, however, shift the bottleneck towards computation: reconstruction must be both rapid and robust to probe variability, anatomical diversity, and measurement noise. Conventional algorithms based on iterative inversion of the diffusion equation with repeated Jacobian updates remain prohibitively slow, often requiring minutes per reconstruction even on high-performance hardware. Deep learning-based DOT (DL-DOT) has therefore emerged as a promising paradigm, offering sub-second inference while maintaining or improving upon the fidelity of physics-based solvers \cite{dale2024}.
 
-% >>> STARTER: Near-Infrared Diffuse Optical Tomography (NIR-DOT)
-We briefly review photon migration in highly scattering media and the diffusion approximation used in practice for NIR-DOT. The forward model maps tissue optical properties to detector measurements (amplitude and phase), whereas the inverse task estimates volumetric $\mu_a$ and $\mu'_s$ from those measurements. The modality offers non-ionising, cost-effective, functional contrast compared with MRI/CT.
-% <<< STARTER: Near-Infrared Diffuse Optical Tomography (NIR-DOT)
 
-\section{Challenges in NIR-DOT Reconstruction}
+\section{Frequency-Domain Diffuse Optical Tomography}
+DOT relies on the propagation of near-infrared (NIR) light, typically within the $650$–$900$\,nm optical window, through biological tissue. This range maximises haemoglobin contrast while minimising water and lipid absorption, enabling photons to penetrate several centimetres. The key optical parameters are the absorption coefficient, $\mu_a$ (mm$^{-1}$), which reflects the concentration of chromophores, and the reduced scattering coefficient, $\mu'_s$ (mm$^{-1}$), which is influenced by tissue microstructure and morphology. Together, these parameters govern the photon fluence distribution and form the fundamental quantities to be reconstructed \cite{arridge1999, gibson2005}.
 
-% >>> STARTER: Challenges in NIR-DOT Reconstruction
-The inverse problem is underdetermined, unstable to noise, and sensitive to modelling mismatches and probe geometry. Limited source–detector pairs and exponential attenuation exacerbate ambiguity when reconstructing $64^3$ volumes. Robust solutions must integrate data-driven learning with constraints consistent with photon transport physics.
-% <<< STARTER: Challenges in NIR-DOT Reconstruction
+Measurements are typically acquired using arrays of light sources and detectors placed on the tissue surface. Each source–detector (SD) pair samples a diffuse photon path through tissue, with the corresponding source–detector separation (SDS) strongly influencing depth sensitivity. In frequency-domain DOT (FD-DOT), the light is sinusoidally modulated at a radiofrequency (e.g. 140\,MHz), and the detected signal is characterised by both amplitude attenuation and phase shift relative to the input. The combination of $\log A$ (log-amplitude) and $\phi$ (phase) provides complementary sensitivity to $\mu_a$ and $\mu'_s$. Short SDS values ($<15$\,mm) primarily probe superficial layers, whereas larger separations ($30$–$40$\,mm) improve sensitivity to deeper tissue, albeit with reduced signal-to-noise ratio.
+
+The forward model of light transport is derived from the frequency-domain diffusion equation, which, for realistic geometries, is solved numerically using the finite element method (FEM) \cite{dehghani2009}. The forward operator $\mathcal{F}$ maps spatial distributions of $\mu_a$ and $\mu'_s$ to measurable boundary data. The corresponding inverse problem is to recover these parameters from sparse, surface-only measurements. Because this problem is underdetermined, additional constraints must be imposed to stabilise reconstructions. These constraints — collectively known as regularisation — may take the form of enforcing smoothness, assuming sparsity of inclusions, or applying data-driven priors learned by neural networks \cite{arridge1999}.
+
+\textbf{Terminology note:} From this point forward, this dissertation will use \emph{FD-DOT} to denote the specific imaging problem studied here, i.e.\ frequency-domain measurements of amplitude and phase in the NIR window. The term \emph{DOT} will be used only when referring to the modality in general, while \emph{DL-DOT} will be used specifically to denote deep learning-based reconstruction methods.
+
+
+\section{Problem Formulation and Notation}
+This dissertation focuses on frequency-domain diffuse optical tomography (FD-DOT), in which the photon field is sinusoidally modulated at frequency $f$ (Hz). For each source–detector (SD) pair, the measurement is expressed as a complex value:
+\[
+M = A e^{i\phi},
+\]
+where $A$ is the detected amplitude and $\phi$ is the phase shift relative to the source. Because amplitudes span several orders of magnitude, reconstructions are typically performed using the logarithm of amplitude, $\log A$, together with $\phi$. These two quantities form the core measurement features for each SD pair.
+
+Each SD pair is further represented by the three-dimensional coordinates of both the source and detector positions, $(x_s, y_s, z_s)$ and $(x_d, y_d, z_d)$. The complete feature vector for a single pair is therefore:
+\[
+m_i = \{ \log A_i, \phi_i, x_{s,i}, y_{s,i}, z_{s,i}, x_{d,i}, y_{d,i}, z_{d,i} \},
+\]
+which integrates optical information with spatial context. For a scan comprising $N$ SD pairs, the full measurement tensor is:
+\[
+\mathbf{y} = \{ m_1, m_2, \dots, m_N \} \in \mathbb{R}^{N \times 8}.
+\]
+
+The forward model of FD-DOT is governed by the frequency-domain diffusion equation, which for realistic geometries is solved numerically using the finite element method (FEM). This defines the mapping:
+\[
+\mathbf{y} = \mathcal{F}(\mu_a, \mu'_s) + \epsilon,
+\]
+where $\mathcal{F}$ denotes the FEM-based forward operator from optical properties to boundary measurements, and $\epsilon$ represents additive measurement noise. In this work, $\epsilon$ is modelled as Gaussian perturbations with 0.5\% relative variance on $\log A$ and $\pm 0.5^\circ$ absolute variance on $\phi$. This simplified model captures the dominant sensitivity of FD-DOT systems to amplitude and phase fluctuations while remaining computationally tractable.
+
+The reconstruction task is to estimate voxelwise distributions of $\mu_a$ and $\mu'_s$ across a three-dimensional grid. This study adopts a $64 \times 64 \times 64$ discretisation at 1\,mm resolution, yielding approximately $2.6 \times 10^5$ voxels per parameter, or about $5.2 \times 10^5$ unknowns in total. Denoting the reconstructions by $\hat{\mu}_a$ and $\hat{\mu}'_s$, the inverse mapping can be expressed as:
+\[
+\mathcal{G}: \mathbf{y} \mapsto \{ \hat{\mu}_a, \hat{\mu}'_s \},
+\]
+where $\mathcal{G}$ is implemented by a learned neural network.
+
+This inverse problem is severely underdetermined. Even with $N=1000$ SD pairs, the measurement tensor $\mathbf{y} \in \mathbb{R}^{1000 \times 8}$ contains far fewer entries than the hundreds of thousands of voxel values to be recovered. Moreover, measurement sensitivity is non-uniform, with superficial voxels contributing disproportionately more than deeper ones. This imbalance renders the problem intrinsically unstable in the absence of strong priors. The central challenge addressed in this dissertation is therefore the design of models and training strategies that embed spatial priors, incorporate probe geometry variability, and generalise across anatomically diverse tissue phantoms while maintaining fidelity in both $\mu_a$ and $\mu'_s$ reconstructions.
+
+
+\section{Challenges in FD-DOT Reconstruction}
+The challenges in FD-DOT arise from both the physics of light transport and the requirements of clinical deployment:
+
+\begin{itemize}
+    \item \textbf{Ill-posedness:} Sparse, surface-only measurements must be mapped to dense three-dimensional volumes. Each detector records photons that have undergone multiple scattering events, producing broad and overlapping sensitivity profiles. Deep tissue regions contribute disproportionately weak signals, which amplifies inversion instability. Without strong priors, reconstructions overfit superficial structures while failing to capture deeper inclusions.
+    
+    \item \textbf{Geometry shift:} In handheld or wearable systems, probe geometry is rarely fixed. Source–detector separations vary with operator handling, patient anatomy, and motion. FEM-based solvers can accommodate arbitrary layouts by recomputing Jacobians, but most deep learning models are trained on fixed geometries and degrade significantly when the layout changes \cite{dale2025}. Overcoming this limitation is essential for achieving path-agnostic and clinically practical FD-DOT.
+    
+    \item \textbf{Noise robustness:} FD-DOT measurements are influenced by electronic noise, coupling variability, and instrumental fluctuations. In this work, noise is modelled as Gaussian perturbations (0.5\% on $\log A$ and $\pm 0.5^\circ$ on $\phi$), a deliberate simplification that reflects typical system variability. Even small perturbations, however, can destabilise reconstructions if not explicitly considered during training, highlighting the need for noise-aware learning pipelines.
+    
+    \item \textbf{Sim-to-real gap:} Large-scale synthetic datasets enable supervised training but cannot fully replicate the heterogeneity of patient anatomy, motion artefacts, or hardware imperfections. This mismatch introduces a domain gap between simulated and clinical data, which must be narrowed to enable reliable deployment of DL-DOT systems.
+    
+    \item \textbf{Latency:} Real-time use requires reconstructions in under 0.1\,s per volume. Iterative solvers are far too slow, often demanding hundreds of iterations per scan. Learned inverse solvers are therefore essential to achieve clinically viable runtimes while maintaining image quality.
+\end{itemize}
+
+
 
 \section{Research Objectives and Contributions}
+The overarching aim of this dissertation is to advance diffuse optical tomography (DOT) towards models that generalise across diverse probe geometries and anatomies, addressing a central limitation of existing deep learning-based DOT (DL-DOT) approaches. Building on the hybrid CNN–Transformer paradigm introduced by Dale \cite{dale2024, dale2025}, this work investigates new strategies in data generation, architectural refinement, and evaluation to improve robustness and clinical viability. The principal objectives and contributions are as follows:
 
-% >>> STARTER: Research Objectives and Contributions
-We propose a two-stage CNN–Transformer pipeline with latent alignment that reconstructs 3D optical property maps from frequency-domain measurements. Key contributions include: a physics-aware synthetic data pipeline, a 3D CNN autoencoder for spatial features, a transformer encoder for measurement sequences with spatial embeddings, and a teacher–student latent alignment objective enabling decoder reuse. We evaluate in raw units with clinically meaningful metrics.
-% <<< STARTER: Research Objectives and Contributions
+\begin{enumerate}
+    \item \textbf{Phantom and probe diversity for generalisation:} A high-throughput phantom generation pipeline was developed that extends well beyond Dale’s slab-like tissue models. Ellipsoidal tissue volumes were embedded inside cubic air domains, creating tissue–air boundaries from which local surface patches defined source–detector placement. Tumour inclusions varied in size and shape, while probe positions were randomly distributed across accessible surfaces. To avoid spatial bias, phantoms were randomly rotated in three dimensions using the full SO(3) rotation group.
+    
+    \item \textbf{Systematic geometry randomisation:} Each phantom produced 1000 source–detector (SD) measurements, dynamically subsampled into fixed 256-token sequences. This enforces invariance to probe placement, provides strong data augmentation, and addresses degradation under geometry shift—one of the key barriers to clinical deployment of DL-DOT.
+    
+    \item \textbf{Hybrid CNN–Transformer framework:} A two-stage hybrid network was implemented in line with Dale’s design philosophy, but developed independently without access to specific architectural details. Stage~1 trains a 3D CNN autoencoder on ground-truth absorption and scattering volumes to establish a spatial latent representation. Stage~2 employs a transformer encoder with spatially aware embeddings that fuse optical measurements ($\log A$, $\phi$) with explicit source–detector coordinates, enabling robust volumetric reconstruction.
+    
+    \item \textbf{Architectural refinements:} Beyond the baseline design, improvements include an enhanced spatial embedding scheme, multi-query attention for global aggregation, and selective fine-tuning of the CNN decoder. Additional refinements are described in Chapter~4. Together, these modifications increase the expressivity and stability of the learned solver.
+    
+    \item \textbf{Evaluation of robustness:} The framework was assessed on held-out phantoms from the synthetic test set, providing unseen anatomical shapes and probe configurations. Comparative reference to Dale’s baseline work contextualises the results. The aim was not to surpass prior performance but to investigate whether the proposed strategies improved generalisation under phantom and probe variability.
+\end{enumerate}
+
+In summary, this dissertation explores how phantom diversity, geometry randomisation, and architectural refinements can be combined within a hybrid CNN–Transformer framework to investigate pathways towards more generalisable DL-DOT. The focus is on testing robustness to geometry variation, phantom diversity, and measurement noise, with the broader goal of informing future work on clinically viable reconstruction methods.
+
 
 \section{Dissertation Structure}
+The remainder of this dissertation is organised as follows. Chapter~2 reviews the theoretical and methodological background, covering NIR light transport physics, conventional DOT reconstruction algorithms, and recent developments in DL-DOT, with emphasis on CNN and transformer architectures. Chapter~3 details the synthetic data generation pipeline, including phantom construction, optical property assignment, probe placement strategies, and noise modelling. Chapter~4 describes the proposed hybrid CNN–Transformer framework, outlining the architectural design, spatial embedding strategies, and latent alignment mechanism. Chapter~5 explains the training methodology, optimisation schedules, and implementation considerations. Chapter~6 presents the experimental results, including ablation studies and comparative evaluations against baseline methods. Chapter~7 provides a critical discussion of findings, highlighting robustness, limitations, and clinical implications. Finally, Chapter~8 concludes with a summary of contributions and outlines directions for future research.
 
-% >>> STARTER: Dissertation Structure
-The thesis proceeds from background and related work to data generation, model architecture, training methodology, and results, before discussing limitations and future directions. Appendices compile implementation details, additional results, and mathematical derivations. This mirrors the experimental pipeline from simulation to evaluation.
-% <<< STARTER: Dissertation Structure
+This structure is intended to guide the reader from fundamental principles, through data generation and model development, to experimental validation and critical discussion. The next chapter therefore sets the stage by introducing the theoretical background of light transport and conventional DOT reconstruction methods.

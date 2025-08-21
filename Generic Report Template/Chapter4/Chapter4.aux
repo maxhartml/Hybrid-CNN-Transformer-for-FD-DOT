@@ -1,21 +1,27 @@
 \relax 
-\@writefile{toc}{\contentsline {chapter}{\numberline {4}Hybrid CNN-Transformer Architecture}{7}{}\protected@file@percent }
+\providecommand\hyper@newdestlabel[2]{}
+\@writefile{toc}{\contentsline {chapter}{\numberline {4}Proposed Hybrid CNN–Transformer Model}{12}{chapter.4}\protected@file@percent }
 \@writefile{lof}{\addvspace {10\p@ }}
 \@writefile{lot}{\addvspace {10\p@ }}
-\@writefile{toc}{\contentsline {section}{\numberline {4.1}Architectural Overview}{7}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {4.2}Stage 1: CNN Autoencoder Design}{7}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.2.1}Encoder Architecture}{7}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.2.2}Decoder Architecture}{7}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.2.3}Residual Connections and Latent Space}{7}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {4.3}Stage 2: Measurement Embedding and Transformer}{8}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.3.1}Spatially-Aware Embedding}{8}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.3.2}Transformer Encoder Design}{8}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.3.3}Latent Alignment Strategy}{8}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {4.4}Integration Strategy}{8}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4.1}Architectural Overview}{13}{section.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4.2}Stage 1: CNN Autoencoder (Teacher Prior)}{13}{section.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2.1}Encoder: Residual Blocks and Downsampling}{13}{subsection.4.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2.2}Latent Space Design ($d_z{=}256$)}{13}{subsection.4.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2.3}Decoder: Progressive Upsampling and Reconstruction}{13}{subsection.4.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4.3}Stage 2: Spatially-Aware Measurement Embedding (Contribution)}{13}{section.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3.1}Signal Branch for $\{\log A,\varphi \}$}{13}{subsection.4.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3.2}Position Branch for $\{\mathbf  {x}_\mathrm  {src},\mathbf  {x}_\mathrm  {det}\}$}{13}{subsection.4.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3.3}Fusion and Token Formation}{13}{subsection.4.3.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4.4}Transformer Encoder}{13}{section.4.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4.1}Attention, Depth, and Positional Handling}{13}{subsection.4.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4.2}Regularisation and Capacity Control}{13}{subsection.4.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4.5}Aggregation via Multi-Query Attention Pooling (Contribution)}{13}{section.4.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4.6}Latent Alignment and Decoder Reuse}{13}{section.4.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4.7}Inference Pathway and Computational Cost}{13}{section.4.7}\protected@file@percent }
 \@setckpt{Chapter4/Chapter4}{
-\setcounter{page}{9}
+\setcounter{page}{14}
 \setcounter{equation}{0}
-\setcounter{enumi}{0}
+\setcounter{enumi}{5}
 \setcounter{enumii}{0}
 \setcounter{enumiii}{0}
 \setcounter{enumiv}{0}
@@ -23,7 +29,7 @@
 \setcounter{mpfootnote}{0}
 \setcounter{part}{0}
 \setcounter{chapter}{4}
-\setcounter{section}{4}
+\setcounter{section}{7}
 \setcounter{subsection}{0}
 \setcounter{subsubsection}{0}
 \setcounter{paragraph}{0}
@@ -37,4 +43,8 @@
 \setcounter{ALC@line}{0}
 \setcounter{ALC@rem}{0}
 \setcounter{ALC@depth}{0}
+\setcounter{section@level}{1}
+\setcounter{Item}{5}
+\setcounter{Hfootnote}{0}
+\setcounter{bookmark@seq@number}{63}
 }
