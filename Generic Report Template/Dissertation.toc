@@ -7,100 +7,100 @@
 \contentsline {chapter}{\numberline {1}Introduction}{1}{chapter.1}%
 \contentsline {section}{\numberline {1.1}Background and Motivation}{1}{section.1.1}%
 \contentsline {section}{\numberline {1.2}Frequency-Domain Diffuse Optical Tomography}{2}{section.1.2}%
-\contentsline {section}{\numberline {1.3}Problem Formulation and Notation}{2}{section.1.3}%
-\contentsline {section}{\numberline {1.4}Challenges in FD-DOT Reconstruction}{3}{section.1.4}%
-\contentsline {section}{\numberline {1.5}Research Objectives and Contributions}{4}{section.1.5}%
-\contentsline {section}{\numberline {1.6}Dissertation Structure}{5}{section.1.6}%
-\contentsline {chapter}{\numberline {2}Literature Review}{6}{chapter.2}%
-\contentsline {section}{\numberline {2.1}Optical Physics and Modelling Foundations}{6}{section.2.1}%
-\contentsline {subsection}{\numberline {2.1.1}From Radiative Transport to Diffusion Approximation}{6}{subsection.2.1.1}%
-\contentsline {subsection}{\numberline {2.1.2}Numerical Forward Modelling in FD-DOT}{7}{subsection.2.1.2}%
-\contentsline {section}{\numberline {2.2}Conventional DOT Reconstruction Methods}{7}{section.2.2}%
-\contentsline {subsection}{\numberline {2.2.1}Iterative Inversion Frameworks}{7}{subsection.2.2.1}%
-\contentsline {subsection}{\numberline {2.2.2}Regularisation Strategies}{8}{subsection.2.2.2}%
-\contentsline {section}{\numberline {2.3}Deep Learning in Medical Inverse Problems}{8}{section.2.3}%
-\contentsline {subsection}{\numberline {2.3.1}Overview Across Modalities}{8}{subsection.2.3.1}%
-\contentsline {subsection}{\numberline {2.3.2}DOT-Specific Applications}{9}{subsection.2.3.2}%
-\contentsline {section}{\numberline {2.4}Neural Architectures for DOT}{9}{section.2.4}%
-\contentsline {subsection}{\numberline {2.4.1}CNN Approaches}{9}{subsection.2.4.1}%
-\contentsline {subsection}{\numberline {2.4.2}Transformers and Attention}{9}{subsection.2.4.2}%
-\contentsline {subsection}{\numberline {2.4.3}Hybrid and Two-Stage Frameworks}{9}{subsection.2.4.3}%
-\contentsline {section}{\numberline {2.5}Challenges of Generalisation in DL-DOT}{9}{section.2.5}%
-\contentsline {subsection}{\numberline {2.5.1}Geometry Shift}{9}{subsection.2.5.1}%
-\contentsline {subsection}{\numberline {2.5.2}Noise and Measurement Variability}{10}{subsection.2.5.2}%
-\contentsline {subsection}{\numberline {2.5.3}Simulation-to-Real Gap}{10}{subsection.2.5.3}%
-\contentsline {section}{\numberline {2.6}Baseline and Research Gap}{10}{section.2.6}%
-\contentsline {subsection}{\numberline {2.6.1}Dale’s Hybrid FD-DOT}{10}{subsection.2.6.1}%
-\contentsline {subsection}{\numberline {2.6.2}Open Gaps and Research Opportunity}{10}{subsection.2.6.2}%
-\contentsline {chapter}{\numberline {3}Physics-Based Synthetic Data Pipeline}{11}{chapter.3}%
-\contentsline {section}{\numberline {3.1}Forward Modelling in the Frequency Domain}{11}{section.3.1}%
-\contentsline {section}{\numberline {3.2}Geometric Phantom Construction}{11}{section.3.2}%
-\contentsline {subsection}{\numberline {3.2.1}Ellipsoidal Tissue and Inclusion Design}{11}{subsection.3.2.1}%
-\contentsline {subsection}{\numberline {3.2.2}SO(3) Rotations and Spatial Bias Mitigation}{11}{subsection.3.2.2}%
-\contentsline {section}{\numberline {3.3}Optical Property Assignment}{11}{section.3.3}%
-\contentsline {section}{\numberline {3.4}Surface Extraction and Probe Placement}{11}{section.3.4}%
-\contentsline {subsection}{\numberline {3.4.1}Binary Morphological Surface Extraction}{11}{subsection.3.4.1}%
-\contentsline {subsection}{\numberline {3.4.2}Surface-Constrained Source–Detector Placement}{11}{subsection.3.4.2}%
-\contentsline {section}{\numberline {3.5}Probe Geometry Randomisation and Tokenisation (Contribution)}{11}{section.3.5}%
-\contentsline {section}{\numberline {3.6}Noise Model}{11}{section.3.6}%
-\contentsline {section}{\numberline {3.7}Dataset Composition and Preprocessing}{11}{section.3.7}%
-\contentsline {subsection}{\numberline {3.7.1}Standardisation and Leakage Prevention}{11}{subsection.3.7.1}%
-\contentsline {subsection}{\numberline {3.7.2}HDF5 Design and DataLoader Throughput}{11}{subsection.3.7.2}%
-\contentsline {chapter}{\numberline {4}Proposed Hybrid CNN–Transformer Model}{12}{chapter.4}%
-\contentsline {section}{\numberline {4.1}Architectural Overview}{13}{section.4.1}%
-\contentsline {section}{\numberline {4.2}Stage 1: CNN Autoencoder (Teacher Prior)}{13}{section.4.2}%
-\contentsline {subsection}{\numberline {4.2.1}Encoder: Residual Blocks and Downsampling}{13}{subsection.4.2.1}%
-\contentsline {subsection}{\numberline {4.2.2}Latent Space Design ($d_z{=}256$)}{13}{subsection.4.2.2}%
-\contentsline {subsection}{\numberline {4.2.3}Decoder: Progressive Upsampling and Reconstruction}{13}{subsection.4.2.3}%
-\contentsline {section}{\numberline {4.3}Stage 2: Spatially-Aware Measurement Embedding (Contribution)}{13}{section.4.3}%
-\contentsline {subsection}{\numberline {4.3.1}Signal Branch for $\{\log A,\varphi \}$}{13}{subsection.4.3.1}%
-\contentsline {subsection}{\numberline {4.3.2}Position Branch for $\{\mathbf {x}_\mathrm {src},\mathbf {x}_\mathrm {det}\}$}{13}{subsection.4.3.2}%
-\contentsline {subsection}{\numberline {4.3.3}Fusion and Token Formation}{13}{subsection.4.3.3}%
-\contentsline {section}{\numberline {4.4}Transformer Encoder}{13}{section.4.4}%
-\contentsline {subsection}{\numberline {4.4.1}Attention, Depth, and Positional Handling}{13}{subsection.4.4.1}%
-\contentsline {subsection}{\numberline {4.4.2}Regularisation and Capacity Control}{13}{subsection.4.4.2}%
-\contentsline {section}{\numberline {4.5}Aggregation via Multi-Query Attention Pooling (Contribution)}{13}{section.4.5}%
-\contentsline {section}{\numberline {4.6}Latent Alignment and Decoder Reuse}{13}{section.4.6}%
-\contentsline {section}{\numberline {4.7}Inference Pathway and Computational Cost}{13}{section.4.7}%
-\contentsline {chapter}{\numberline {5}Training Strategies and Optimisation}{14}{chapter.5}%
-\contentsline {section}{\numberline {5.1}Stage 1: CNN Pre-Training}{14}{section.5.1}%
-\contentsline {subsection}{\numberline {5.1.1}Loss Function and Schedules}{14}{subsection.5.1.1}%
-\contentsline {subsection}{\numberline {5.1.2}Stability Tricks (Mixed Precision, Gradient Clipping)}{14}{subsection.5.1.2}%
-\contentsline {section}{\numberline {5.2}Stage 2: Transformer Training with Latent Alignment}{14}{section.5.2}%
-\contentsline {subsection}{\numberline {5.2.1}Latent RMSE-Only Objective (Contribution)}{14}{subsection.5.2.1}%
-\contentsline {subsection}{\numberline {5.2.2}Decoder Unfreezing Protocol (Contribution)}{14}{subsection.5.2.2}%
-\contentsline {subsection}{\numberline {5.2.3}Measurement Subsampling and Augmentation}{14}{subsection.5.2.3}%
-\contentsline {subsection}{\numberline {5.2.4}Optimisers, LR Schedules, and Weight Decay}{14}{subsection.5.2.4}%
-\contentsline {section}{\numberline {5.3}Implementation Details and Reproducibility}{14}{section.5.3}%
-\contentsline {chapter}{\numberline {6}Experimental Results and Analysis}{15}{chapter.6}%
-\contentsline {section}{\numberline {6.1}Experimental Setup}{15}{section.6.1}%
-\contentsline {subsection}{\numberline {6.1.1}Datasets and Splits}{15}{subsection.6.1.1}%
-\contentsline {subsection}{\numberline {6.1.2}Metrics (Latent RMSE; Voxel RMSE/SSIM for $\mu _a,\mu '_s$)}{15}{subsection.6.1.2}%
-\contentsline {subsection}{\numberline {6.1.3}Hardware and Runtime Reporting}{15}{subsection.6.1.3}%
-\contentsline {section}{\numberline {6.2}Stage 1 Results: Autoencoder Reconstruction Quality}{15}{section.6.2}%
-\contentsline {section}{\numberline {6.3}Stage 2 Results: Transformer Enhancement}{15}{section.6.3}%
-\contentsline {section}{\numberline {6.4}Ablations (Contribution-Focused)}{15}{section.6.4}%
-\contentsline {subsection}{\numberline {6.4.1}Mean Pooling vs Multi-Query Attention}{15}{subsection.6.4.1}%
-\contentsline {subsection}{\numberline {6.4.2}Fixed Geometry vs Randomised Geometry + $L{=}256$}{15}{subsection.6.4.2}%
-\contentsline {subsection}{\numberline {6.4.3}With vs Without Decoder Unfreezing}{15}{subsection.6.4.3}%
-\contentsline {subsection}{\numberline {6.4.4}Embedding Variants: With/Without Position Branch}{15}{subsection.6.4.4}%
-\contentsline {subsection}{\numberline {6.4.5}Sequence Length Sensitivity: $L\in \{128,256,512\}$}{15}{subsection.6.4.5}%
-\contentsline {section}{\numberline {6.5}Generalisation to Held-Out Probe Layouts (Contribution)}{15}{section.6.5}%
-\contentsline {section}{\numberline {6.6}Comparative Analysis with Prior Work (Dale Baseline)}{15}{section.6.6}%
-\contentsline {section}{\numberline {6.7}Qualitative Visualisation and Error Analysis}{15}{section.6.7}%
-\contentsline {chapter}{\numberline {7}Discussion}{16}{chapter.7}%
-\contentsline {section}{\numberline {7.1}Key Findings}{16}{section.7.1}%
-\contentsline {section}{\numberline {7.2}Robustness to Geometry and Noise Shift}{16}{section.7.2}%
-\contentsline {section}{\numberline {7.3}Clinical Implications of a Geometry-Robust DOT Model}{16}{section.7.3}%
-\contentsline {section}{\numberline {7.4}Limitations and Threats to Validity}{16}{section.7.4}%
-\contentsline {section}{\numberline {7.5}Computational Efficiency and Practical Deployment}{16}{section.7.5}%
-\contentsline {section}{\numberline {7.6}Positioning Against Prior Work (Dale) and Field Impact}{16}{section.7.6}%
-\contentsline {chapter}{\numberline {8}Conclusion and Future Work}{17}{chapter.8}%
-\contentsline {section}{\numberline {8.1}Summary of Contributions}{17}{section.8.1}%
-\contentsline {section}{\numberline {8.2}Future Directions}{17}{section.8.2}%
-\contentsline {section}{\numberline {8.3}Final Remarks}{17}{section.8.3}%
-\contentsline {chapter}{\numberline {A}Implementation and Hyperparameters}{20}{chapter.1}%
-\contentsline {chapter}{\numberline {B}Extended Dataset Examples and Probe Layouts}{21}{chapter.2}%
-\contentsline {chapter}{\numberline {C}Additional Quantitative Results}{22}{chapter.3}%
-\contentsline {chapter}{\numberline {D}Mathematical Derivations}{23}{chapter.4}%
-\contentsline {chapter}{\numberline {E}Reproducibility Checklist and Ethics Statement}{24}{chapter.5}%
+\contentsline {section}{\numberline {1.3}Problem Formulation and Notation}{3}{section.1.3}%
+\contentsline {section}{\numberline {1.4}Challenges in FD-DOT Reconstruction}{4}{section.1.4}%
+\contentsline {section}{\numberline {1.5}Research Objectives and Contributions}{5}{section.1.5}%
+\contentsline {section}{\numberline {1.6}Dissertation Structure}{6}{section.1.6}%
+\contentsline {chapter}{\numberline {2}Literature Review}{7}{chapter.2}%
+\contentsline {section}{\numberline {2.1}Optical Physics and Modelling Foundations}{7}{section.2.1}%
+\contentsline {subsection}{\numberline {2.1.1}From Radiative Transport to Diffusion Approximation}{7}{subsection.2.1.1}%
+\contentsline {subsection}{\numberline {2.1.2}Numerical Forward Modelling in FD-DOT}{8}{subsection.2.1.2}%
+\contentsline {section}{\numberline {2.2}Conventional DOT Reconstruction Methods}{8}{section.2.2}%
+\contentsline {subsection}{\numberline {2.2.1}Iterative Inversion Frameworks}{9}{subsection.2.2.1}%
+\contentsline {subsection}{\numberline {2.2.2}Regularisation Strategies}{9}{subsection.2.2.2}%
+\contentsline {section}{\numberline {2.3}Deep Learning in Medical Inverse Problems}{10}{section.2.3}%
+\contentsline {subsection}{\numberline {2.3.1}Overview Across Modalities}{10}{subsection.2.3.1}%
+\contentsline {subsection}{\numberline {2.3.2}DOT-Specific Applications}{10}{subsection.2.3.2}%
+\contentsline {section}{\numberline {2.4}Neural Architectures for DOT}{11}{section.2.4}%
+\contentsline {subsection}{\numberline {2.4.1}CNN Approaches}{11}{subsection.2.4.1}%
+\contentsline {subsection}{\numberline {2.4.2}Transformers and Attention}{11}{subsection.2.4.2}%
+\contentsline {subsection}{\numberline {2.4.3}Hybrid and Two-Stage Frameworks}{11}{subsection.2.4.3}%
+\contentsline {section}{\numberline {2.5}Challenges of Generalisation in DL-DOT}{11}{section.2.5}%
+\contentsline {subsection}{\numberline {2.5.1}Geometry Shift}{11}{subsection.2.5.1}%
+\contentsline {subsection}{\numberline {2.5.2}Noise and Measurement Variability}{11}{subsection.2.5.2}%
+\contentsline {subsection}{\numberline {2.5.3}Simulation-to-Real Gap}{11}{subsection.2.5.3}%
+\contentsline {section}{\numberline {2.6}Baseline and Research Gap}{12}{section.2.6}%
+\contentsline {subsection}{\numberline {2.6.1}Dale’s Hybrid FD-DOT}{12}{subsection.2.6.1}%
+\contentsline {subsection}{\numberline {2.6.2}Open Gaps and Research Opportunity}{12}{subsection.2.6.2}%
+\contentsline {chapter}{\numberline {3}Physics-Based Synthetic Data Pipeline}{13}{chapter.3}%
+\contentsline {section}{\numberline {3.1}Forward Modelling in the Frequency Domain}{14}{section.3.1}%
+\contentsline {section}{\numberline {3.2}Geometric Phantom Construction}{14}{section.3.2}%
+\contentsline {subsection}{\numberline {3.2.1}Ellipsoidal Tissue and Inclusion Design}{14}{subsection.3.2.1}%
+\contentsline {subsection}{\numberline {3.2.2}SO(3) Rotations and Spatial Bias Mitigation}{14}{subsection.3.2.2}%
+\contentsline {section}{\numberline {3.3}Optical Property Assignment}{14}{section.3.3}%
+\contentsline {section}{\numberline {3.4}Surface Extraction and Probe Placement}{14}{section.3.4}%
+\contentsline {subsection}{\numberline {3.4.1}Binary Morphological Surface Extraction}{14}{subsection.3.4.1}%
+\contentsline {subsection}{\numberline {3.4.2}Surface-Constrained Source–Detector Placement}{14}{subsection.3.4.2}%
+\contentsline {section}{\numberline {3.5}Probe Geometry Randomisation and Tokenisation (Contribution)}{14}{section.3.5}%
+\contentsline {section}{\numberline {3.6}Noise Model}{14}{section.3.6}%
+\contentsline {section}{\numberline {3.7}Dataset Composition and Preprocessing}{14}{section.3.7}%
+\contentsline {subsection}{\numberline {3.7.1}Standardisation and Leakage Prevention}{14}{subsection.3.7.1}%
+\contentsline {subsection}{\numberline {3.7.2}HDF5 Design and DataLoader Throughput}{14}{subsection.3.7.2}%
+\contentsline {chapter}{\numberline {4}Proposed Hybrid CNN–Transformer Model}{15}{chapter.4}%
+\contentsline {section}{\numberline {4.1}Architectural Overview}{16}{section.4.1}%
+\contentsline {section}{\numberline {4.2}Stage 1: CNN Autoencoder (Teacher Prior)}{16}{section.4.2}%
+\contentsline {subsection}{\numberline {4.2.1}Encoder: Residual Blocks and Downsampling}{16}{subsection.4.2.1}%
+\contentsline {subsection}{\numberline {4.2.2}Latent Space Design ($d_z{=}256$)}{16}{subsection.4.2.2}%
+\contentsline {subsection}{\numberline {4.2.3}Decoder: Progressive Upsampling and Reconstruction}{16}{subsection.4.2.3}%
+\contentsline {section}{\numberline {4.3}Stage 2: Spatially-Aware Measurement Embedding (Contribution)}{16}{section.4.3}%
+\contentsline {subsection}{\numberline {4.3.1}Signal Branch for $\{\log A,\varphi \}$}{16}{subsection.4.3.1}%
+\contentsline {subsection}{\numberline {4.3.2}Position Branch for $\{\mathbf {x}_\mathrm {src},\mathbf {x}_\mathrm {det}\}$}{16}{subsection.4.3.2}%
+\contentsline {subsection}{\numberline {4.3.3}Fusion and Token Formation}{16}{subsection.4.3.3}%
+\contentsline {section}{\numberline {4.4}Transformer Encoder}{16}{section.4.4}%
+\contentsline {subsection}{\numberline {4.4.1}Attention, Depth, and Positional Handling}{16}{subsection.4.4.1}%
+\contentsline {subsection}{\numberline {4.4.2}Regularisation and Capacity Control}{16}{subsection.4.4.2}%
+\contentsline {section}{\numberline {4.5}Aggregation via Multi-Query Attention Pooling (Contribution)}{16}{section.4.5}%
+\contentsline {section}{\numberline {4.6}Latent Alignment and Decoder Reuse}{16}{section.4.6}%
+\contentsline {section}{\numberline {4.7}Inference Pathway and Computational Cost}{16}{section.4.7}%
+\contentsline {chapter}{\numberline {5}Training Strategies and Optimisation}{17}{chapter.5}%
+\contentsline {section}{\numberline {5.1}Stage 1: CNN Pre-Training}{17}{section.5.1}%
+\contentsline {subsection}{\numberline {5.1.1}Loss Function and Schedules}{17}{subsection.5.1.1}%
+\contentsline {subsection}{\numberline {5.1.2}Stability Tricks (Mixed Precision, Gradient Clipping)}{17}{subsection.5.1.2}%
+\contentsline {section}{\numberline {5.2}Stage 2: Transformer Training with Latent Alignment}{17}{section.5.2}%
+\contentsline {subsection}{\numberline {5.2.1}Latent RMSE-Only Objective (Contribution)}{17}{subsection.5.2.1}%
+\contentsline {subsection}{\numberline {5.2.2}Decoder Unfreezing Protocol (Contribution)}{17}{subsection.5.2.2}%
+\contentsline {subsection}{\numberline {5.2.3}Measurement Subsampling and Augmentation}{17}{subsection.5.2.3}%
+\contentsline {subsection}{\numberline {5.2.4}Optimisers, LR Schedules, and Weight Decay}{17}{subsection.5.2.4}%
+\contentsline {section}{\numberline {5.3}Implementation Details and Reproducibility}{17}{section.5.3}%
+\contentsline {chapter}{\numberline {6}Experimental Results and Analysis}{18}{chapter.6}%
+\contentsline {section}{\numberline {6.1}Experimental Setup}{19}{section.6.1}%
+\contentsline {subsection}{\numberline {6.1.1}Datasets and Splits}{19}{subsection.6.1.1}%
+\contentsline {subsection}{\numberline {6.1.2}Metrics (Latent RMSE; Voxel RMSE/SSIM for $\mu _a,\mu '_s$)}{19}{subsection.6.1.2}%
+\contentsline {subsection}{\numberline {6.1.3}Hardware and Runtime Reporting}{19}{subsection.6.1.3}%
+\contentsline {section}{\numberline {6.2}Stage 1 Results: Autoencoder Reconstruction Quality}{19}{section.6.2}%
+\contentsline {section}{\numberline {6.3}Stage 2 Results: Transformer Enhancement}{19}{section.6.3}%
+\contentsline {section}{\numberline {6.4}Ablations (Contribution-Focused)}{19}{section.6.4}%
+\contentsline {subsection}{\numberline {6.4.1}Mean Pooling vs Multi-Query Attention}{19}{subsection.6.4.1}%
+\contentsline {subsection}{\numberline {6.4.2}Fixed Geometry vs Randomised Geometry + $L{=}256$}{19}{subsection.6.4.2}%
+\contentsline {subsection}{\numberline {6.4.3}With vs Without Decoder Unfreezing}{19}{subsection.6.4.3}%
+\contentsline {subsection}{\numberline {6.4.4}Embedding Variants: With/Without Position Branch}{19}{subsection.6.4.4}%
+\contentsline {subsection}{\numberline {6.4.5}Sequence Length Sensitivity: $L\in \{128,256,512\}$}{19}{subsection.6.4.5}%
+\contentsline {section}{\numberline {6.5}Generalisation to Held-Out Probe Layouts (Contribution)}{19}{section.6.5}%
+\contentsline {section}{\numberline {6.6}Comparative Analysis with Prior Work (Dale Baseline)}{19}{section.6.6}%
+\contentsline {section}{\numberline {6.7}Qualitative Visualisation and Error Analysis}{19}{section.6.7}%
+\contentsline {chapter}{\numberline {7}Discussion}{20}{chapter.7}%
+\contentsline {section}{\numberline {7.1}Key Findings}{20}{section.7.1}%
+\contentsline {section}{\numberline {7.2}Robustness to Geometry and Noise Shift}{20}{section.7.2}%
+\contentsline {section}{\numberline {7.3}Clinical Implications of a Geometry-Robust DOT Model}{20}{section.7.3}%
+\contentsline {section}{\numberline {7.4}Limitations and Threats to Validity}{20}{section.7.4}%
+\contentsline {section}{\numberline {7.5}Computational Efficiency and Practical Deployment}{20}{section.7.5}%
+\contentsline {section}{\numberline {7.6}Positioning Against Prior Work (Dale) and Field Impact}{20}{section.7.6}%
+\contentsline {chapter}{\numberline {8}Conclusion and Future Work}{21}{chapter.8}%
+\contentsline {section}{\numberline {8.1}Summary of Contributions}{21}{section.8.1}%
+\contentsline {section}{\numberline {8.2}Future Directions}{21}{section.8.2}%
+\contentsline {section}{\numberline {8.3}Final Remarks}{21}{section.8.3}%
+\contentsline {chapter}{\numberline {A}Implementation and Hyperparameters}{24}{chapter.1}%
+\contentsline {chapter}{\numberline {B}Extended Dataset Examples and Probe Layouts}{25}{chapter.2}%
+\contentsline {chapter}{\numberline {C}Additional Quantitative Results}{26}{chapter.3}%
+\contentsline {chapter}{\numberline {D}Mathematical Derivations}{27}{chapter.4}%
+\contentsline {chapter}{\numberline {E}Reproducibility Checklist and Ethics Statement}{28}{chapter.5}%
