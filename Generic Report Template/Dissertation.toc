@@ -7,31 +7,26 @@
 \contentsline {chapter}{\numberline {1}Introduction}{1}{chapter.1}%
 \contentsline {section}{\numberline {1.1}Background and Motivation}{1}{section.1.1}%
 \contentsline {section}{\numberline {1.2}Frequency-Domain Diffuse Optical Tomography}{2}{section.1.2}%
-\contentsline {section}{\numberline {1.3}Problem Formulation and Notation}{3}{section.1.3}%
+\contentsline {section}{\numberline {1.3}Problem Formulation and Notation}{2}{section.1.3}%
 \contentsline {section}{\numberline {1.4}Challenges in FD-DOT Reconstruction}{4}{section.1.4}%
-\contentsline {section}{\numberline {1.5}Research Objectives and Contributions}{5}{section.1.5}%
-\contentsline {section}{\numberline {1.6}Dissertation Structure}{6}{section.1.6}%
-\contentsline {chapter}{\numberline {2}Literature Review}{7}{chapter.2}%
-\contentsline {section}{\numberline {2.1}Optical Physics and Modelling Foundations}{7}{section.2.1}%
-\contentsline {subsection}{\numberline {2.1.1}From Radiative Transport to Diffusion Approximation}{7}{subsection.2.1.1}%
-\contentsline {subsection}{\numberline {2.1.2}Numerical Forward Modelling in FD-DOT}{8}{subsection.2.1.2}%
-\contentsline {section}{\numberline {2.2}Conventional DOT Reconstruction Methods}{8}{section.2.2}%
-\contentsline {subsection}{\numberline {2.2.1}Iterative Inversion Frameworks}{9}{subsection.2.2.1}%
-\contentsline {subsection}{\numberline {2.2.2}Regularisation Strategies}{9}{subsection.2.2.2}%
-\contentsline {section}{\numberline {2.3}Deep Learning in Medical Inverse Problems}{10}{section.2.3}%
-\contentsline {subsection}{\numberline {2.3.1}Overview Across Modalities}{10}{subsection.2.3.1}%
-\contentsline {subsection}{\numberline {2.3.2}DOT-Specific Applications}{10}{subsection.2.3.2}%
-\contentsline {section}{\numberline {2.4}Neural Architectures for DOT}{11}{section.2.4}%
-\contentsline {subsection}{\numberline {2.4.1}CNN Approaches}{11}{subsection.2.4.1}%
-\contentsline {subsection}{\numberline {2.4.2}Transformers and Attention}{11}{subsection.2.4.2}%
-\contentsline {subsection}{\numberline {2.4.3}Hybrid and Two-Stage Frameworks}{11}{subsection.2.4.3}%
-\contentsline {section}{\numberline {2.5}Challenges of Generalisation in DL-DOT}{11}{section.2.5}%
-\contentsline {subsection}{\numberline {2.5.1}Geometry Shift}{11}{subsection.2.5.1}%
-\contentsline {subsection}{\numberline {2.5.2}Noise and Measurement Variability}{11}{subsection.2.5.2}%
-\contentsline {subsection}{\numberline {2.5.3}Simulation-to-Real Gap}{11}{subsection.2.5.3}%
-\contentsline {section}{\numberline {2.6}Baseline and Research Gap}{12}{section.2.6}%
-\contentsline {subsection}{\numberline {2.6.1}Dale’s Hybrid FD-DOT}{12}{subsection.2.6.1}%
-\contentsline {subsection}{\numberline {2.6.2}Open Gaps and Research Opportunity}{12}{subsection.2.6.2}%
+\contentsline {section}{\numberline {1.5}Research Objectives and Contributions}{4}{section.1.5}%
+\contentsline {chapter}{\numberline {2}Literature Review}{6}{chapter.2}%
+\contentsline {section}{\numberline {2.1}Conventional Foundations in FD-DOT}{6}{section.2.1}%
+\contentsline {subsection}{\numberline {2.1.1}From radiative transport to diffusion}{6}{subsection.2.1.1}%
+\contentsline {subsection}{\numberline {2.1.2}Frequency-domain forward modelling (FEM in practice)}{7}{subsection.2.1.2}%
+\contentsline {subsection}{\numberline {2.1.3}Classical inverse formulations and regularisation}{7}{subsection.2.1.3}%
+\contentsline {paragraph}{Takeaway.}{8}{section*.1}%
+\contentsline {section}{\numberline {2.2}Learning-Based Reconstruction for FD-DOT}{8}{section.2.2}%
+\contentsline {subsection}{\numberline {2.2.1}Why learning helps FD-DOT}{8}{subsection.2.2.1}%
+\contentsline {subsection}{\numberline {2.2.2}DOT-specific DL: what has worked, and what has not}{8}{subsection.2.2.2}%
+\contentsline {subsection}{\numberline {2.2.3}CNN encoders/decoders for volumetric DOT}{9}{subsection.2.2.3}%
+\contentsline {subsection}{\numberline {2.2.4}Attention and transformers for measurement sequences}{9}{subsection.2.2.4}%
+\contentsline {subsection}{\numberline {2.2.5}Hybrid two-stage designs for FD-DOT}{9}{subsection.2.2.5}%
+\contentsline {section}{\numberline {2.3}Robustness, Baselines, and the Research Gap}{10}{section.2.3}%
+\contentsline {subsection}{\numberline {2.3.1}Deployment failure modes}{10}{subsection.2.3.1}%
+\contentsline {subsection}{\numberline {2.3.2}Baseline: path-agnostic DL-DOT}{11}{subsection.2.3.2}%
+\contentsline {subsection}{\numberline {2.3.3}Problem statement and contributions}{11}{subsection.2.3.3}%
+\contentsline {subsection}{\numberline {2.3.4}From gap to methodology}{12}{subsection.2.3.4}%
 \contentsline {chapter}{\numberline {3}Physics-Based Synthetic Data Pipeline}{13}{chapter.3}%
 \contentsline {section}{\numberline {3.1}Forward Modelling in the Frequency Domain}{14}{section.3.1}%
 \contentsline {section}{\numberline {3.2}Geometric Phantom Construction}{14}{section.3.2}%

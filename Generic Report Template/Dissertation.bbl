@@ -21,9 +21,9 @@ Adam~T. Eggebrecht, Benjamin~R. White, Silvina~L. Ferradal, Cheng Chen, You Zhan
 \newblock {\em Nature Photonics}, 8(6):448--454, 2014.
 
 \bibitem{stillwell2022}
-Roy~A Stillwell and Thomas~D O’Sullivan.
+Roy~A. Stillwell and Thomas~D. O'Sullivan.
 \newblock A real-time fully handheld frequency domain near infrared spectroscopy imaging system.
-\newblock In {\em Multiscale Imaging and Spectroscopy III}, page PC119440D. SPIE, 2022.
+\newblock In {\em Multiscale Imaging and Spectroscopy III}, volume 11944 of {\em Proc. SPIE}, page 119440D. SPIE, 2022.
 
 \bibitem{dale2024}
 Robin Dale, Biao Zheng, Felipe Orihuela-Espina, Nicholas Ross, Thomas~D O’Sullivan, Scott Howard, and Hamid Dehghani.
@@ -50,19 +50,44 @@ Simon~R. Arridge and John~C. Schotland.
 \newblock Optical tomography in medical imaging: theory, models, and applications.
 \newblock {\em Inverse Problems}, 25(12):123010, 2009.
 
-\bibitem{tarvainen2010}
-Tanja Tarvainen, Marko Vauhkonen, Simon~R. Arridge, and Jari~P. Kaipio.
-\newblock Bayesian image reconstruction in diffuse optical tomography.
-\newblock {\em IEEE Transactions on Medical Imaging}, 29(6):1028--1041, 2010.
+\bibitem{tarvainen2010boe}
+Tanja Tarvainen, Ville Kolehmainen, Jari~P. Kaipio, and Simon~R. Arridge.
+\newblock Corrections to linear methods for diffuse optical tomography using approximation error modelling.
+\newblock {\em Biomedical Optics Express}, 1(1):209--222, 2010.
 
 \bibitem{monga2021}
 Vishal Monga, Yuelong Li, and Yonina~C. Eldar.
 \newblock Algorithm unrolling: Interpretable, efficient deep learning for signal and image processing.
 \newblock {\em IEEE Signal Processing Magazine}, 38(2):18--44, 2021.
 
+\bibitem{arridge2019}
+Simon~R. Arridge, Peter Maass, Ozan {\"O}ktem, and Carola-Bibiane Sch{\"o}nlieb.
+\newblock Solving inverse problems using data-driven models.
+\newblock {\em Acta Numerica}, 28:1--174, 2019.
+
+\bibitem{adler2018}
+Jonas Adler and Ozan {\"O}ktem.
+\newblock Learned primal-dual reconstruction.
+\newblock {\em IEEE Transactions on Medical Imaging}, 37(6):1322--1332, 2018.
+
 \bibitem{feng2020}
 Xu~Feng, Wei Chen, Long Wei, and Fei Gao.
 \newblock Deep learning-based image reconstruction for diffuse optical tomography.
 \newblock {\em Biomedical Optics Express}, 11(11):6366--6381, 2020.
+
+\bibitem{deng2023}
+Bin Deng, Hanxue Gu, Hongmin Zhu, Ken Chang, Katharina~V. Hoebel, Jay~B. Patel, Jayashree Kalpathy-Cramer, and Stefan~A. Carp.
+\newblock Fdu-net: Deep learning-based three-dimensional diffuse optical image reconstruction.
+\newblock {\em IEEE Transactions on Medical Imaging}, 42(8):2439--2450, 2023.
+
+\bibitem{murad2023}
+Nazish Murad, Min-Chun Pan, and Ya-Fen Hsu.
+\newblock Periodic-net: an end-to-end data driven framework for diffuse optical imaging of breast cancer from noisy boundary data.
+\newblock {\em Journal of Biomedical Optics}, 28(2):026001, 2023.
+
+\bibitem{dale2025thesis}
+Robin Dale.
+\newblock {\em Deep Learning for Flexible and Real-Time Diffuse Optical Tomography}.
+\newblock {PhD} thesis, University of Birmingham, 2025.
 
 \end{thebibliography}

@@ -15,7 +15,6 @@
 
 % === Maths, algorithms, figures ===
 \usepackage{amsmath,amssymb}
-\usepackage{algorithm,algorithmic}
 \usepackage{graphicx}
 \usepackage{siunitx}
 \sisetup{detect-weight=true,detect-family=true}
@@ -42,7 +41,17 @@
 \usepackage{lipsum}
 \usepackage{multirow}
 \usepackage{setspace}
-\usepackage{verbatim}
+
+\usepackage{enumitem}
+\setlist[itemize]{topsep=0.5em,itemsep=0.2em,leftmargin=*}
+\setlist[enumerate]{topsep=0.5em,itemsep=0.2em,label=\arabic*.,leftmargin=*}
+\setlist[description]{style=nextline,topsep=0.5em,itemsep=0.2em,leftmargin=2.2em,
+  font=\normalfont\bfseries}
+
+
+
+\setlength{\headheight}{15pt} % or 16pt if warning persists
+\emergencystretch=2em
 
 \fancyhf{}
 \pagestyle{fancy}
