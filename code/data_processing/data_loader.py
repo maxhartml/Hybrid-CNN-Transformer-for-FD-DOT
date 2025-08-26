@@ -1,15 +1,16 @@
 """
-NIR Phantom Data Loader - Cleaned Version
-========================================
+NIR Phantom Data Loader - Deterministic Fixed Split Version
+===========================================================
 
 This module provides PyTorch DataLoader classes for NIR phantom datasets with
-phantom-level loading and data augmentation through measurement subsampling.
+phantom-level loading and deterministic fixed dataset splits.
 
 Key Features:
 - Phantom-level loading (complete phantoms with {N_MEASUREMENTS} subsampled measurements)
-- Data augmentation via random measurement subsampling from 1000 generated measurements
+- FIXED DETERMINISTIC SPLITS: Train 0-7999, Val 8000-8999, Test 9000-9999
+- No randomization in dataset partitioning - identical splits across all runs
+- Data augmentation via random measurement subsampling within each phantom
 - Efficient multi-CPU data loading with hardware optimization
-- Train/val/test splits at phantom level to prevent data leakage
 - HDF5-based storage for efficient access
 
 Author: Max Hart
@@ -41,11 +42,19 @@ DEFAULT_PHANTOM_SHAPE = VOLUME_SHAPE    # Volume dimensions - centralized from t
 DEFAULT_N_GENERATED_MEASUREMENTS = 1000 # Generated measurements per phantom
 # Note: Removed DEFAULT_N_TRAINING_MEASUREMENTS for dynamic undersampling at model level
 
-# Dataset split configuration - CONFIGURABLE HYPERPARAMETERS
-TRAIN_SPLIT_RATIO = 0.8                 # 80% for training (recommended: keep at 0.8)
-VALIDATION_SPLIT_RATIO = 0.1             # 10% for validation (recommended: keep at 0.1)  
-TEST_SPLIT_RATIO = 0.1                   # 10% for test (recommended: keep at 0.1)
-# Note: Ratios must sum to 1.0. Current 80-10-10 split is optimal for your 5000 phantom dataset
+# Dataset split configuration - FIXED DETERMINISTIC SPLITS
+# For 10,000 phantom dataset: deterministic 8000/1000/1000 split by index
+TRAIN_SPLIT_START = 0                   # Train set: indices 0-7999 (8000 phantoms)
+TRAIN_SPLIT_END = 8000
+VAL_SPLIT_START = 8000                  # Validation set: indices 8000-8999 (1000 phantoms) 
+VAL_SPLIT_END = 9000
+TEST_SPLIT_START = 9000                 # Test set: indices 9000-9999 (1000 phantoms)
+TEST_SPLIT_END = 10000
+
+# Legacy ratios kept for compatibility but not used in fixed splitting
+TRAIN_SPLIT_RATIO = 0.8                 # 80% for training (legacy - not used for fixed splits)
+VALIDATION_SPLIT_RATIO = 0.1             # 10% for validation (legacy - not used for fixed splits)
+TEST_SPLIT_RATIO = 0.1                   # 10% for test (legacy - not used for fixed splits)
 
 # DataLoader configuration
 DEFAULT_BATCH_SIZE = 8
@@ -265,11 +274,15 @@ def extract_tissue_patches_from_measurements(ground_truth: np.ndarray,
 
 class NIRPhantomDataset(Dataset):
     """
-    Dataset for NIR phantom data with phantom-level loading and measurement subsampling.
+    Dataset for NIR phantom data with deterministic fixed splitting and phantom-level loading.
     
-    This dataset loads complete phantoms (1000 measurements) and subsamples to {N_MEASUREMENTS} 
-    measurements for training to enable data augmentation. Each phantom contains
-    ground truth optical properties and NIR measurements from optimized probe placement.
+    Uses FIXED DETERMINISTIC SPLITS (no randomization):
+    - Train: phantom indices 0-7999 (8000 phantoms)  
+    - Val: phantom indices 8000-8999 (1000 phantoms)
+    - Test: phantom indices 9000-9999 (1000 phantoms)
+    
+    Each phantom contains ground truth optical properties and NIR measurements.
+    Measurement subsampling within phantoms uses random_seed for data augmentation.
     """
     
     def __init__(self, data_dir: str = "../data", split: str = "train", 
@@ -283,7 +296,7 @@ class NIRPhantomDataset(Dataset):
         self.extract_tissue_patches = extract_tissue_patches
         self.stage = stage  # NEW: Store stage for optimized loading
         
-        # Set up random state for reproducible splits
+        # Set up random state for data augmentation (NOT for splitting)
         self.rng = np.random.RandomState(random_seed)
         
         # Find all phantom files
@@ -294,28 +307,35 @@ class NIRPhantomDataset(Dataset):
         
         logger.info(f"Found {len(self.phantom_files)} phantom files in {self.data_dir}")
         
-        # Split phantoms deterministically
+        # FIXED DETERMINISTIC SPLITS - No randomization, always same indices
         n_phantoms = len(self.phantom_files)
-        n_train = int(TRAIN_SPLIT_RATIO * n_phantoms)
-        n_val = int(VALIDATION_SPLIT_RATIO * n_phantoms)
         
-        # Deterministic shuffle for consistent splits across runs
-        phantom_indices = np.arange(n_phantoms)
-        split_rng = np.random.RandomState(random_seed)
-        split_rng.shuffle(phantom_indices)
-        
+        # Use fixed index ranges for deterministic splitting
         if split == "train":
-            phantom_indices = phantom_indices[:n_train]
+            phantom_indices = np.arange(TRAIN_SPLIT_START, min(TRAIN_SPLIT_END, n_phantoms))
+            logger.info(f"📊 Train set: {TRAIN_SPLIT_START}–{min(TRAIN_SPLIT_END-1, n_phantoms-1)} ({len(phantom_indices)} phantoms)")
         elif split == "val":
-            phantom_indices = phantom_indices[n_train:n_train + n_val]
+            phantom_indices = np.arange(VAL_SPLIT_START, min(VAL_SPLIT_END, n_phantoms))
+            logger.info(f"📊 Val set: {VAL_SPLIT_START}–{min(VAL_SPLIT_END-1, n_phantoms-1)} ({len(phantom_indices)} phantoms)")
         elif split == "test":
-            phantom_indices = phantom_indices[n_train + n_val:]
+            phantom_indices = np.arange(TEST_SPLIT_START, min(TEST_SPLIT_END, n_phantoms))
+            logger.info(f"📊 Test set: {TEST_SPLIT_START}–{min(TEST_SPLIT_END-1, n_phantoms-1)} ({len(phantom_indices)} phantoms)")
         else:
             raise ValueError(f"Unknown split: {split}")
         
+        # Validate split boundaries for safety
+        if len(phantom_indices) == 0:
+            raise ValueError(f"No phantoms available for {split} split with {n_phantoms} total phantoms")
+        
+        # Log warning if dataset size doesn't match expected 10k phantoms
+        if n_phantoms != 10000:
+            logger.warning(f"⚠️  Dataset has {n_phantoms} phantoms (expected 10,000). Fixed splits may not align perfectly.")
+        
+        # Select phantom files for this split
         self.phantom_files = [self.phantom_files[i] for i in phantom_indices]
         
-        logger.info(f"{split.upper()} split: {len(self.phantom_files)} phantoms")
+        # Final logging with phantom count
+        logger.info(f"✅ {split.upper()} dataset ready: {len(self.phantom_files)} phantoms loaded")
     
     def __len__(self) -> int:
         """Return total number of phantoms in dataset."""
@@ -513,6 +533,11 @@ def create_phantom_dataloaders(data_dir: str = "../data",
     - Stage 1: Only loads ground truth (97% memory reduction!)
     - Stage 2: Loads full data including NIR measurements and optional tissue patches
     
+    FIXED DETERMINISTIC SPLITS (NO RANDOMIZATION):
+    - Train: indices 0-7999 (8000 phantoms, 80%)
+    - Validation: indices 8000-8999 (1000 phantoms, 10%)
+    - Test: indices 9000-9999 (1000 phantoms, 10%)
+    
     Args:
         data_dir (str): Path to phantom data directory
         batch_size (int): Number of phantoms per batch
@@ -520,7 +545,7 @@ def create_phantom_dataloaders(data_dir: str = "../data",
         prefetch_factor (int): Prefetch factor for DataLoader
         pin_memory (bool): Enable pin memory for GPU efficiency
         persistent_workers (bool): Keep workers alive between epochs
-        random_seed (int): Random seed for splits
+        random_seed (int): Random seed for data augmentation (NOT for splitting)
         extract_tissue_patches (bool): DEPRECATED - use use_tissue_patches instead
         use_tissue_patches (bool): Whether to extract tissue patches (Stage 2 Enhanced only)
         stage (str): Training stage ('stage1' for ground truth only, 'stage2' for full data)
@@ -532,6 +557,13 @@ def create_phantom_dataloaders(data_dir: str = "../data",
     if extract_tissue_patches is not None:
         logger.warning("extract_tissue_patches is deprecated, use use_tissue_patches instead")
         use_tissue_patches = extract_tissue_patches
+    
+    # Log fixed dataset split configuration once at startup
+    logger.info("🔧 FIXED DETERMINISTIC DATASET SPLITS:")
+    logger.info(f"   📊 Train set: {TRAIN_SPLIT_START}–{TRAIN_SPLIT_END-1} ({TRAIN_SPLIT_END-TRAIN_SPLIT_START} phantoms)")
+    logger.info(f"   📊 Val set: {VAL_SPLIT_START}–{VAL_SPLIT_END-1} ({VAL_SPLIT_END-VAL_SPLIT_START} phantoms)")
+    logger.info(f"   📊 Test set: {TEST_SPLIT_START}–{TEST_SPLIT_END-1} ({TEST_SPLIT_END-TEST_SPLIT_START} phantoms)")
+    logger.info(f"   🎯 No randomization - splits are identical across all runs")
     
     # Ensure persistent workers is disabled for single worker
     if num_workers == 0:
