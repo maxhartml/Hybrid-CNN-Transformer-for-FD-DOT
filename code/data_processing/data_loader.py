@@ -104,6 +104,7 @@ H5_KEYS = {
 
 # Get logger
 logger = logging.getLogger(__name__)
+logger.propagate = True  # Ensure logs propagate to training's global logging config
 
 # Worker initialization function for reproducible multiprocessing
 def _worker_init_fn(worker_id):
@@ -667,6 +668,9 @@ def create_phantom_dataloaders(data_dir: str = "../data",
     if len(all_ids_set) != total_phantom_files or len(all_dataset_ids) != total_phantom_files:
         logger.warning(f"Split sanity check failed: {len(all_ids_set)} unique IDs across splits, "
                       f"{len(all_dataset_ids)} total assignments, {total_phantom_files} files")
+    
+    # Confirmation log for which splits were created
+    logger.info(f"✅ Created dataloaders for splits: {list(dataloaders.keys())}")
     
     return dataloaders
 

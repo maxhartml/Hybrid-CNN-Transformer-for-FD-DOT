@@ -53,8 +53,9 @@ class LatentStats:
         
         batch_size = teacher_latent.shape[0]
         
-        # Compute RMSE
-        rmse = torch.sqrt(F.mse_loss(student_latent, teacher_latent))
+        # Compute per-sample RMSE then take mean
+        per_sample_rmse = torch.sqrt(F.mse_loss(student_latent, teacher_latent, reduction='none').mean(dim=1))
+        rmse = per_sample_rmse.mean()
         
         # Compute cosine similarity
         cosine_sim = F.cosine_similarity(teacher_latent, student_latent, dim=1).mean()
@@ -64,8 +65,8 @@ class LatentStats:
         student_mag = torch.norm(student_latent, dim=1).mean()
         mag_diff = torch.abs(teacher_mag - student_mag)
         
-        # Update accumulated stats
-        self.stats['rmse_sum'] += rmse.item() * batch_size
+        # Update accumulated stats with per-sample RMSE sum
+        self.stats['rmse_sum'] += per_sample_rmse.sum().item()
         self.stats['cosine_sim_sum'] += cosine_sim.item() * batch_size
         self.stats['teacher_mag_sum'] += teacher_mag.item() * batch_size
         self.stats['student_mag_sum'] += student_mag.item() * batch_size
@@ -205,7 +206,7 @@ def analyze_latent_distribution(latent: torch.Tensor, prefix: str = "") -> Dict[
     """
     with torch.no_grad():
         # Flatten for distribution analysis
-        flat_latent = latent.view(-1)
+        flat_latent = latent.reshape(-1)
         
         stats = {
             f'{prefix}mean': flat_latent.mean().item(),

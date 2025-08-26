@@ -169,6 +169,18 @@ class PerChannelZScore:
         
         return self
     
+    def set_stats(self, mean, std):
+        """
+        Set pre-computed statistics for the standardizer.
+        
+        Args:
+            mean (torch.Tensor): Per-channel means [2]
+            std (torch.Tensor): Per-channel standard deviations [2]
+        """
+        self.means = mean.clone().to(self.device)
+        self.stds = std.clone().to(self.device)
+        self.fitted = True
+    
     def transform(self, volumes: torch.Tensor) -> torch.Tensor:
         """
         Apply z-score standardization to volumes.

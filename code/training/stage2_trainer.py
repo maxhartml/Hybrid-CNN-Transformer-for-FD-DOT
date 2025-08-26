@@ -1212,11 +1212,16 @@ class Stage2Trainer:
                 
                 # Full forward for student (same as E2E path)
                 with autocast(enabled=use_amp, dtype=dtype):
-                    student_outputs = self.model(nir_measurements, tissue_patches)
-                    student_latent = student_outputs.get('encoded_scan')
-                    student_latent_aligned = self.latent_align(student_latent) if hasattr(self, 'latent_align') else student_latent
-                    with torch.no_grad():
-                        student_reconstruction_std = self.teacher.decode_from_latent(student_latent_aligned)
+                    if self.teacher is None:
+                        student_outputs = self.model(nir_measurements, tissue_patches)
+                        student_reconstruction_std = student_outputs['reconstructed']
+                    else:
+                        # current teacher-decode path
+                        student_outputs = self.model(nir_measurements, tissue_patches)
+                        student_latent = student_outputs.get('encoded_scan')
+                        student_latent_aligned = self.latent_align(student_latent) if hasattr(self, 'latent_align') else student_latent
+                        with torch.no_grad():
+                            student_reconstruction_std = self.teacher.decode_from_latent(student_latent_aligned)
                 
                 # Inverse to RAW for RMSE calculation
                 raw_predictions = self.standardizers.inverse_transform_ground_truth(student_reconstruction_std)
@@ -1338,40 +1343,46 @@ class Stage2Trainer:
                                    f"Latent_RMSE: {batch_latent_stats['latent_rmse']:.4f} | "
                                    f"Cosine_Sim: {batch_latent_stats['latent_cosine_sim']:.4f}")
                     else:
-                        # END-TO-END VALIDATION - Use teacher decoder for both teacher and student
-                        # 1. Get teacher baseline (ground truth → teacher encode → teacher decode)
-                        with torch.no_grad():
-                            teacher_latent = self.teacher.encode_from_gt_std(standardized_ground_truth)
-                            teacher_reconstruction_std = self.teacher.decode_from_latent(teacher_latent)
-                        
-                        # 2. Get student reconstruction via full forward pass to get transformer features
-                        student_outputs = self.model(nir_measurements, tissue_patches)
-                        student_latent = student_outputs['encoded_scan']  # Get latent from full forward pass
-                        student_latent_aligned = self.latent_align(student_latent)  # Apply aligner for consistent decoding
-                        with torch.no_grad():
-                            student_reconstruction_std = self.teacher.decode_from_latent(student_latent_aligned)
-                        
-                        # 3. Use student reconstruction for loss (comparison against ground truth)
-                        loss = self.criterion(student_reconstruction_std, standardized_ground_truth)
-                        
-                        # 4. Set outputs for metrics calculation with transformer features
-                        outputs = {
-                            'reconstructed': student_reconstruction_std,
-                            'enhanced_features': student_outputs.get('enhanced_features'),
-                            'cnn_features': student_outputs.get('cnn_features'),
-                            'attention_weights': student_outputs.get('attention_weights')
-                        }
-                        
-                        # 5. Debug assertions and logging
-                        assert teacher_latent.shape == student_latent_aligned.shape, f"Latent shape mismatch: teacher={teacher_latent.shape}, student_aligned={student_latent_aligned.shape}"
-                        assert student_reconstruction_std.shape == standardized_ground_truth.shape, f"Reconstruction shape mismatch: {student_reconstruction_std.shape} vs {standardized_ground_truth.shape}"
-                        assert not torch.isnan(student_reconstruction_std).any(), "Student reconstruction contains NaNs"
-                        
-                        if DEBUG_VERBOSE:
-                            logger.debug(f"📊 Teacher reconstruction (std): mean={teacher_reconstruction_std.mean():.4f}, std={teacher_reconstruction_std.std():.4f}")
-                            logger.debug(f"📊 Student reconstruction (std): mean={student_reconstruction_std.mean():.4f}, std={student_reconstruction_std.std():.4f}")
-                        
-                        # Removed teacher vs student comparison - using unified visualization instead
+                        # END-TO-END VALIDATION
+                        if TRAIN_STAGE2_LATENT_ONLY:
+                            # Use teacher decoder for both teacher and student
+                            # 1. Get teacher baseline (ground truth → teacher encode → teacher decode)
+                            with torch.no_grad():
+                                teacher_latent = self.teacher.encode_from_gt_std(standardized_ground_truth)
+                                teacher_reconstruction_std = self.teacher.decode_from_latent(teacher_latent)
+                            
+                            # 2. Get student reconstruction via full forward pass to get transformer features
+                            student_outputs = self.model(nir_measurements, tissue_patches)
+                            student_latent = student_outputs['encoded_scan']  # Get latent from full forward pass
+                            student_latent_aligned = self.latent_align(student_latent)  # Apply aligner for consistent decoding
+                            with torch.no_grad():
+                                student_reconstruction_std = self.teacher.decode_from_latent(student_latent_aligned)
+                            
+                            # 3. Use student reconstruction for loss (comparison against ground truth)
+                            loss = self.criterion(student_reconstruction_std, standardized_ground_truth)
+                            
+                            # 4. Set outputs for metrics calculation with transformer features
+                            outputs = {
+                                'reconstructed': student_reconstruction_std,
+                                'enhanced_features': student_outputs.get('enhanced_features'),
+                                'cnn_features': student_outputs.get('cnn_features'),
+                                'attention_weights': student_outputs.get('attention_weights')
+                            }
+                            
+                            # 5. Debug assertions and logging
+                            assert teacher_latent.shape == student_latent_aligned.shape, f"Latent shape mismatch: teacher={teacher_latent.shape}, student_aligned={student_latent_aligned.shape}"
+                            assert student_reconstruction_std.shape == standardized_ground_truth.shape, f"Reconstruction shape mismatch: {student_reconstruction_std.shape} vs {standardized_ground_truth.shape}"
+                            assert not torch.isnan(student_reconstruction_std).any(), "Student reconstruction contains NaNs"
+                            
+                            if DEBUG_VERBOSE:
+                                logger.debug(f"📊 Teacher reconstruction (std): mean={teacher_reconstruction_std.mean():.4f}, std={teacher_reconstruction_std.std():.4f}")
+                                logger.debug(f"📊 Student reconstruction (std): mean={student_reconstruction_std.mean():.4f}, std={student_reconstruction_std.std():.4f}")
+                        else:
+                            # Skip teacher entirely - direct student training
+                            student_outputs = self.model(nir_measurements, tissue_patches)
+                            student_reconstruction_std = student_outputs['reconstructed']
+                            loss = self.criterion(student_reconstruction_std, standardized_ground_truth)
+                            outputs = student_outputs  # for downstream metrics/attention
                 
                 # Inverse transform predictions to RAW space for human-interpretable metrics (only for E2E)
                 if 'outputs' in locals() and outputs is not None:

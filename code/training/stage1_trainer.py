@@ -378,10 +378,10 @@ class Stage1Trainer:
     
     def _fit_standardizer_on_train_data(self, train_loader):
         """
-        Fit the ground truth standardizer on training data only.
+        Fit the ground truth standardizer on training data using streaming computation.
         
         This method computes per-channel mean and std from the training dataset
-        and stores them for consistent normalization across train/val splits.
+        using a two-pass streaming approach to avoid memory issues with large datasets.
         The standardizer ensures stable training by normalizing μₐ and μ′ₛ
         channels independently using z-score normalization.
         
@@ -392,38 +392,34 @@ class Stage1Trainer:
             logger.info("📊 Standardizer already fitted - skipping")
             return
         
-        logger.info("")
         logger.info("="*60)
-        logger.info("📊 FITTING GROUND TRUTH STANDARDIZER")
+        logger.info("📊 FITTING GROUND TRUTH STANDARDIZER (streaming)")
         logger.info("="*60)
-        logger.info("🔧 Computing per-channel z-score statistics from training data...")
-        
-        # Collect all training ground truth volumes
-        all_volumes = []
-        self.model.eval()  # Ensure model is in eval mode during data collection
-        
-        logger.info(f"📦 Processing {len(train_loader)} training batches...")
-        with torch.no_grad():
-            for batch_idx, batch in enumerate(train_loader):
-                ground_truth = batch['ground_truth'].cpu()  # Keep on CPU for memory efficiency
-                all_volumes.append(ground_truth)
-                
-                if (batch_idx + 1) % STANDARDIZER_BATCH_LOG_INTERVAL == 0:
-                    logger.info(f"   Processed {batch_idx + 1}/{len(train_loader)} batches...")
-        
-        # Concatenate all volumes and fit standardizer
-        all_volumes = torch.cat(all_volumes, dim=0)
-        logger.info(f"📊 Fitting standardizer on {all_volumes.shape[0]} training volumes...")
-        logger.info(f"📐 Volume shape: {all_volumes.shape[1:]} (channels, depth, height, width)")
-        
-        # Fit standardizer and move to correct device
-        self.standardizer.fit(all_volumes)
+
+        # First pass: mean
+        n_vox_total = 0
+        sum_c = torch.zeros(2, dtype=torch.float64)
+        for batch in train_loader:
+            gt = batch['ground_truth']  # CPU tensor [B,2,64,64,64]
+            B = gt.shape[0]
+            n_vox = B * gt.shape[2] * gt.shape[3] * gt.shape[4]
+            sum_c += gt.double().sum(dim=(0,2,3,4))
+            n_vox_total += n_vox
+        mean_c = (sum_c / max(1, n_vox_total)).to(torch.float32)
+
+        # Second pass: variance
+        sqdiff_c = torch.zeros(2, dtype=torch.float64)
+        for batch in train_loader:
+            gt = batch['ground_truth']  # CPU
+            sqdiff_c += ((gt.double() - mean_c.double().view(1,2,1,1,1))**2).sum(dim=(0,2,3,4))
+        var_c = (sqdiff_c / max(1, n_vox_total)).to(torch.float32)
+        std_c = (var_c.clamp_min(1e-12)).sqrt()
+
+        self.standardizer.set_stats(mean_c, std_c)
         self.standardizer.to(self.device)
         self.standardizer_fitted = True
-        
-        logger.info("✅ Ground truth standardizer fitted successfully!")
+        logger.info(f"✅ Standardizer (μ,σ): {mean_c.tolist()}, {std_c.tolist()}")
         logger.info("="*60)
-        logger.info("")
     
     def _log_learning_rate_to_wandb(self, epoch: int, batch_idx: int, total_batches: int):
         """
@@ -445,17 +441,17 @@ class Stage1Trainer:
                 return
                 
             current_lr = self.optimizer.param_groups[0]['lr']
-            current_momentum = self.optimizer.param_groups[0].get('betas', [0, 0])[0]
+            current_beta1 = self.optimizer.param_groups[0].get('betas', (None, None))[0]
             
             # Calculate global step for OneCycleLR tracking (dissertation graphs need this!)
             global_step = epoch * total_batches + batch_idx + 1  # Start from 1, not 0
             
-            # Log detailed learning rate and momentum for smooth OneCycleLR visualization
+            # Log detailed learning rate and beta1 for smooth OneCycleLR visualization
             # Essential for dissertation graphs showing scheduler behavior
             wandb.log({
                 "training_step": global_step,  # Custom x-axis for LR metrics
                 "LR_Scheduler/Learning_Rate": current_lr,
-                "LR_Scheduler/Momentum": current_momentum,
+                "LR_Scheduler/Beta1": current_beta1,
                 "LR_Scheduler/Training_Progress": epoch + (batch_idx / total_batches)
             })
                 
