@@ -48,7 +48,7 @@ from code.models.global_pooling_encoder import GlobalPoolingEncoder
 from code.utils.logging_config import get_model_logger
 
 # Import configuration constants
-from code.training.training_config import UNFREEZE_LAST_DECODER_BLOCK, DECODER_FINETUNING_LR_SCALE
+from code.training.training_config import UNFREEZE_LAST_DECODER_BLOCK, DECODER_FINETUNING_LR_SCALE, GLOBAL_SEED
 
 # Import configuration constants from component modules
 from code.models import cnn_autoencoder as cnn_config
@@ -114,8 +114,8 @@ def fixed_sequence_undersampling(nir_measurements: torch.Tensor,
     
     if not training:
         # Validation/Inference: use deterministic subset for consistency  
-        # Use a fixed random seed to ensure same subset across validation runs
-        torch.manual_seed(42)
+        # Use a derived seed from global seed to ensure reproducible validation across runs
+        torch.manual_seed(GLOBAL_SEED + 1337)  # Offset to avoid collision with training seed
         selected_indices = torch.randperm(seq_len, device=device)[:n_measurements]
         selected_indices = selected_indices.sort()[0]  # Sort for consistent ordering
         logger.debug(f"🎯 Fixed undersampling (validation): deterministic subset of {n_measurements} measurements")

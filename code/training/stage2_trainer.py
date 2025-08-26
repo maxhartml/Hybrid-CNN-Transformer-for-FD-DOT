@@ -32,6 +32,7 @@ Date: August 2025
 
 # Standard library imports
 import math
+import random
 from typing import Dict
 from datetime import datetime
 
@@ -41,6 +42,17 @@ import torch.nn as nn
 import numpy as np
 import wandb
 from torch.cuda.amp import GradScaler, autocast  # Mixed precision training for A100 optimization
+
+# Global seed setting for reproducibility
+from code.training.training_config import GLOBAL_SEED
+torch.manual_seed(GLOBAL_SEED)
+np.random.seed(GLOBAL_SEED)
+random.seed(GLOBAL_SEED)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(GLOBAL_SEED)
+    torch.cuda.manual_seed_all(GLOBAL_SEED)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 # Project imports
 from code.models.hybrid_model import HybridCNNTransformer

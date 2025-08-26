@@ -26,7 +26,7 @@ from typing import Optional
 import logging
 
 from code.utils.logging_config import get_model_logger
-from code.training.training_config import N_MEASUREMENTS, EMBED_DIM, ENCODED_SCAN_DIM
+from code.training.training_config import N_MEASUREMENTS, EMBED_DIM, ENCODED_SCAN_DIM, GLOBAL_POOLING_QUERIES
 
 # =============================================================================
 # CONSTANTS
@@ -36,8 +36,8 @@ from code.training.training_config import N_MEASUREMENTS, EMBED_DIM, ENCODED_SCA
 DEFAULT_EMBED_DIM = EMBED_DIM                    # Input from transformer
 DEFAULT_ENCODED_SCAN_DIM = ENCODED_SCAN_DIM     # Output dimension for CNN decoder
 
-# Multi-query pooling configuration
-NUM_POOL_QUERIES = 4                             # Number of learnable pooling queries for enhanced representation
+# Multi-query pooling configuration - centralized from training_config
+NUM_POOL_QUERIES = GLOBAL_POOLING_QUERIES       # Number of learnable pooling queries for enhanced representation
 
 # Weight initialization
 WEIGHT_INIT_STD = 0.02

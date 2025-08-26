@@ -36,10 +36,23 @@ Date: August 2025
 
 # Standard library imports
 import os
+import random
 
 # Third-party imports
 import torch
 import torch._dynamo
+import numpy as np
+
+# Global seed setting for reproducibility
+from code.training.training_config import GLOBAL_SEED
+torch.manual_seed(GLOBAL_SEED)
+np.random.seed(GLOBAL_SEED)
+random.seed(GLOBAL_SEED)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(GLOBAL_SEED)
+    torch.cuda.manual_seed_all(GLOBAL_SEED)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 # Configure torch dynamo to suppress compilation errors and fall back to eager mode
 torch._dynamo.config.suppress_errors = True

@@ -20,6 +20,16 @@ import logging
 logger = logging.getLogger(__name__)
 
 # =============================================================================
+# GLOBAL SETTINGS - SINGLE SOURCE OF TRUTH
+# =============================================================================
+
+# Global Random Seed - Controls all random number generation for reproducibility
+GLOBAL_SEED = 1337                      # Master seed for reproducible experiments
+
+# Global Architecture Settings
+GLOBAL_POOLING_QUERIES = 4               # Number of pooling queries for transformer multi-query pooling
+
+# =============================================================================
 # EXPERIMENT CONTROL
 # =============================================================================
 
@@ -75,7 +85,7 @@ USE_CHANNELS_LAST_MEMORY_FORMAT = True  # Efficient memory layout for 3D convolu
 
 # Training Duration
 EPOCHS_STAGE1 = 200  # Stage 1 CNN training epochs - more (↑) = better feature learning, less (↓) = faster training
-EPOCHS_STAGE2 = 400   # Stage 2 transformer epochs - increased for better convergence, more (↑) = better fine-tuning, less (↓) = faster completion
+EPOCHS_STAGE2 = 300   # Stage 2 transformer epochs - increased for better convergence, more (↑) = better fine-tuning, less (↓) = faster completion
 
 # Batch Sizes - Hard-coded for stability
 BATCH_SIZE = 128  # Reduced for better gradient diversity and memory efficiency

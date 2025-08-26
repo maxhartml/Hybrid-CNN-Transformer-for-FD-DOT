@@ -28,7 +28,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 
 # Import tissue patch config flag
-from code.training.training_config import USE_TISSUE_PATCHES_STAGE2, VOLUME_SHAPE, N_MEASUREMENTS
+from code.training.training_config import USE_TISSUE_PATCHES_STAGE2, VOLUME_SHAPE, N_MEASUREMENTS, GLOBAL_SEED
 
 # ===============================================================================
 # CONFIGURATION AND CONSTANTS
@@ -51,7 +51,7 @@ TEST_SPLIT_RATIO = 0.1                   # 10% for test (recommended: keep at 0.
 DEFAULT_BATCH_SIZE = 8
 DEFAULT_PHANTOM_BATCH_SIZE = 4
 DEFAULT_NUM_WORKERS = 4
-DEFAULT_RANDOM_SEED = 42
+DEFAULT_RANDOM_SEED = GLOBAL_SEED  # Use global seed for consistency
 
 # Performance optimization settings
 ENABLE_PIN_MEMORY = True
@@ -69,6 +69,17 @@ H5_KEYS = {
 
 # Get logger
 logger = logging.getLogger(__name__)
+
+# Worker initialization function for reproducible multiprocessing
+def _worker_init_fn(worker_id):
+    """Initialize workers with deterministic seeds based on global seed and worker ID."""
+    import numpy as np
+    import torch
+    import random
+    worker_seed = GLOBAL_SEED + worker_id
+    torch.manual_seed(worker_seed)
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
 
 # ===============================================================================
 # TISSUE PATCH EXTRACTION
@@ -543,7 +554,8 @@ def create_phantom_dataloaders(data_dir: str = "../data",
             pin_memory=pin_memory,
             drop_last=(split == 'train') and DROP_INCOMPLETE_BATCHES,
             persistent_workers=persistent_workers,
-            prefetch_factor=prefetch_factor if num_workers > 0 else None
+            prefetch_factor=prefetch_factor if num_workers > 0 else None,
+            worker_init_fn=_worker_init_fn if num_workers > 0 else None
         )
         
         dataloaders[split] = dataloader
