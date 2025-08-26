@@ -26,8 +26,10 @@ logger = get_training_logger(__name__)
 # GLOBAL SETTINGS - SINGLE SOURCE OF TRUTH
 # =============================================================================
 
+SEED_LIST = [1337, 28, 1994]      # document this in Chapter 5
+
 # Global Random Seed - Controls all random number generation for reproducibility
-GLOBAL_SEED = 10                      # Master seed for reproducible experiments (already tried 1337)
+GLOBAL_SEED = SEED_LIST[0]                      # Master seed for reproducible experiments (A/B/C = 1337/28/1994)
 
 # Global Architecture Settings
 GLOBAL_POOLING_QUERIES = 4               # Number of pooling queries for transformer multi-query pooling
@@ -37,7 +39,7 @@ GLOBAL_POOLING_QUERIES = 4               # Number of pooling queries for transfo
 # =============================================================================
 
 # Training Stage Control - Set which stage to run
-CURRENT_TRAINING_STAGE = "stage1"  # "stage1" or "stage2"
+CURRENT_TRAINING_STAGE = "stage2"  # "stage1" or "stage2"
 
 # Weights & Biases Logging
 USE_WANDB_LOGGING = True
@@ -70,7 +72,7 @@ EMA_DECAY_START = 0.995                 # Starting EMA decay value (more aggress
 EMA_DECAY_END = 0.9995                  # Final EMA decay value (more stable late training)
 
 # Decoder Fine-tuning Control - Increased for Preset B
-UNFREEZE_LAST_DECODER_BLOCK = True      # Allow fine-tuning of final decoder block in Stage 2
+UNFREEZE_LAST_DECODER_BLOCK = False      # Allow fine-tuning of final decoder block in Stage 2
 DECODER_FINETUNING_LR_SCALE = 0.3       # Increased LR scaling for unfrozen decoder block (relative to transformer LR)
 
 # Attention Entropy Regularization
