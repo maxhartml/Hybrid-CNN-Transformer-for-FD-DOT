@@ -70,15 +70,26 @@ def find_best_checkpoint(stage_id: str, checkpoint_dir: str = None) -> str:
     
     best_path = None
     best_metric = float('inf')
+    best_metric_name = None
     
     for filename in checkpoint_files:
         filepath = os.path.join(checkpoint_dir, filename)
         try:
             checkpoint = torch.load(filepath, map_location='cpu')
-            val_std_rmse = checkpoint['metrics']['val_std_rmse']
+            metrics = checkpoint.get('metrics', {})
+            # new selection rule
+            val_metric = None
+            metric_name = None
+            if 'val_raw_rmse_total' in metrics:
+                val_metric = metrics['val_raw_rmse_total']
+                metric_name = 'val_raw_rmse_total'
+            else:
+                val_metric = metrics.get('val_std_rmse', float('inf'))
+                metric_name = 'val_std_rmse'
             
-            if val_std_rmse < best_metric:
-                best_metric = val_std_rmse
+            if val_metric < best_metric:
+                best_metric = val_metric
+                best_metric_name = metric_name
                 best_path = filepath
                 
         except Exception as e:
@@ -88,5 +99,5 @@ def find_best_checkpoint(stage_id: str, checkpoint_dir: str = None) -> str:
     if best_path is None:
         raise RuntimeError(f"No valid checkpoints found for stage '{stage_id}'")
     
-    logger.info(f"🏆 Best checkpoint for {stage_id}: {os.path.basename(best_path)} (val_std_rmse={best_metric:.4f})")
+    logger.info(f"🏆 Best checkpoint for {stage_id}: {os.path.basename(best_path)} ({best_metric_name}={best_metric:.4f})")
     return best_path
