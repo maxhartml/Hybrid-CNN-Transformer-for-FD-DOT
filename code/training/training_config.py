@@ -28,7 +28,7 @@ GLOBAL_SEED = 1337                      # Master seed for reproducible experimen
 
 # Global Architecture Settings
 GLOBAL_POOLING_QUERIES = 4               # Number of pooling queries for transformer multi-query pooling
-
+4
 # =============================================================================
 # EXPERIMENT CONTROL
 # =============================================================================
