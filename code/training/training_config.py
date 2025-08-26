@@ -27,7 +27,7 @@ logger = get_training_logger(__name__)
 # =============================================================================
 
 # Global Random Seed - Controls all random number generation for reproducibility
-GLOBAL_SEED = 1337                      # Master seed for reproducible experiments
+GLOBAL_SEED = 10                      # Master seed for reproducible experiments (already tried 1337)
 
 # Global Architecture Settings
 GLOBAL_POOLING_QUERIES = 4               # Number of pooling queries for transformer multi-query pooling
