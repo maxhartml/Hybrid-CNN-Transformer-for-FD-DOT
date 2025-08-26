@@ -62,6 +62,32 @@ DEFAULT_PHANTOM_BATCH_SIZE = 4
 DEFAULT_NUM_WORKERS = 4
 DEFAULT_RANDOM_SEED = GLOBAL_SEED  # Use global seed for consistency
 
+
+def _extract_phantom_number(phantom_file_path):
+    """Extract phantom number from file path like phantom_01/phantom_1_scan.h5 -> 1"""
+    import re
+    # OS-agnostic path parsing with stricter error handling
+    match = re.search(r'[\\/ ]phantom_(\d+)_scan\.h5$', str(phantom_file_path))
+    if not match:
+        match = re.search(r'[\\/ ]phantom_(\d+)[\\/ ]', str(phantom_file_path))
+    if not match:
+        logger.error(f"Failed to parse phantom number from: {phantom_file_path}")
+        return None
+    return int(match.group(1))
+
+
+def _get_phantom_range_from_indices(phantom_files, start_idx, end_idx):
+    """Get actual phantom number range from file indices"""
+    if not phantom_files or start_idx >= len(phantom_files):
+        return None, None
+    
+    actual_end_idx = min(end_idx, len(phantom_files))
+    start_phantom = _extract_phantom_number(phantom_files[start_idx])
+    end_phantom = _extract_phantom_number(phantom_files[actual_end_idx - 1])  # -1 because end_idx is exclusive
+    
+    return start_phantom, end_phantom
+
+
 # Performance optimization settings
 ENABLE_PIN_MEMORY = True
 ENABLE_PERSISTENT_WORKERS = True
@@ -299,13 +325,19 @@ class NIRPhantomDataset(Dataset):
         # Set up random state for data augmentation (NOT for splitting)
         self.rng = np.random.RandomState(random_seed)
         
-        # Find all phantom files
-        self.phantom_files = sorted(list(self.data_dir.glob("phantom_*/phantom_*_scan.h5")))
+        # Find all phantom files with numeric sorting
+        files = list(self.data_dir.glob("phantom_*/phantom_*_scan.h5"))
+        def _phantom_id(p):
+            return _extract_phantom_number(p) or -1
+        self.phantom_files = sorted(files, key=_phantom_id)
         
         if not self.phantom_files:
             raise ValueError(f"No phantom files found in {self.data_dir}")
         
         logger.info(f"Found {len(self.phantom_files)} phantom files in {self.data_dir}")
+        
+        # Store phantom IDs aligned with phantom files for sanity checking
+        self.phantom_ids = [_extract_phantom_number(p) for p in self.phantom_files]
         
         # FIXED DETERMINISTIC SPLITS - No randomization, always same indices
         n_phantoms = len(self.phantom_files)
@@ -313,15 +345,31 @@ class NIRPhantomDataset(Dataset):
         # Use fixed index ranges for deterministic splitting
         if split == "train":
             phantom_indices = np.arange(TRAIN_SPLIT_START, min(TRAIN_SPLIT_END, n_phantoms))
-            logger.info(f"📊 Train set: {TRAIN_SPLIT_START}–{min(TRAIN_SPLIT_END-1, n_phantoms-1)} ({len(phantom_indices)} phantoms)")
+            ids = [self.phantom_ids[i] for i in phantom_indices]
+            start_id, end_id = (min(ids), max(ids)) if ids else (None, None)
+            logger.info(f"📊 Train set: phantoms {start_id}–{end_id} (indices {TRAIN_SPLIT_START}–{min(TRAIN_SPLIT_END-1, n_phantoms-1)}, {len(phantom_indices)} phantoms)")
+            logger.info(f"   Train sample IDs: {ids[:3]} … {ids[-3:]}")
         elif split == "val":
             phantom_indices = np.arange(VAL_SPLIT_START, min(VAL_SPLIT_END, n_phantoms))
-            logger.info(f"📊 Val set: {VAL_SPLIT_START}–{min(VAL_SPLIT_END-1, n_phantoms-1)} ({len(phantom_indices)} phantoms)")
+            ids = [self.phantom_ids[i] for i in phantom_indices]
+            start_id, end_id = (min(ids), max(ids)) if ids else (None, None)
+            logger.info(f"📊 Val set: phantoms {start_id}–{end_id} (indices {VAL_SPLIT_START}–{min(VAL_SPLIT_END-1, n_phantoms-1)}, {len(phantom_indices)} phantoms)")
+            logger.info(f"   Val sample IDs: {ids[:3]} … {ids[-3:]}")
         elif split == "test":
             phantom_indices = np.arange(TEST_SPLIT_START, min(TEST_SPLIT_END, n_phantoms))
-            logger.info(f"📊 Test set: {TEST_SPLIT_START}–{min(TEST_SPLIT_END-1, n_phantoms-1)} ({len(phantom_indices)} phantoms)")
+            ids = [self.phantom_ids[i] for i in phantom_indices]
+            start_id, end_id = (min(ids), max(ids)) if ids else (None, None)
+            logger.info(f"📊 Test set: phantoms {start_id}–{end_id} (indices {TEST_SPLIT_START}–{min(TEST_SPLIT_END-1, n_phantoms-1)}, {len(phantom_indices)} phantoms)")
+            logger.info(f"   Test sample IDs: {ids[:3]} … {ids[-3:]}")
         else:
             raise ValueError(f"Unknown split: {split}")
+        
+        # Sanity check for first split only (avoid repeated warnings)
+        if split == "train":
+            n_total = len(self.phantom_files)
+            n_unique = len(set(self.phantom_ids))
+            if n_unique != n_total:
+                logger.warning(f"Duplicate or unparsable phantom IDs detected: {n_total} files but {n_unique} unique IDs")
         
         # Validate split boundaries for safety
         if len(phantom_indices) == 0:
@@ -558,11 +606,27 @@ def create_phantom_dataloaders(data_dir: str = "../data",
         logger.warning("extract_tissue_patches is deprecated, use use_tissue_patches instead")
         use_tissue_patches = extract_tissue_patches
     
+    # Get all phantom files with numeric sorting
+    data_dir = Path(data_dir)
+    files = list(data_dir.glob("phantom_*/phantom_*_scan.h5"))
+    def _phantom_id(p):
+        return _extract_phantom_number(p) or -1
+    phantom_files = sorted(files, key=_phantom_id)
+    
+    # Extract actual phantom number ranges for logging
+    train_ids = [_extract_phantom_number(phantom_files[i]) for i in range(TRAIN_SPLIT_START, min(TRAIN_SPLIT_END, len(phantom_files)))]
+    val_ids = [_extract_phantom_number(phantom_files[i]) for i in range(VAL_SPLIT_START, min(VAL_SPLIT_END, len(phantom_files)))]
+    test_ids = [_extract_phantom_number(phantom_files[i]) for i in range(TEST_SPLIT_START, min(TEST_SPLIT_END, len(phantom_files)))]
+    
+    train_start, train_end = (min(train_ids), max(train_ids)) if train_ids else (None, None)
+    val_start, val_end = (min(val_ids), max(val_ids)) if val_ids else (None, None)
+    test_start, test_end = (min(test_ids), max(test_ids)) if test_ids else (None, None)
+    
     # Log fixed dataset split configuration once at startup
     logger.info("🔧 FIXED DETERMINISTIC DATASET SPLITS:")
-    logger.info(f"   📊 Train set: {TRAIN_SPLIT_START}–{TRAIN_SPLIT_END-1} ({TRAIN_SPLIT_END-TRAIN_SPLIT_START} phantoms)")
-    logger.info(f"   📊 Val set: {VAL_SPLIT_START}–{VAL_SPLIT_END-1} ({VAL_SPLIT_END-VAL_SPLIT_START} phantoms)")
-    logger.info(f"   📊 Test set: {TEST_SPLIT_START}–{TEST_SPLIT_END-1} ({TEST_SPLIT_END-TEST_SPLIT_START} phantoms)")
+    logger.info(f"   📊 Train set: phantoms {train_start}–{train_end} (indices {TRAIN_SPLIT_START}–{TRAIN_SPLIT_END-1}, {TRAIN_SPLIT_END-TRAIN_SPLIT_START} phantoms)")
+    logger.info(f"   📊 Val set: phantoms {val_start}–{val_end} (indices {VAL_SPLIT_START}–{VAL_SPLIT_END-1}, {VAL_SPLIT_END-VAL_SPLIT_START} phantoms)")
+    logger.info(f"   📊 Test set: phantoms {test_start}–{test_end} (indices {TEST_SPLIT_START}–{TEST_SPLIT_END-1}, {TEST_SPLIT_END-TEST_SPLIT_START} phantoms)")
     logger.info(f"   🎯 No randomization - splits are identical across all runs")
     
     # Ensure persistent workers is disabled for single worker
@@ -571,10 +635,12 @@ def create_phantom_dataloaders(data_dir: str = "../data",
         prefetch_factor = 2
     
     dataloaders = {}
+    all_dataset_ids = []
     
     for split in ['train', 'val', 'test']:
         dataset = NIRPhantomDataset(data_dir, split, random_seed, 
                                    extract_tissue_patches=use_tissue_patches, stage=stage)
+        all_dataset_ids.extend(dataset.phantom_ids)
         
         shuffle = (split == 'train') 
         
@@ -594,6 +660,13 @@ def create_phantom_dataloaders(data_dir: str = "../data",
         
         logger.info(f"Created phantom-level {split} DataLoader: {len(dataset)} phantoms, "
                    f"~{len(dataloader)} batches per epoch")
+    
+    # Sanity check: verify splits are disjoint and cover all files
+    all_ids_set = set(all_dataset_ids)
+    total_phantom_files = len(phantom_files)
+    if len(all_ids_set) != total_phantom_files or len(all_dataset_ids) != total_phantom_files:
+        logger.warning(f"Split sanity check failed: {len(all_ids_set)} unique IDs across splits, "
+                      f"{len(all_dataset_ids)} total assignments, {total_phantom_files} files")
     
     return dataloaders
 
