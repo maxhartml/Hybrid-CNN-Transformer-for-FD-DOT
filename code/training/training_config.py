@@ -16,8 +16,11 @@ Date: August 2025
 import torch
 import logging
 
+# Import centralized logging after standard imports
+from code.utils.logging_config import get_training_logger
+
 # Get logger for this module
-logger = logging.getLogger(__name__)
+logger = get_training_logger(__name__)
 
 # =============================================================================
 # GLOBAL SETTINGS - SINGLE SOURCE OF TRUTH

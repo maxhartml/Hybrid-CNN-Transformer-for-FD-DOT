@@ -31,6 +31,9 @@ from torch.utils.data import Dataset, DataLoader
 # Import tissue patch config flag
 from code.training.training_config import USE_TISSUE_PATCHES_STAGE2, VOLUME_SHAPE, N_MEASUREMENTS, GLOBAL_SEED
 
+# Import centralized logging
+from code.utils.logging_config import get_training_logger
+
 # ===============================================================================
 # CONFIGURATION AND CONSTANTS
 # ===============================================================================
@@ -102,9 +105,8 @@ H5_KEYS = {
     'ground_truth': 'ground_truth'
 }
 
-# Get logger
-logger = logging.getLogger(__name__)
-logger.propagate = True  # Ensure logs propagate to training's global logging config
+# Get logger - Use training logger since data_loader is used by training components
+logger = get_training_logger(__name__)
 
 # Worker initialization function for reproducible multiprocessing
 def _worker_init_fn(worker_id):

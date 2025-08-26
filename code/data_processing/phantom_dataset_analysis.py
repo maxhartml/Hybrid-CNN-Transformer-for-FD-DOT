@@ -22,9 +22,11 @@ from collections import defaultdict
 from scipy.spatial.distance import cdist
 import gc  # For garbage collection
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# Import centralized logging
+from code.utils.logging_config import get_data_logger
+
+# Configure logger for data analysis
+logger = get_data_logger(__name__)
 
 # Dataset configuration
 DATA_DIR = Path("data")
