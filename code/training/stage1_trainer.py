@@ -4,8 +4,9 @@ Stage 1 Training: CNN Autoencoder Pre-training for NIR-DOT Reconstruction.
 
 This module implements the first stage of the two-stage training pipeline,
 focusing on pre-training a CNN autoencoder for feature extraction and basic
-volumetric reconstruction from NIR-DOT measurements. The pre-trained features
-serve as a foundation for subsequent transformer enhancement.
+volumetric reconstruction. Stage 1 pre-trains a CNN autoencoder on standardized 
+ground-truth volumes (μₐ, μ′ₛ) and evaluates raw-space metrics after inverse transform. 
+The pre-trained features serve as a foundation for subsequent transformer enhancement.
 
 The training process uses RMSE loss optimization to learn robust feature
 representations and basic reconstruction capabilities before introducing
@@ -550,7 +551,7 @@ class Stage1Trainer:
                 
                 wandb.log({
                     "training_step": global_step,
-                    "train/loss_std": loss.item(),  # Standardized RMSE loss
+                    "train/std_rmse": loss.item(),  # Standardized RMSE loss
                     "train/lr": current_lr
                 })
                 
@@ -783,7 +784,7 @@ class Stage1Trainer:
                     "epoch": epoch + 1,  # Custom x-axis for epoch metrics
                     
                     # === STANDARDIZED LOSSES (optimization space) ===
-                    "val/loss_std": val_std_loss,           # Main validation metric for early stopping
+                    "val/std_rmse": val_std_loss,           # Main validation metric for early stopping
                     
                     # === RAW METRICS (human-interpretable) ===
                     "val/raw_rmse_total": val_raw_metrics['raw_rmse_total'],
