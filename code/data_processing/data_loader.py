@@ -326,11 +326,15 @@ class NIRPhantomDataset(Dataset):
         # Set up random state for data augmentation (NOT for splitting)
         self.rng = np.random.RandomState(random_seed)
         
-        # Find all phantom files with numeric sorting
-        files = list(self.data_dir.glob("phantom_*/phantom_*_scan.h5"))
+        # Find all phantom files with numeric sorting (filter unparsable files)
+        all_files = list(self.data_dir.glob("phantom_*/phantom_*_scan.h5"))
+        files = [p for p in all_files if _extract_phantom_number(p) is not None]
         def _phantom_id(p):
-            return _extract_phantom_number(p) or -1
+            return _extract_phantom_number(p)
         self.phantom_files = sorted(files, key=_phantom_id)
+        
+        if len(files) != len(all_files):
+            logger.warning(f"Some phantom files had unparsable IDs and were skipped: {len(all_files)} found, {len(files)} usable")
         
         if not self.phantom_files:
             raise ValueError(f"No phantom files found in {self.data_dir}")
@@ -380,8 +384,9 @@ class NIRPhantomDataset(Dataset):
         if n_phantoms != 10000:
             logger.warning(f"⚠️  Dataset has {n_phantoms} phantoms (expected 10,000). Fixed splits may not align perfectly.")
         
-        # Select phantom files for this split
+        # Select phantom files and IDs for this split (keep ids aligned with files!)
         self.phantom_files = [self.phantom_files[i] for i in phantom_indices]
+        self.phantom_ids = [self.phantom_ids[i] for i in phantom_indices]
         
         # Final logging with phantom count
         logger.info(f"✅ {split.upper()} dataset ready: {len(self.phantom_files)} phantoms loaded")
@@ -637,11 +642,13 @@ def create_phantom_dataloaders(data_dir: str = "../data",
     
     dataloaders = {}
     all_dataset_ids = []
-    
+    split_id_sets = {}
+
     for split in ['train', 'val', 'test']:
         dataset = NIRPhantomDataset(data_dir, split, random_seed, 
                                    extract_tissue_patches=use_tissue_patches, stage=stage)
         all_dataset_ids.extend(dataset.phantom_ids)
+        split_id_sets[split] = set(dataset.phantom_ids)
         
         shuffle = (split == 'train') 
         
@@ -662,12 +669,26 @@ def create_phantom_dataloaders(data_dir: str = "../data",
         logger.info(f"Created phantom-level {split} DataLoader: {len(dataset)} phantoms, "
                    f"~{len(dataloader)} batches per epoch")
     
-    # Sanity check: verify splits are disjoint and cover all files
+    # Improved sanity check: verify splits are disjoint and cover all files
     all_ids_set = set(all_dataset_ids)
     total_phantom_files = len(phantom_files)
-    if len(all_ids_set) != total_phantom_files or len(all_dataset_ids) != total_phantom_files:
-        logger.warning(f"Split sanity check failed: {len(all_ids_set)} unique IDs across splits, "
-                      f"{len(all_dataset_ids)} total assignments, {total_phantom_files} files")
+    
+    # Expect union size == total files
+    if len(all_ids_set) != total_phantom_files:
+        logger.warning(f"Split sanity check failed: union={len(all_ids_set)} vs files={total_phantom_files}")
+    
+    # Expect pairwise disjoint splits
+    if (split_id_sets['train'] & split_id_sets['val']) or \
+       (split_id_sets['train'] & split_id_sets['test']) or \
+       (split_id_sets['val']   & split_id_sets['test']):
+        logger.error("Split overlap detected between train/val/test!")
+    
+    # Expect exact cardinalities when you have 10k phantoms
+    if total_phantom_files == 10000:
+        if not (len(split_id_sets['train']) == 8000 and
+                len(split_id_sets['val'])   == 1000 and
+                len(split_id_sets['test'])  == 1000):
+            logger.warning("Unexpected split sizes; expected 8000/1000/1000.")
     
     # Confirmation log for which splits were created
     logger.info(f"✅ Created dataloaders for splits: {list(dataloaders.keys())}")

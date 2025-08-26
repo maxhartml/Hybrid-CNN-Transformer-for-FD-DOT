@@ -114,8 +114,15 @@ def create_dataloaders(data_dir, batch_size, extract_tissue_patches, stage_name)
         pin_memory=PIN_MEMORY,
         persistent_workers=PERSISTENT_WORKERS,
         use_tissue_patches=extract_tissue_patches,
-        stage="stage1" if stage_name == "Stage 1" else "stage2"  # NEW: Pass stage
+        stage="stage1" if stage_name == "Stage 1" else "stage2"
     )
+    
+    # Log split counts for sanity checking deterministic splits
+    train_count = len(data_loaders['train'].dataset)
+    val_count = len(data_loaders['val'].dataset)
+    test_count = len(data_loaders['test'].dataset)
+    logger.info(f"📊 {stage_name} Split Counts: Train={train_count}, Val={val_count}, Test={test_count} phantoms")
+    
     logger.info(f"✅ {stage_name} data loaders created successfully with training config settings")
     return data_loaders
 
@@ -210,7 +217,7 @@ def main():
         data_loaders = create_dataloaders(
             data_dir=DATA_DIRECTORY,
             batch_size=batch_size,
-            extract_tissue_patches=False,  # Skip tissue patches for Stage 1
+            extract_tissue_patches=use_tissue_patches,  # Should be False for Stage 1
             stage_name="Stage 1"
         )
         logger.debug(f"📊 Train batches: {len(data_loaders['train'])}, Val batches: {len(data_loaders['val'])}")

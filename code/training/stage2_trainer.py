@@ -59,7 +59,6 @@ from code.models.hybrid_model import HybridCNNTransformer
 from code.utils.logging_config import get_training_logger
 from code.utils.metrics import NIRDOTMetrics, create_metrics_for_stage, calculate_batch_metrics, RMSELoss, dice_per_channel, contrast_ratio_per_channel
 from code.utils.standardizers import Stage2StandardizerCollection
-from code.data_processing.data_loader import create_phantom_dataloaders  # For standardizer fitting
 from .training_config import *  # Import all training config
 from .training_utils import get_or_create_run_id, get_checkpoint_path, save_checkpoint, find_best_checkpoint
 
@@ -363,6 +362,9 @@ class Stage2Trainer:
         """
         logger.info("🔧 Creating lightweight dataloader for standardizer fitting (no tissue patches)")
         
+        # Import here to avoid circular dependency
+        from code.data_processing.data_loader import create_phantom_dataloaders
+        
         # Create dataloaders with tissue patches explicitly disabled
         dataloaders = create_phantom_dataloaders(
             data_dir=DATA_DIRECTORY,
@@ -371,6 +373,10 @@ class Stage2Trainer:
             use_tissue_patches=False,  # Always False for standardizer fitting
             stage='stage2'
         )
+        
+        # Log split counts for standardizer fitting dataloader
+        train_count = len(dataloaders['train'].dataset)
+        logger.info(f"📊 Standardizer Fitting Split Counts: Train={train_count} phantoms (patches disabled)")
         
         return dataloaders['train']
     
