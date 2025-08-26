@@ -1065,7 +1065,7 @@ class Stage2Trainer:
                 if TRAIN_STAGE2_LATENT_ONLY:
                     log_data["train/latent_rmse"] = batch_latent_stats["latent_rmse"]
                 else:
-                    log_data["train/loss_std"] = float(loss.item())
+                    log_data["train/std_rmse"] = float(loss.item())
                 
                 # Add attention entropy if available
                 if 'mean_entropy_for_logging' in locals():
@@ -1508,7 +1508,7 @@ class Stage2Trainer:
         # Initialize AdamW optimizer and Linear Warmup + Cosine Decay scheduler
         if self.optimizer is None:
             steps_per_epoch = len(data_loaders['train'])
-            self._create_optimizer_and_scheduler(epochs, steps_per_epoch)
+            self._create_optimizer_and_scheduler(steps_per_epoch=steps_per_epoch, total_epochs=epochs)
         
         # AFTER optimizer/scheduler creation (and after any unfreezing in param-groups)
         if USE_EMA and self.ema is None:
@@ -1566,7 +1566,7 @@ class Stage2Trainer:
                     "epoch": epoch + 1,  # Custom x-axis for epoch metrics
                     
                     # === TRAINING LOSS ===
-                    "train/latent_rmse" if TRAIN_STAGE2_LATENT_ONLY else "train/loss_std": train_std_loss,
+                    "train/latent_rmse" if TRAIN_STAGE2_LATENT_ONLY else "train/std_rmse": train_std_loss,
                     val_wandb_key: val_std_loss,               # Main validation metric labeled correctly
                     
                     # === RAW METRICS (human-interpretable) ===
