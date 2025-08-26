@@ -61,7 +61,8 @@ UNFREEZE_LAST_DECODER_BLOCK = True      # Allow fine-tuning of final decoder blo
 DECODER_FINETUNING_LR_SCALE = 0.3       # Increased LR scaling for unfrozen decoder block (relative to transformer LR)
 
 # Attention Entropy Regularization
-ATTENTION_ENTROPY_LAMBDA = 1e-4         # Regularization weight for attention entropy - encourages diverse attention patterns
+ATTENTION_ENTROPY_LAMBDA_BASE = 1e-4         # Regularization weight for attention entropy - encourages diverse attention patterns
+ATTENTION_ENTROPY_LAMBDA = 0.0 if TRAIN_STAGE2_LATENT_ONLY else ATTENTION_ENTROPY_LAMBDA_BASE
 
 # Performance Optimizations
 USE_MODEL_COMPILATION = True            # PyTorch 2.0 compilation for 2x speedup (fixed compilation issues)
@@ -140,7 +141,7 @@ MAX_MOMENTUM = 0.95   # Maximum momentum value - cycles between base and max dur
 
 # Learning Rate Schedule
 STAGE2_BASE_LR = 3.0e-4                 # Peak LR after warmup - optimized for transformer training
-STAGE2_WARMUP_PCT = 0.10                # 6% of total training steps for warmup
+STAGE2_WARMUP_PCT = 0.10                # 10% of total training steps for warmup
 STAGE2_MIN_LR = 1.0e-6                  # LR floor to prevent learning stagnation
 
 # Scheduler Configuration
