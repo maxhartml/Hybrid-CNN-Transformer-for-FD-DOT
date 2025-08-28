@@ -29,10 +29,11 @@ logger = get_training_logger(__name__)
 SEED_LIST = [1337, 28, 1994]      # document this in Chapter 5
 
 # Global Random Seed - Controls all random number generation for reproducibility
-GLOBAL_SEED = SEED_LIST[0]                      # Master seed for reproducible experiments (A/B/C = 1337/28/1994)
+GLOBAL_SEED = SEED_LIST[1]                      # Master seed for reproducible experiments (A/B/C = 1337/28/1994)
 
 # Global Architecture Settings
 GLOBAL_POOLING_QUERIES = 4               # Number of pooling queries for transformer multi-query pooling
+USE_MEAN_POOLING = True                 # Use simple mean pooling (True) vs multi-query attention pooling (False)
 
 # =============================================================================
 # EXPERIMENT CONTROL
@@ -72,8 +73,8 @@ EMA_DECAY_START = 0.995                 # Starting EMA decay value (more aggress
 EMA_DECAY_END = 0.9995                  # Final EMA decay value (more stable late training)
 
 # Decoder Fine-tuning Control - Increased for Preset B
-UNFREEZE_LAST_DECODER_BLOCK = False      # Allow fine-tuning of final decoder block in Stage 2
-DECODER_FINETUNING_LR_SCALE = 0.3       # Increased LR scaling for unfrozen decoder block (relative to transformer LR)
+UNFREEZE_LAST_DECODER_BLOCK = True      # Allow fine-tuning of final decoder block in Stage 2
+DECODER_FINETUNING_LR_SCALE = 0.2       # Increased LR scaling for unfrozen decoder block (relative to transformer LR)
 
 # Attention Entropy Regularization
 ATTENTION_ENTROPY_LAMBDA_BASE = 1e-4         # Regularization weight for attention entropy - encourages diverse attention patterns

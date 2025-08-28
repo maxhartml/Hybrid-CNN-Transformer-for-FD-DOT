@@ -51,46 +51,56 @@ logger = get_model_logger(__name__)
 
 class GlobalPoolingEncoder(nn.Module):
     """
-    Multi-query attention-based pooling and encoded scan generation following enhanced ECBO 2025 architecture.
+    Configurable pooling and encoded scan generation for post-transformer processing.
     
-    This module implements learnable multi-query attention pooling for post-transformer processing:
-    - Takes transformer output tokens
-    - Applies multi-query learnable attention pooling across sequence dimension
-    - Projects through FC layer to create "Encoded Scan"
-    - Feeds to pre-trained CNN decoder
+    Supports two pooling modes:
+    1. Mean Pooling (simple): Global average across sequence dimension
+    2. Multi-Query Attention Pooling (advanced): Learnable multi-query attention aggregation
     
     Architecture flow:
-    Transformer → Multi-Query Attention Pooling → FC → Encoded Scan → Pre-trained CNN decoder
+    Transformer → Pooling (mean or multi-query attention) → FC → Encoded Scan → CNN decoder
     
     Args:
         embed_dim (int): Input dimension from transformer
         encoded_scan_dim (int): Output dimension for CNN decoder  
-        num_pool_queries (int): Number of learnable pooling queries
+        num_pool_queries (int): Number of learnable pooling queries (ignored for mean pooling)
         dropout (float): Dropout probability
+        use_mean_pooling (bool): Use simple mean pooling (True) vs multi-query attention (False)
     """
     
     def __init__(self, embed_dim: int = DEFAULT_EMBED_DIM, 
                  encoded_scan_dim: int = DEFAULT_ENCODED_SCAN_DIM,
                  num_pool_queries: int = NUM_POOL_QUERIES,
-                 dropout: float = 0.1):
+                 dropout: float = 0.1,
+                 use_mean_pooling: bool = False):
         super().__init__()
-        
-        logger.info(f"🏗️  Initializing GlobalPoolingEncoder with Multi-Query Attention Pooling: {embed_dim} → {encoded_scan_dim}, {num_pool_queries} queries")
         
         self.embed_dim = embed_dim
         self.encoded_scan_dim = encoded_scan_dim
-        self.num_pool_queries = num_pool_queries
+        self.use_mean_pooling = use_mean_pooling
         
-        # Multi-query learnable attention pooling components
-        self.attention_queries = nn.Parameter(torch.randn(1, num_pool_queries, embed_dim) * WEIGHT_INIT_STD)
-        self.key_projection = nn.Linear(embed_dim, embed_dim, bias=False)
-        self.value_projection = nn.Linear(embed_dim, embed_dim, bias=False)
-        self.scale = embed_dim ** -0.5  # Scaled dot-product attention
+        if use_mean_pooling:
+            logger.info(f"🏗️  Initializing GlobalPoolingEncoder with Mean Pooling: {embed_dim} → {encoded_scan_dim}")
+            # No attention parameters needed for mean pooling
+        else:
+            # Validate multi-query attention parameters
+            if num_pool_queries < 1:
+                raise ValueError(f"num_pool_queries must be >= 1 for multi-query attention, got {num_pool_queries}")
+            
+            logger.info(f"🏗️  Initializing GlobalPoolingEncoder with Multi-Query Attention Pooling: {embed_dim} → {encoded_scan_dim}, {num_pool_queries} queries")
+            
+            self.num_pool_queries = num_pool_queries
+            
+            # Multi-query learnable attention pooling components
+            self.attention_queries = nn.Parameter(torch.randn(1, num_pool_queries, embed_dim) * WEIGHT_INIT_STD)
+            self.key_projection = nn.Linear(embed_dim, embed_dim, bias=False)
+            self.value_projection = nn.Linear(embed_dim, embed_dim, bias=False)
+            self.scale = embed_dim ** -0.5  # Scaled dot-product attention
+            
+            # Fusion layer for multiple query outputs
+            self.query_fusion = nn.Linear(num_pool_queries * embed_dim, embed_dim)
         
-        # Fusion layer for multiple query outputs
-        self.query_fusion = nn.Linear(num_pool_queries * embed_dim, embed_dim)
-        
-        # FC layer to create encoded scan
+        # FC layer to create encoded scan (shared between both modes)
         self.encoded_scan_projection = nn.Sequential(
             nn.Linear(embed_dim, embed_dim // 2),
             nn.ReLU(),
@@ -101,7 +111,10 @@ class GlobalPoolingEncoder(nn.Module):
         # Initialize weights
         self._init_weights()
         
-        logger.info(f"✅ GlobalPoolingEncoder initialized with {num_pool_queries}-query attention pooling, {self.count_parameters()} parameters")
+        if use_mean_pooling:
+            logger.info(f"✅ GlobalPoolingEncoder initialized with Mean Pooling, {self.count_parameters()} parameters")
+        else:
+            logger.info(f"✅ GlobalPoolingEncoder initialized with {num_pool_queries}-query attention pooling, {self.count_parameters()} parameters")
     
     def count_parameters(self):
         """Count total parameters in the model."""
@@ -115,16 +128,16 @@ class GlobalPoolingEncoder(nn.Module):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
         
-        # Initialize multi-query attention queries
-        nn.init.normal_(self.attention_queries, std=WEIGHT_INIT_STD)
+        # Initialize multi-query attention queries (only for attention mode)
+        if not self.use_mean_pooling:
+            nn.init.normal_(self.attention_queries, std=WEIGHT_INIT_STD)
     
     def forward(self, transformer_output: torch.Tensor) -> torch.Tensor:
         """
-        Enhanced forward pass with multi-query learnable attention pooling.
+        Forward pass with configurable pooling modes.
         
-        Applies multi-query learnable attention pooling across all N_MEASUREMENTS tokens, 
-        allowing the model to dynamically extract multiple complementary representations
-        for enhanced reconstruction capability.
+        Applies either mean pooling or multi-query attention pooling across all N_MEASUREMENTS 
+        tokens based on the use_mean_pooling flag.
         
         Args:
             transformer_output (torch.Tensor): Shape [batch_size, N_MEASUREMENTS, embed_dim]
@@ -138,27 +151,31 @@ class GlobalPoolingEncoder(nn.Module):
         assert embed_dim == self.embed_dim, f"Expected {self.embed_dim}D input, got {embed_dim}D"
         assert seq_len == N_MEASUREMENTS, f"Expected exactly {N_MEASUREMENTS} tokens, got {seq_len}"
         
-        # Multi-query learnable attention pooling
-        # Queries: [1, num_queries, embed_dim] → [batch_size, num_queries, embed_dim]
-        queries = self.attention_queries.expand(batch_size, -1, -1)
+        if self.use_mean_pooling:
+            # Simple mean pooling across sequence dimension
+            pooled = transformer_output.mean(dim=1)  # [batch_size, embed_dim]
+        else:
+            # Multi-query learnable attention pooling
+            # Queries: [1, num_queries, embed_dim] → [batch_size, num_queries, embed_dim]
+            queries = self.attention_queries.expand(batch_size, -1, -1)
+            
+            # Keys and Values: [batch_size, seq_len, embed_dim]
+            keys = self.key_projection(transformer_output)
+            values = self.value_projection(transformer_output)
+            
+            # Multi-head attention computation
+            # Attention scores: [batch_size, num_queries, seq_len]
+            attention_scores = torch.bmm(queries, keys.transpose(1, 2)) * self.scale
+            attention_weights = F.softmax(attention_scores, dim=-1)
+            
+            # Weighted sum for each query: [batch_size, num_queries, embed_dim]
+            multi_pooled = torch.bmm(attention_weights, values)
+            
+            # Flatten and fuse multiple query representations: [batch_size, num_queries * embed_dim]
+            flattened = multi_pooled.view(batch_size, -1)
+            pooled = self.query_fusion(flattened)  # [batch_size, embed_dim]
         
-        # Keys and Values: [batch_size, seq_len, embed_dim]
-        keys = self.key_projection(transformer_output)
-        values = self.value_projection(transformer_output)
-        
-        # Multi-head attention computation
-        # Attention scores: [batch_size, num_queries, seq_len]
-        attention_scores = torch.bmm(queries, keys.transpose(1, 2)) * self.scale
-        attention_weights = F.softmax(attention_scores, dim=-1)
-        
-        # Weighted sum for each query: [batch_size, num_queries, embed_dim]
-        multi_pooled = torch.bmm(attention_weights, values)
-        
-        # Flatten and fuse multiple query representations: [batch_size, num_queries * embed_dim]
-        flattened = multi_pooled.view(batch_size, -1)
-        fused = self.query_fusion(flattened)  # [batch_size, embed_dim]
-        
-        # Project to encoded scan dimension
-        encoded_scan = self.encoded_scan_projection(fused)  # [batch, encoded_scan_dim]
+        # Project to encoded scan dimension (shared path)
+        encoded_scan = self.encoded_scan_projection(pooled)  # [batch, encoded_scan_dim]
         
         return encoded_scan

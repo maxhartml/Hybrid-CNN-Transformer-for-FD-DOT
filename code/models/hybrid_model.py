@@ -48,7 +48,7 @@ from code.models.global_pooling_encoder import GlobalPoolingEncoder
 from code.utils.logging_config import get_model_logger
 
 # Import configuration constants
-from code.training.training_config import UNFREEZE_LAST_DECODER_BLOCK, DECODER_FINETUNING_LR_SCALE, GLOBAL_SEED
+from code.training.training_config import UNFREEZE_LAST_DECODER_BLOCK, DECODER_FINETUNING_LR_SCALE, GLOBAL_SEED, USE_MEAN_POOLING, GLOBAL_POOLING_QUERIES
 
 # Import configuration constants from component modules
 from code.models import cnn_autoencoder as cnn_config
@@ -225,7 +225,9 @@ class HybridCNNTransformer(nn.Module):
         self.global_pooling_encoder = GlobalPoolingEncoder(
             embed_dim=256,  # Match transformer output dimension
             encoded_scan_dim=cnn_config.FEATURE_DIM,  # Match CNN autoencoder feature dimension
-            dropout=dropout
+            num_pool_queries=GLOBAL_POOLING_QUERIES,  # Number of attention pooling queries
+            dropout=dropout,
+            use_mean_pooling=USE_MEAN_POOLING  # Toggle between mean and attention pooling
         )
         
         # Initialize Optimized Transformer Encoder (stage 2 component)
