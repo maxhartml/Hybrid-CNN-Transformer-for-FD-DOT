@@ -48,7 +48,7 @@ from code.models.global_pooling_encoder import GlobalPoolingEncoder
 from code.utils.logging_config import get_model_logger
 
 # Import configuration constants
-from code.training.training_config import UNFREEZE_LAST_DECODER_BLOCK, DECODER_FINETUNING_LR_SCALE, GLOBAL_SEED, USE_MEAN_POOLING, GLOBAL_POOLING_QUERIES
+from code.training.training_config import UNFREEZE_LAST_DECODER_BLOCK, DECODER_FINETUNING_LR_SCALE, GLOBAL_SEED, USE_MEAN_POOLING, GLOBAL_POOLING_QUERIES, USE_TISSUE_PATCHES_STAGE2
 
 # Import configuration constants from component modules
 from code.models import cnn_autoencoder as cnn_config
@@ -193,10 +193,20 @@ class HybridCNNTransformer(nn.Module):
                  nir_dropout: float = 0.15,  # NIR processor dropout
                  
                  # Model behavior configuration
-                 use_tissue_patches: bool = USE_TISSUE_PATCHES,
+                 use_tissue_patches: bool = None,  # Will be determined by training stage if None
                  training_stage: str = TRAINING_STAGE):
         
         super().__init__()
+        
+        # Determine tissue patch usage based on training stage and config
+        if use_tissue_patches is None:
+            # Stage 2 uses training config flag, Stage 1 never uses tissue patches
+            if training_stage == STAGE2:
+                # Import dynamically to get current config value
+                from code.training.training_config import USE_TISSUE_PATCHES_STAGE2 as current_tissue_flag
+                use_tissue_patches = current_tissue_flag
+            else:
+                use_tissue_patches = False
         
         logger.info(f"🏗️  Initializing Hybrid CNN-Transformer: {training_stage} mode, "
                    f"tissue_patches={'enabled' if use_tissue_patches else 'disabled'}")
@@ -273,6 +283,9 @@ class HybridCNNTransformer(nn.Module):
         total_params = sum(p.numel() for p in self.parameters())
         trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
         
+        # Detect pooling mode for accurate labeling
+        pooling_mode = "Mean" if self.global_pooling_encoder.use_mean_pooling else "Attn"
+        
         logger.info("📊 DETAILED PARAMETER BREAKDOWN:")
         logger.info("   ┌─────────────────────────────────────────────────────────────┐")
         logger.info(f"   │ CNN Autoencoder:        {cnn_total:>8,} params             │")
@@ -280,7 +293,7 @@ class HybridCNNTransformer(nn.Module):
         logger.info(f"   │   └─ Decoder:           {cnn_decoder:>8,} params             │")
         logger.info(f"   │ Spatially-Aware Embed: {embedding_total:>8,} params             │")
         logger.info(f"   │ Transformer Encoder:   {transformer_total:>8,} params             │")
-        logger.info(f"   │ Global Pooling (Attn): {pooling_total:>8,} params             │")
+        logger.info(f"   │ Global Pooling ({pooling_mode}): {pooling_total:>8,} params             │")
         logger.info(f"   │ Range Calibrator:      {calibrator_total:>8,} params             │")
         logger.info("   ├─────────────────────────────────────────────────────────────┤")
         logger.info(f"   │ TOTAL MODEL:           {total_params:>8,} params             │")
