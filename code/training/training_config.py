@@ -33,7 +33,7 @@ GLOBAL_SEED = SEED_LIST[1]                      # Master seed for reproducible e
 
 # Global Architecture Settings
 GLOBAL_POOLING_QUERIES = 4               # Number of pooling queries for transformer multi-query pooling
-USE_MEAN_POOLING = True                 # Use simple mean pooling (True) vs multi-query attention pooling (False)
+USE_MEAN_POOLING = False                 # Use simple mean pooling (True) vs multi-query attention pooling (False)
 
 # =============================================================================
 # EXPERIMENT CONTROL
