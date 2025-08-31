@@ -2,7 +2,7 @@
 
 <div align="center">
 
-<img src="data/phantom_01/phantom_001_probe_layout.png" alt="NIR-DOT Architecture" width="500"/>
+<img src="figs/phantom_001_probe_layout.png" alt="NIR-DOT Architecture" width="500"/>
 
 <h3>🎯 Towards Generalisable Inverse Modelling for Frequency-Domain DOT<br/>via a Hybrid CNN–Transformer</h3>
 
