@@ -25,7 +25,7 @@
 
 > **Revolutionary approach to NIR-DOT reconstruction combining the spatial learning power of CNNs with the geometric awareness of transformers.**
 
-This repository implements a **novel two-stage deep learning pipeline** for Near-Infrared Diffuse Optical Tomography (NIR-DOT) reconstruction, designed to achieve robust, layout-agnostic medical imaging reconstruction.
+This repository implements a **two-stage deep learning pipeline** for Near-Infrared Diffuse Optical Tomography (NIR-DOT) reconstruction, designed to achieve robust, layout-agnostic medical imaging reconstruction.
 
 <br/>
 
@@ -60,45 +60,18 @@ This repository implements a **novel two-stage deep learning pipeline** for Near
 *🎯 **Stage 1**: CNN Autoencoder learns robust spatial priors from 3D volumes*  
 *🧠 **Stage 2**: Transformer maps NIR measurements to latent space with geometry awareness*
 
-<br/>
-
-```mermaid
-graph TB
-    subgraph "Stage 1: Spatial Learning"
-        A[3D Volume Input<br/>📊 μₐ + μₛ] --> B[CNN Encoder<br/>🧠 Feature Extraction]
-        B --> C[Latent Space<br/>🔧 256D Representation]
-        C --> D[CNN Decoder<br/>🖼️ Volume Reconstruction]
-    end
-    
-    subgraph "Stage 2: Geometry Mapping"
-        E[NIR Measurements<br/>📡 Amplitude + Phase] --> F[Spatial Embeddings<br/>📍 Source-Detector Coords]
-        F --> G[Transformer<br/>⚡ Attention Mechanism]
-        G --> C
-    end
-    
-    D --> H[Final Output<br/>📈 Reconstructed Volume]
-    
-    style A fill:#e1f5fe
-    style E fill:#e1f5fe
-    style C fill:#fff3e0
-    style H fill:#e8f5e8
-    style B fill:#f3e5f5
-    style G fill:#f3e5f5
-```
-
 </div>
+
+<br/>
 
 ---
 
 ## 📁 Repository Structure
 
-<details>
-<summary>🗂️ <strong>Explore the codebase structure</strong></summary>
+🗂️ **Explore the codebase structure**
 
 ```
 mah422/                             # 🏠 Root directory
-├── 📊 analysis_results/            # Analysis visualizations
-│   └── cross_dataset_analysis_10000_phantoms.png
 ├── 💾 checkpoints/                 # Model checkpoints
 │   ├── checkpoint_stage1_*.pt
 │   └── checkpoint_stage2_*.pt
@@ -134,8 +107,6 @@ mah422/                             # 🏠 Root directory
 │   └── bootstrap_lambdalabs.sh   # Remote setup script
 └── 📊 wandb/                      # W&B experiment tracking
 ```
-
-</details>
 
 ---
 
@@ -321,8 +292,7 @@ USE_EMA = True
 
 </div>
 
-<details>
-<summary>📋 <strong>Complete Configuration Reference</strong> (training_config.py)</summary>
+📋 **Complete Configuration Reference** (training_config.py)
 
 ```python
 # Stage Control
@@ -343,8 +313,6 @@ STAGE1_BASE_LR = 1e-4              # CNN base learning rate
 STAGE2_BASE_LR = 5e-5              # Transformer base learning rate
 USE_EMA = True                     # Exponential moving average
 ```
-
-</details>
 
 <br/>
 
@@ -393,8 +361,7 @@ Physics-based metrics in raw units with proper statistical reporting
 
 ### 🎓 Academic Context
 
-<details>
-<summary>📖 <strong>Citation & Publication</strong></summary>
+📖 **Citation & Publication**
 
 ```bibtex
 @mastersthesis{hart2025nir_dot_hybrid,
@@ -406,8 +373,6 @@ Physics-based metrics in raw units with proper statistical reporting
   note={AI and Machine Learning}
 }
 ```
-
-</details>
 
 <br/>
 
@@ -435,7 +400,7 @@ Physics-based metrics in raw units with proper statistical reporting
 <td width="33%" align="center">
 
 **📚 Foundation**
-- **Dr Robin Dale**
+- **Dr. Robin Dale**
 - Foundational work & research base
 
 </td>
@@ -501,7 +466,7 @@ for full datasets
 <td width="25%" align="center">
 
 **💿 Storage**  
-50GB+  
+10GB+  
 datasets & checkpoints
 
 </td>
@@ -514,8 +479,7 @@ datasets & checkpoints
 
 ### 📦 Key Dependencies
 
-<details>
-<summary>🔍 <strong>Complete Package List</strong></summary>
+🔍 **Complete Package List**
 
 <div align="center">
 
@@ -548,8 +512,6 @@ datasets & checkpoints
 </table>
 
 </div>
-
-</details>
 
 <br/>
 
@@ -625,10 +587,5 @@ datasets & checkpoints
 <br/>
 
 *Made with ❤️ at the University of Birmingham*
-
-<br/>
-
-[![GitHub stars](https://img.shields.io/github/stars/maxhartml/mah422?style=social&label=Star)](https://github.com/maxhartml/mah422/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/maxhartml/mah422?style=social&label=Fork)](https://github.com/maxhartml/mah422/network/members)
 
 </div>
