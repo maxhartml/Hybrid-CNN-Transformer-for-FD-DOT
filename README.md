@@ -1,8 +1,6 @@
-# 🔬 Hybrid CNN-Transformer for NIR-DOT Reconstruction
-
 <div align="center">
 
-<img src="figs/phantom_001_probe_layout.png" alt="NIR-DOT Architecture" width="500"/>
+<img src="figs/phantom_001_probe_layout.png" alt="NIR-DOT Architecture" width="300"/>
 
 <h3>🎯 Towards Generalisable Inverse Modelling for Frequency-Domain DOT<br/>via a Hybrid CNN–Transformer</h3>
 
@@ -27,42 +25,68 @@
 
 > **Revolutionary approach to NIR-DOT reconstruction combining the spatial learning power of CNNs with the geometric awareness of transformers.**
 
-This repository implements a novel **two-stage deep learning pipeline** for Near-Infrared Diffuse Optical Tomography (NIR-DOT) reconstruction:
+This repository implements a **novel two-stage deep learning pipeline** for Near-Infrared Diffuse Optical Tomography (NIR-DOT) reconstruction, designed to achieve robust, layout-agnostic medical imaging reconstruction.
 
-### 🏗️ Architecture Overview
-
-<div align="center">
-
-```mermaid
-graph LR
-    A[📊 NIR Measurements] --> B[🧠 Transformer<br/>Geometry-Aware]
-    B --> C[🔧 Stage 1 Latent<br/>Space]
-    C --> D[🖼️ Frozen CNN<br/>Decoder]
-    D --> E[📈 3D Volume<br/>Reconstruction]
-    
-    style A fill:#e1f5fe
-    style B fill:#f3e5f5  
-    style C fill:#fff3e0
-    style D fill:#e8f5e8
-    style E fill:#ffebee
-```
-
-</div>
-
-Our hybrid architecture combines the spatial learning capabilities of CNNs with transformer attention mechanisms for geometry-aware reconstruction:
-
-<div align="center">
-<img src="figs/architecture.png" alt="Architecture Visualization" width="500"/>
-<br/><em>Two-stage architecture: Stage 1 learns spatial priors, Stage 2 maps measurements to latent space</em>
-</div>
+<br/>
 
 ### ✨ Key Features
 
-- 🎯 **Two-Stage Learning**: Decoupled spatial and geometric learning
-- 🧠 **Transformer Innovation**: Applies transformer attention to DOT inverse problems  
-- 📏 **Geometry Awareness**: Source-detector coordinate integration
-- 🔄 **Layout Agnostic**: Generalizes across different probe configurations
-- 🎛️ **Configurable Pipeline**: Easy stage switching and hyperparameter tuning
+<div align="center">
+
+| 🎯 **Two-Stage Learning** | 🧠 **Transformer Innovation** | 📏 **Geometry Awareness** |
+|:-------------------------:|:-----------------------------:|:-------------------------:|
+| Decoupled spatial and geometric learning | Applies transformer attention to DOT inverse problems | Source-detector coordinate integration |
+| **🔄 Layout Agnostic** | **🎛️ Configurable Pipeline** | **🚀 High Performance** |
+| Generalizes across different probe configurations | Easy stage switching and hyperparameter tuning | Optimized for GPU training with mixed precision |
+
+</div>
+
+<br/>
+
+---
+
+## 🏗️ Architecture Overview
+
+<div align="center">
+
+**Our hybrid architecture seamlessly integrates CNN spatial learning with transformer geometric awareness**
+
+<br/>
+
+<img src="figs/architecture.png" alt="Two-Stage CNN-Transformer Architecture" width="600"/>
+
+<br/>
+
+*🎯 **Stage 1**: CNN Autoencoder learns robust spatial priors from 3D volumes*  
+*🧠 **Stage 2**: Transformer maps NIR measurements to latent space with geometry awareness*
+
+<br/>
+
+```mermaid
+graph TB
+    subgraph "Stage 1: Spatial Learning"
+        A[3D Volume Input<br/>📊 μₐ + μₛ] --> B[CNN Encoder<br/>🧠 Feature Extraction]
+        B --> C[Latent Space<br/>🔧 256D Representation]
+        C --> D[CNN Decoder<br/>🖼️ Volume Reconstruction]
+    end
+    
+    subgraph "Stage 2: Geometry Mapping"
+        E[NIR Measurements<br/>📡 Amplitude + Phase] --> F[Spatial Embeddings<br/>📍 Source-Detector Coords]
+        F --> G[Transformer<br/>⚡ Attention Mechanism]
+        G --> C
+    end
+    
+    D --> H[Final Output<br/>📈 Reconstructed Volume]
+    
+    style A fill:#e1f5fe
+    style E fill:#e1f5fe
+    style C fill:#fff3e0
+    style H fill:#e8f5e8
+    style B fill:#f3e5f5
+    style G fill:#f3e5f5
+```
+
+</div>
 
 ---
 
@@ -117,10 +141,21 @@ mah422/                             # 🏠 Root directory
 
 ## 🚀 Quickstart
 
+<div align="center">
+
+**⚡ Get up and running in under 5 minutes**
+
+</div>
+
+<br/>
+
 ### 1️⃣ Environment Setup
 
-<details>
-<summary>💻 <strong>Local Development</strong></summary>
+<table>
+<tr>
+<td width="50%">
+
+**💻 Local Development**
 
 ```bash
 # Clone the repository
@@ -129,16 +164,16 @@ cd mah422
 
 # Create virtual environment
 python3 -m venv env_diss
-source env_diss/bin/activate  # Windows: env_diss\Scripts\activate
+source env_diss/bin/activate
 
 # Install dependencies
 pip install -r setup/requirements.txt
 ```
 
-</details>
+</td>
+<td width="50%">
 
-<details>
-<summary>☁️ <strong>Remote Training (Vast.ai/LambdaLabs)</strong></summary>
+**☁️ Remote Training**
 
 ```bash
 # SSH into remote instance
@@ -146,13 +181,17 @@ ssh -p <PORT> <USER>@<IP>
 
 # Quick setup
 git clone https://github.com/maxhartml/mah422.git && cd mah422
-source setup/bootstrap_lambdalabs.sh  # Auto-setup script
+source setup/bootstrap_lambdalabs.sh
 
 # Start persistent session
 tmux new -s nir-dot-training
 ```
 
-</details>
+</td>
+</tr>
+</table>
+
+<br/>
 
 ### 2️⃣ Data Generation
 
@@ -166,13 +205,17 @@ python -m code.data_processing.data_simulator
 # ...
 ```
 
+<br/>
+
 ### 3️⃣ Training Pipeline
 
 <div align="center">
 
-**🎯 Stage 1: CNN Autoencoder**
+<table>
+<tr>
+<td width="50%" align="center">
 
-</div>
+**🎯 Stage 1: CNN Autoencoder**
 
 ```bash
 # Configure Stage 1 in training_config.py
@@ -181,11 +224,12 @@ python -m code.data_processing.data_simulator
 python -m code.training.train_hybrid_model
 ```
 
-<div align="center">
+*Learns robust spatial priors from 3D volumes*
+
+</td>
+<td width="50%" align="center">
 
 **🧠 Stage 2: Transformer**
-
-</div>
 
 ```bash  
 # Configure Stage 2 in training_config.py
@@ -194,20 +238,91 @@ python -m code.training.train_hybrid_model
 python -m code.training.train_hybrid_model
 ```
 
+*Maps NIR measurements to learned latent space*
+
+</td>
+</tr>
+</table>
+
+</div>
+
+<br/>
+
 ### 4️⃣ Results & Monitoring
 
-- 📊 **Checkpoints**: `checkpoints/checkpoint_stage*_*.pt`
-- 📝 **Logs**: `logs/training/` and `logs/data_processing/`
-- 🔍 **W&B Tracking**: Optional project `nir-dot-reconstruction`
+<div align="center">
+
+| 📊 **Checkpoints** | 📝 **Logs** | 🔍 **Tracking** |
+|:------------------:|:-----------:|:---------------:|
+| `checkpoints/checkpoint_stage*_*.pt` | `logs/training/` | W&B: `nir-dot-reconstruction` |
+| Model states saved automatically | Training & data processing logs | Optional experiment tracking |
+
+</div>
 
 ---
 
 ## 🔧 Configuration & Training
 
-### ⚙️ Key Configuration Parameters
+<div align="center">
+
+**⚙️ Fine-tune your training with comprehensive configuration options**
+
+</div>
+
+<br/>
+
+### 🎛️ Key Configuration Parameters
+
+<div align="center">
+
+<table>
+<tr>
+<td width="33%" align="center">
+
+**🏗️ Architecture**
+
+```python
+LATENT_DIM = 256
+EMBED_DIM = 256
+N_MEASUREMENTS = 256
+```
+
+*Core model dimensions*
+
+</td>
+<td width="33%" align="center">
+
+**� Training**
+
+```python
+STAGE1_EPOCHS = 150
+STAGE2_EPOCHS = 100
+BATCH_SIZE = 4
+```
+
+*Training hyperparameters*
+
+</td>
+<td width="33%" align="center">
+
+**⚡ Optimization**
+
+```python
+STAGE1_BASE_LR = 1e-4
+STAGE2_BASE_LR = 5e-5
+USE_EMA = True
+```
+
+*Learning & optimization*
+
+</td>
+</tr>
+</table>
+
+</div>
 
 <details>
-<summary>🎛️ <strong>Training Configuration</strong> (training_config.py)</summary>
+<summary>📋 <strong>Complete Configuration Reference</strong> (training_config.py)</summary>
 
 ```python
 # Stage Control
@@ -231,16 +346,50 @@ USE_EMA = True                     # Exponential moving average
 
 </details>
 
+<br/>
+
 ---
 
 ## 🔬 Research & Innovation
 
+<div align="center">
+
+**🎓 Academic contributions to medical imaging and deep learning**
+
+</div>
+
+<br/>
+
 ### 📚 Scientific Contributions
 
-1. **🏗️ Novel Two-Stage Architecture**: Decoupled spatial and geometric learning for improved generalization
-2. **🧠 Transformer for DOT**: Applies transformer attention mechanisms to DOT inverse problems  
-3. **📏 Geometry Integration**: Source-detector coordinate awareness for layout-agnostic reconstruction
-4. **📊 Comprehensive Evaluation**: Physics-based metrics in raw units with proper statistical reporting
+<div align="center">
+
+<table>
+<tr>
+<td width="50%" align="center">
+
+**🏗️ Novel Two-Stage Architecture**  
+Decoupled spatial and geometric learning for improved generalization
+
+**🧠 Transformer for DOT**  
+Applies transformer attention mechanisms to DOT inverse problems
+
+</td>
+<td width="50%" align="center">
+
+**📏 Geometry Integration**  
+Source-detector coordinate awareness for layout-agnostic reconstruction
+
+**📊 Comprehensive Evaluation**  
+Physics-based metrics in raw units with proper statistical reporting
+
+</td>
+</tr>
+</table>
+
+</div>
+
+<br/>
 
 ### 🎓 Academic Context
 
@@ -260,16 +409,42 @@ USE_EMA = True                     # Exponential moving average
 
 </details>
 
+<br/>
+
 ### 🔗 References & Acknowledgements
 
-- **NIRFASTer-FF**: Forward modeling framework ([GitHub](https://github.com/milabuob/nirfaster-FF))
-- **University of Birmingham**: Computer Science Department
-- **Vast.ai**: GPU compute platform for training
+<div align="center">
 
-#### 🙏 Special Acknowledgements
+<table>
+<tr>
+<td width="33%" align="center">
 
-- **Dr. Hamid Dehghani**: Supervisor and research guidance
-- **Dr Robin Dale**: Foundational work this research builds upon
+**🛠️ Technical**
+- NIRFASTer-FF Framework
+- University of Birmingham
+- Vast.ai GPU Platform
+
+</td>
+<td width="33%" align="center">
+
+**🙏 Supervision**
+- **Dr. Hamid Dehghani**
+- Research guidance & supervision
+
+</td>
+<td width="33%" align="center">
+
+**📚 Foundation**
+- **Dr Robin Dale**
+- Foundational work & research base
+
+</td>
+</tr>
+</table>
+
+</div>
+
+<br/>
 
 ---
 
@@ -289,54 +464,155 @@ We welcome contributions! Please see our contribution guidelines:
 
 ## 📋 Requirements & Compatibility
 
-### 💻 System Requirements
+<div align="center">
 
-- **Python**: 3.10+ 
-- **GPU**: CUDA-capable GPU (recommended: 16GB+ VRAM)
-- **RAM**: 32GB+ for full dataset training
-- **Storage**: 50GB+ for datasets and checkpoints
+**💻 System specifications and dependency overview**
 
-### 📦 Dependencies
+</div>
+
+<br/>
+
+### �️ System Requirements
+
+<div align="center">
+
+<table>
+<tr>
+<td width="25%" align="center">
+
+**🐍 Python**  
+3.10+
+
+</td>
+<td width="25%" align="center">
+
+**🚀 GPU**  
+CUDA-capable  
+(16GB+ VRAM)
+
+</td>
+<td width="25%" align="center">
+
+**💾 RAM**  
+32GB+  
+for full datasets
+
+</td>
+<td width="25%" align="center">
+
+**💿 Storage**  
+50GB+  
+datasets & checkpoints
+
+</td>
+</tr>
+</table>
+
+</div>
+
+<br/>
+
+### 📦 Key Dependencies
 
 <details>
-<summary>🔍 <strong>Key Packages</strong></summary>
+<summary>🔍 <strong>Complete Package List</strong></summary>
 
-```yaml
-Core ML/DL:
-  - torch: 2.5.1
-  - numpy: 1.26.4
+<div align="center">
 
-Data & Visualization:  
-  - h5py: 3.10.0
-  - matplotlib: 3.8.2
-  - scipy: 1.11.4
+<table>
+<tr>
+<td width="33%">
 
-ML Tools:
-  - scikit-learn: 1.3.2
-  - wandb: 0.16.1 (optional)
+**🧠 Core ML/DL**
+- `torch: 2.5.1`
+- `numpy: 1.26.4`
 
-Utilities:
-  - psutil: 5.9.6
-```
+</td>
+<td width="33%">
+
+**📊 Data & Visualization**  
+- `h5py: 3.10.0`
+- `matplotlib: 3.8.2`
+- `scipy: 1.11.4`
+
+</td>
+<td width="33%">
+
+**🛠️ ML Tools**
+- `scikit-learn: 1.3.2`
+- `wandb: 0.16.1` (optional)
+- `psutil: 5.9.6`
+
+</td>
+</tr>
+</table>
+
+</div>
 
 </details>
+
+<br/>
 
 ---
 
 ## 📞 Support & Community
 
-### 💬 Get Help
+<div align="center">
 
-- 📧 **Email**: [maxhartml@outlook.com](mailto:maxhartml@outlook.com)
-- 🐛 **Issues**: [GitHub Issues](https://github.com/maxhartml/mah422/issues)
-- 💡 **Discussions**: [GitHub Discussions](https://github.com/maxhartml/mah422/discussions)
+**💬 Connect with us for support, questions, and contributions**
 
-### 🏷️ Version Information
+</div>
 
-- **Latest Release**: v1.0.0
-- **Total Commits**: 207+ 
-- **Main Branch**: `main`
-- **License**: MIT
+<br/>
+
+### 🤝 Get Help & Contribute
+
+<div align="center">
+
+<table>
+<tr>
+<td width="33%" align="center">
+
+**📧 Contact**  
+[maxhartml@outlook.com](mailto:maxhartml@outlook.com)  
+
+*Direct email support*
+
+</td>
+<td width="33%" align="center">
+
+**🐛 Issues**  
+[GitHub Issues](https://github.com/maxhartml/mah422/issues)  
+
+*Bug reports & feature requests*
+
+</td>
+<td width="33%" align="center">
+
+**💡 Discussions**  
+[GitHub Discussions](https://github.com/maxhartml/mah422/discussions)  
+
+*Community Q&A*
+
+</td>
+</tr>
+</table>
+
+</div>
+
+<br/>
+
+### 🏷️ Project Information
+
+<div align="center">
+
+| **Latest Release** | **Total Commits** | **Main Branch** | **License** |
+|:------------------:|:-----------------:|:---------------:|:-----------:|
+| v1.0.0 | 207+ | `main` | MIT |
+
+</div>
+
+<br/>
 
 ---
 
@@ -344,13 +620,15 @@ Utilities:
 
 ### 🎉 Thank you for your interest in our NIR-DOT research!
 
-**Star ⭐ this repository if you find it helpful!**
+**If this work helps your research, please ⭐ star this repository!**
+
+<br/>
 
 *Made with ❤️ at the University of Birmingham*
 
----
+<br/>
 
-[![GitHub stars](https://img.shields.io/github/stars/maxhartml/mah422?style=social)](https://github.com/maxhartml/mah422/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/maxhartml/mah422?style=social)](https://github.com/maxhartml/mah422/network/members)
+[![GitHub stars](https://img.shields.io/github/stars/maxhartml/mah422?style=social&label=Star)](https://github.com/maxhartml/mah422/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/maxhartml/mah422?style=social&label=Fork)](https://github.com/maxhartml/mah422/network/members)
 
 </div>
