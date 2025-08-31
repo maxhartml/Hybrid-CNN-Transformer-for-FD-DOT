@@ -81,7 +81,7 @@ log_*.txt
 *.hdf5
 
 # Visualization outputs
-*.png
+
 *.jpg
 *.jpeg
 *.gif
