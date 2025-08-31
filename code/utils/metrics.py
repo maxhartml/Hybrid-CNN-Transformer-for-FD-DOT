@@ -27,7 +27,6 @@ from typing import Dict, Optional, Tuple, Any, List
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import wandb
 import numpy as np
 
 # Project imports
@@ -574,9 +573,13 @@ def dice_per_channel(pred_raw: torch.Tensor, gt_raw: torch.Tensor, channel: int)
     pred_mask = (pred_norm > DICE_THRESHOLD).float()
     gt_mask   = (gt_norm   > DICE_THRESHOLD).float()
 
-    inter = (pred_mask * gt_mask).sum(dim=[1, 2, 3])
-    denom = pred_mask.sum(dim=[1, 2, 3]) + gt_mask.sum(dim=[1, 2, 3]) + DICE_SMOOTH
-    dice  = 2.0 * inter / denom  # [B]
+    inter    = (pred_mask * gt_mask).sum(dim=[1, 2, 3])
+    pred_sum =  pred_mask.sum(dim=[1, 2, 3])
+    gt_sum   =  gt_mask.sum(dim=[1, 2, 3])
+
+    num  = 2.0 * inter + DICE_SMOOTH
+    den  = pred_sum + gt_sum + DICE_SMOOTH
+    dice = num / den
     return dice.mean()
 
 
@@ -662,3 +665,29 @@ def calculate_batch_metrics(metrics: NIRDOTMetrics, outputs: Dict[str, torch.Ten
         return metrics.calculate_all_metrics(
             pred, targets, enhanced_features, cnn_features, attention_weights
         )
+
+
+if __name__ == "__main__":
+    # Sanity check: verify that per-channel metrics match total metrics
+    torch.manual_seed(42)
+    pred = torch.rand(2, 2, 8, 8, 8)  # [B, C, D, H, W]
+    gt = torch.rand(2, 2, 8, 8, 8)
+    
+    with torch.no_grad():
+        # Test Dice invariant
+        dice_total = DiceCoefficient()(pred, gt)
+        dice_ch0 = dice_per_channel(pred, gt, 0)
+        dice_ch1 = dice_per_channel(pred, gt, 1)
+        dice_mean = 0.5 * (dice_ch0 + dice_ch1)
+        
+        assert torch.allclose(dice_total, dice_mean, atol=1e-6), f"Dice mismatch: {dice_total} != {dice_mean}"
+        
+        # Test Contrast Ratio invariant
+        cr_total = ContrastRatio()(pred, gt)
+        cr_ch0 = contrast_ratio_per_channel(pred, gt, 0)
+        cr_ch1 = contrast_ratio_per_channel(pred, gt, 1)
+        cr_mean = 0.5 * (cr_ch0 + cr_ch1)
+        
+        assert torch.allclose(cr_total, cr_mean, atol=1e-6), f"Contrast mismatch: {cr_total} != {cr_mean}"
+        
+        print("✅ All metric invariants validated successfully!")
