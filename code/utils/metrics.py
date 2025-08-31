@@ -110,7 +110,6 @@ class DiceCoefficient(nn.Module):
         super().__init__()
         self.threshold = threshold
         self.smooth = smooth
-        logger.debug(f"🔧 Dice coefficient initialized: threshold={threshold}, smooth={smooth}")
     
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """
@@ -123,8 +122,6 @@ class DiceCoefficient(nn.Module):
         Returns:
             torch.Tensor: Mean Dice coefficient across batch and channels
         """
-        logger.debug(f"🏃 Dice calculation: pred {pred.shape}, target {target.shape}")
-        
         batch_size, num_channels = pred.shape[0], pred.shape[1]
         dice_values = []
         
@@ -151,7 +148,6 @@ class DiceCoefficient(nn.Module):
         
         # Average across all channels
         mean_dice = torch.stack(dice_values).mean()
-        logger.debug(f"📦 Dice coefficient: {mean_dice.item():.6f}")
         return mean_dice
 
 
@@ -170,7 +166,6 @@ class ContrastRatio(nn.Module):
     def __init__(self, threshold: float = DICE_THRESHOLD):
         super().__init__()
         self.threshold = threshold
-        logger.debug(f"🔧 Contrast ratio initialized: threshold={threshold}")
     
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """
@@ -183,8 +178,6 @@ class ContrastRatio(nn.Module):
         Returns:
             torch.Tensor: Mean contrast ratio across batch and channels
         """
-        logger.debug(f"🏃 Contrast ratio calculation: pred {pred.shape}, target {target.shape}")
-        
         batch_size, num_channels = pred.shape[0], pred.shape[1]
         contrast_ratios = []
         
@@ -231,7 +224,6 @@ class ContrastRatio(nn.Module):
         
         # Average across all channels
         mean_contrast_ratio = torch.stack(contrast_ratios).mean()
-        logger.debug(f"📦 Contrast ratio: {mean_contrast_ratio.item():.6f}")
         return mean_contrast_ratio
 
 
@@ -245,7 +237,6 @@ class ChannelSpecificRMSE(nn.Module):
     
     def __init__(self):
         super().__init__()
-        logger.debug("🔧 Channel-specific RMSE metric initialized")
     
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
@@ -258,8 +249,6 @@ class ChannelSpecificRMSE(nn.Module):
         Returns:
             Dict[str, torch.Tensor]: RMSE values for each channel
         """
-        logger.debug(f"🏃 Channel RMSE calculation: pred {pred.shape}, target {target.shape}")
-        
         rmse_values = {}
         
         for i, channel_name in enumerate(CHANNEL_NAMES):
@@ -271,7 +260,6 @@ class ChannelSpecificRMSE(nn.Module):
                 rmse = torch.sqrt(mse)
                 
                 rmse_values[f"rmse_{channel_name}"] = rmse
-                logger.debug(f"📦 {channel_name} RMSE: {rmse.item():.6f}")
             
         return rmse_values
 
@@ -293,7 +281,6 @@ class FeatureEnhancementRatio(nn.Module):
     
     def __init__(self):
         super().__init__()
-        logger.debug("🔧 Feature Enhancement Ratio metric initialized")
     
     def forward(self, enhanced_features: torch.Tensor, 
                 cnn_features: torch.Tensor) -> torch.Tensor:
@@ -307,12 +294,9 @@ class FeatureEnhancementRatio(nn.Module):
         Returns:
             torch.Tensor: Enhancement ratio value
         """
-        logger.debug(f"🏃 Enhancement ratio: enhanced {enhanced_features.shape}, cnn {cnn_features.shape}")
-        
         # Handle multi-token CNN features by aggregating to single vector
         if len(cnn_features.shape) == 3:  # [B, N, D] -> [B, D]
             cnn_features_agg = cnn_features.mean(dim=1)
-            logger.debug(f"📦 Aggregated multi-token CNN features: {cnn_features.shape} → {cnn_features_agg.shape}")
         else:  # [B, D]
             cnn_features_agg = cnn_features
         
@@ -327,7 +311,6 @@ class FeatureEnhancementRatio(nn.Module):
         ratio = diff_norm / (cnn_norm + ENHANCEMENT_RATIO_EPS)
         mean_ratio = ratio.mean()
         
-        logger.debug(f"📦 Enhancement ratio: {mean_ratio.item():.6f}")
         return mean_ratio
 
 
@@ -344,7 +327,6 @@ class AttentionEntropy(nn.Module):
     
     def __init__(self):
         super().__init__()
-        logger.debug("🔧 Attention Entropy metric initialized")
     
     def forward(self, attention_weights: torch.Tensor) -> torch.Tensor:
         """
@@ -358,10 +340,7 @@ class AttentionEntropy(nn.Module):
             torch.Tensor: Mean attention entropy across all dimensions
         """
         if attention_weights is None:
-            logger.debug("⚠️ No attention weights provided, returning zero entropy")
             return torch.tensor(0.0, device='cpu')
-        
-        logger.debug(f"🏃 Attention entropy calculation: weights {attention_weights.shape}")
         
         # Attention weights are already probabilities from softmax in transformer
         attention_probs = attention_weights
@@ -375,7 +354,6 @@ class AttentionEntropy(nn.Module):
         # Average across all dimensions (batch, layers, heads, sequence)
         mean_entropy = entropy.mean()
         
-        logger.debug(f"📦 Attention entropy: {mean_entropy.item():.6f}")
         return mean_entropy
 
 
@@ -427,13 +405,33 @@ class NIRDOTMetrics:
         """
         metrics = {}
         
-        # Calculate Dice Coefficient
+        # Calculate Dice Coefficient (total)
         dice_value = self.dice_metric(pred, target)
         metrics['dice'] = dice_value.item()
         
-        # Calculate Contrast Ratio
+        # Calculate Contrast Ratio (total)
         contrast_ratio_value = self.contrast_ratio_metric(pred, target)
         metrics['contrast_ratio'] = contrast_ratio_value.item()
+        
+        # Calculate per-channel metrics (aligned with totals)
+        dice_a = dice_per_channel(pred, target, channel=0)
+        dice_s = dice_per_channel(pred, target, channel=1)
+        metrics['dice_absorption']  = dice_a.item()
+        metrics['dice_scattering']  = dice_s.item()
+
+        cr_a = contrast_ratio_per_channel(pred, target, channel=0)
+        cr_s = contrast_ratio_per_channel(pred, target, channel=1)
+        metrics['contrast_ratio_absorption'] = cr_a.item()
+        metrics['contrast_ratio_scattering'] = cr_s.item()
+
+        # Optional: sanity checks (won't raise, just warn if drift > 1e-4)
+        try:
+            if abs(metrics['dice'] - 0.5*(dice_a.item()+dice_s.item())) > 1e-4:
+                logger.warning("Dice total != mean(per-channel) beyond tolerance")
+            if abs(metrics['contrast_ratio'] - 0.5*(cr_a.item()+cr_s.item())) > 1e-4:
+                logger.warning("Contrast total != mean(per-channel) beyond tolerance")
+        except Exception:
+            pass
         
         # Calculate channel-specific RMSE
         rmse_values = self.rmse_metric(pred, target)
@@ -444,7 +442,6 @@ class NIRDOTMetrics:
         overall_rmse = torch.sqrt(F.mse_loss(pred, target))
         metrics['rmse_overall'] = overall_rmse.item()
         
-        logger.debug(f"📊 Reconstruction metrics: {metrics}")
         return metrics
     
     def calculate_feature_metrics(self, enhanced_features: torch.Tensor,
@@ -473,14 +470,11 @@ class NIRDOTMetrics:
         
         # Calculate attention entropy if available
         if attention_weights is not None:
-            logger.debug(f"🎯 Calculating attention entropy with weights shape: {attention_weights.shape}")
             attention_entropy = self.attention_entropy_metric(attention_weights)
             metrics['attention_entropy'] = attention_entropy.item()
         else:
-            logger.debug("⚠️ No attention weights available - setting entropy to 0.0")
             metrics['attention_entropy'] = 0.0
         
-        logger.debug(f"📊 Feature metrics: {metrics}")
         return metrics
     
     def calculate_all_metrics(self, pred: torch.Tensor, target: torch.Tensor,
@@ -557,107 +551,71 @@ class NIRDOTMetrics:
 # PER-CHANNEL VALIDATION METRICS
 # =============================================================================
 
-def _tumor_mask_from_gt(gt_ch: torch.Tensor) -> torch.Tensor:
-    """
-    Create a tumor mask from GT for a single channel tensor shaped [B, D, H, W].
-    Uses a robust percentile threshold (85th) per-sample to separate tumor vs background.
-    
-    Args:
-        gt_ch: Ground truth channel tensor [B, D, H, W]
-        
-    Returns:
-        torch.Tensor: Binary tumor mask [B, D, H, W]
-    """
-    B = gt_ch.shape[0]
-    flat = gt_ch.reshape(B, -1)
-    thr = torch.quantile(flat, 0.85, dim=1, keepdim=True)  # [B,1]
-    mask = (flat > thr).float().reshape_as(gt_ch)          # [B,D,H,W]
-    return mask
-
-
 def dice_per_channel(pred_raw: torch.Tensor, gt_raw: torch.Tensor, channel: int) -> torch.Tensor:
     """
-    Compute Dice coefficient for a single channel in raw physical units.
-    
-    Args:
-        pred_raw: Predicted volumes [B, 2, D, H, W] in physical units
-        gt_raw: Ground truth volumes [B, 2, D, H, W] in physical units  
-        channel: Channel index (0 for μₐ, 1 for μ′ₛ)
-        
-    Returns:
-        torch.Tensor: Mean Dice coefficient over batch for the selected channel
+    Per-channel Dice aligned with DiceCoefficient:
+      - Batch-wide min–max normalisation for BOTH pred and GT (per channel)
+      - Threshold BOTH at DICE_THRESHOLD (0.5)
+      - Dice per sample, mean over batch
+      
+    Note: Totals are the arithmetic mean of per-channel values; both use batch-wide min–max normalisation and threshold 0.5.
     """
-    gt_ch   = gt_raw[:, channel]   # [B,D,H,W]
-    pred_ch = pred_raw[:, channel] # [B,D,H,W]
-    gt_mask = _tumor_mask_from_gt(gt_ch)
-    
-    # Threshold pred using the SAME GT-derived thresholding scheme for fairness:
-    B = gt_ch.shape[0]
-    gt_flat   = gt_ch.reshape(B, -1)
-    thr       = torch.quantile(gt_flat, 0.85, dim=1, keepdim=True)     # [B,1]
-    pred_mask = (pred_ch.reshape(B, -1) > thr).float().reshape_as(gt_ch)
+    assert pred_raw.ndim == 5 and gt_raw.ndim == 5, "Expected [B, C, D, H, W]"
+    pred_c = pred_raw[:, channel, ...]  # [B,D,H,W]
+    gt_c   = gt_raw[:,   channel, ...]  # [B,D,H,W]
 
-    inter = (pred_mask * gt_mask).sum(dim=[1,2,3])
-    denom = pred_mask.sum(dim=[1,2,3]) + gt_mask.sum(dim=[1,2,3]) + 1e-6
-    dice  = (2.0 * inter / denom).mean()
-    return dice
+    # Batch-wide min–max (same scope as DiceCoefficient.forward)
+    pred_min, pred_max = pred_c.min(), pred_c.max()
+    gt_min,   gt_max   = gt_c.min(),   gt_c.max()
+
+    pred_norm = (pred_c - pred_min) / (pred_max - pred_min + CONTRAST_EPS)
+    gt_norm   = (gt_c   - gt_min)   / (gt_max   - gt_min   + CONTRAST_EPS)
+
+    pred_mask = (pred_norm > DICE_THRESHOLD).float()
+    gt_mask   = (gt_norm   > DICE_THRESHOLD).float()
+
+    inter = (pred_mask * gt_mask).sum(dim=[1, 2, 3])
+    denom = pred_mask.sum(dim=[1, 2, 3]) + gt_mask.sum(dim=[1, 2, 3]) + DICE_SMOOTH
+    dice  = 2.0 * inter / denom  # [B]
+    return dice.mean()
 
 
-# Contrast ratio per channel, computed identically to overall contrast_ratio for consistency.
-# Returns per-channel values on the same scale as global contrast.
 def contrast_ratio_per_channel(pred_raw: torch.Tensor, gt_raw: torch.Tensor, channel: int) -> torch.Tensor:
     """
-    Compute contrast ratio for a single channel in raw physical units.
-    Uses the same formula as ContrastRatio class: CR = (pred_contrast) / (gt_contrast)
-    where contrast = anomaly_mean / background_mean.
-    
-    Args:
-        pred_raw: Predicted volumes [B, 2, D, H, W] in physical units
-        gt_raw: Ground truth volumes [B, 2, D, H, W] in physical units
-        channel: Channel index (0 for μₐ, 1 for μ′ₛ)
-        
-    Returns:
-        torch.Tensor: Mean contrast ratio over batch for the selected channel
+    Per-channel Contrast aligned with ContrastRatio:
+      - Build GT mask via batch-wide min–max on GT (per channel) + threshold 0.5
+      - Compute pred_contrast = μ_in/μ_out, gt_contrast = μ_in/μ_out
+      - Return pred_contrast / gt_contrast, mean over batch
+      
+    Note: Totals are the arithmetic mean of per-channel values; both use batch-wide min–max normalisation and threshold 0.5.
     """
-    pred_ch = pred_raw[:, channel]  # [B,D,H,W]
-    gt_ch = gt_raw[:, channel]  # [B,D,H,W]
-    
-    batch_size = pred_ch.shape[0]
-    batch_ratios = []
-    
-    for b in range(batch_size):
-        pred_b = pred_ch[b]  # [D,H,W]
-        gt_b = gt_ch[b]  # [D,H,W]
-        
-        # Create anomaly mask from normalized ground truth (same as ContrastRatio class)
-        gt_norm = (gt_b - gt_b.min()) / (gt_b.max() - gt_b.min() + CONTRAST_EPS)
-        anomaly_mask = (gt_norm > DICE_THRESHOLD).float()
-        background_mask = 1.0 - anomaly_mask
-        
-        # Check if there are any anomaly and background voxels
-        if anomaly_mask.sum() > 0 and background_mask.sum() > 0:
-            # Calculate mean values in anomaly and background regions for both pred and gt
-            pred_anomaly_mean = (pred_b * anomaly_mask).sum() / (anomaly_mask.sum() + CONTRAST_EPS)
-            pred_background_mean = (pred_b * background_mask).sum() / (background_mask.sum() + CONTRAST_EPS)
-            
-            gt_anomaly_mean = (gt_b * anomaly_mask).sum() / (anomaly_mask.sum() + CONTRAST_EPS)
-            gt_background_mean = (gt_b * background_mask).sum() / (background_mask.sum() + CONTRAST_EPS)
-            
-            # Calculate contrast ratios (same formula as ContrastRatio class)
-            pred_contrast = pred_anomaly_mean / (pred_background_mean + CONTRAST_EPS)
-            gt_contrast = gt_anomaly_mean / (gt_background_mean + CONTRAST_EPS)
-            
-            # Calculate contrast ratio: pred_contrast / gt_contrast
-            contrast_ratio = pred_contrast / (gt_contrast + CONTRAST_EPS)
-            batch_ratios.append(contrast_ratio)
+    assert pred_raw.ndim == 5 and gt_raw.ndim == 5, "Expected [B, C, D, H, W]"
+    pred_c = pred_raw[:, channel, ...]  # [B,D,H,W]
+    gt_c   = gt_raw[:,   channel, ...]  # [B,D,H,W]
+
+    # Batch-wide min–max for GT to build mask (same scope as ContrastRatio.forward)
+    gt_min, gt_max = gt_c.min(), gt_c.max()
+    gt_norm = (gt_c - gt_min) / (gt_max - gt_min + CONTRAST_EPS)
+    anomaly_mask = (gt_norm > DICE_THRESHOLD).float()
+    background_mask = 1.0 - anomaly_mask
+
+    B = pred_c.shape[0]
+    ratios = []
+    for b in range(B):
+        am = anomaly_mask[b]; bm = background_mask[b]
+        if am.sum() > 0 and bm.sum() > 0:
+            pred_in  = (pred_c[b] * am).sum() / (am.sum() + CONTRAST_EPS)
+            pred_out = (pred_c[b] * bm).sum() / (bm.sum() + CONTRAST_EPS)
+            gt_in    = (gt_c[b]   * am).sum() / (am.sum() + CONTRAST_EPS)
+            gt_out   = (gt_c[b]   * bm).sum() / (bm.sum() + CONTRAST_EPS)
+
+            pred_contrast = pred_in / (pred_out + CONTRAST_EPS)
+            gt_contrast   = gt_in   / (gt_out   + CONTRAST_EPS)
+            ratios.append(pred_contrast / (gt_contrast + CONTRAST_EPS))
         else:
-            # If no anomalies detected, set contrast ratio to 1.0
-            batch_ratios.append(torch.tensor(1.0, device=pred_raw.device))
-    
-    if batch_ratios:
-        return torch.stack(batch_ratios).mean()
-    else:
-        return torch.tensor(1.0, device=pred_raw.device)
+            ratios.append(torch.tensor(1.0, device=pred_c.device))
+
+    return torch.stack(ratios).mean()
 
 
 # =============================================================================
@@ -700,10 +658,6 @@ def calculate_batch_metrics(metrics: NIRDOTMetrics, outputs: Dict[str, torch.Ten
         enhanced_features = outputs.get('enhanced_features')
         cnn_features = outputs.get('cnn_features')
         attention_weights = outputs.get('attention_weights')
-        
-        logger.debug(f"🔍 Metrics input shapes - enhanced: {enhanced_features.shape if enhanced_features is not None else 'None'}, "
-                    f"cnn: {cnn_features.shape if cnn_features is not None else 'None'}, "
-                    f"attention: {attention_weights.shape if attention_weights is not None else 'None'}")
         
         return metrics.calculate_all_metrics(
             pred, targets, enhanced_features, cnn_features, attention_weights
